@@ -106,6 +106,110 @@ def _create_sprint_branch(sprint_id: str) -> dict:
     return {"success": False, "branch": None, "error": "Не удалось создать ветку"}
 
 
+def _release_sprint(sprint_id: str, sprint_title: str = "") -> dict:
+    """
+    Выполняет релиз спринта: merge в main, тег, push.
+    Возвращает {success, version, commit, pushed, error}.
+    """
+    result = {"success": False, "version": None, "commit": None, "pushed": False}
+
+    source_branch = f"sprint/{sprint_id}"
+    target_branch = "main"
+
+    # Проверяем git
+    check = _run_git(["rev-parse", "--git-dir"])
+    if not check["success"]:
+        result["error"] = "Git не инициализирован"
+        return result
+
+    # Получаем текущую версию и вычисляем следующую
+    tag_result = _run_git(["describe", "--tags", "--abbrev=0"])
+    if tag_result["success"] and tag_result["stdout"]:
+        current = tag_result["stdout"].lstrip("v")
+        parts = current.split(".")
+        major = int(parts[0]) if len(parts) > 0 else 0
+        minor = int(parts[1]) if len(parts) > 1 else 0
+        patch = int(parts[2]) if len(parts) > 2 else 0
+        version = f"v{major}.{minor + 1}.{patch}"
+    else:
+        version = "v0.1.0"
+
+    result["version"] = version
+    merge_message = f"Release {version}: {sprint_title}" if sprint_title else f"Release {version}"
+    commit_message = f"{sprint_id}: {sprint_title}" if sprint_title else f"{sprint_id}"
+
+    try:
+        # 0. Проверяем текущую ветку
+        current_branch = _run_git(["rev-parse", "--abbrev-ref", "HEAD"])
+        current = current_branch["stdout"].strip() if current_branch["success"] else ""
+
+        # 1. Если есть незакоммиченные изменения — сначала коммитим на текущей ветке
+        status = _run_git(["status", "--porcelain"])
+        if status["success"] and status["stdout"].strip():
+            # Есть изменения — коммитим их на текущей ветке
+            _run_git(["add", "-A"])
+            commit_result = _run_git(["commit", "-m", commit_message])
+            if not commit_result["success"] and "nothing to commit" not in commit_result["stderr"]:
+                result["error"] = f"Не удалось закоммитить изменения: {commit_result['stderr']}"
+                return result
+
+        # 2. Переключиться на source_branch (ветка спринта)
+        if current != source_branch:
+            checkout_src = _run_git(["checkout", source_branch])
+            if not checkout_src["success"]:
+                result["error"] = f"Ветка {source_branch} не найдена"
+                return result
+
+        # 3. Переключиться на target_branch (main)
+        checkout_tgt = _run_git(["checkout", target_branch])
+        if not checkout_tgt["success"]:
+            # Создаём main если не существует
+            create_tgt = _run_git(["checkout", "-b", target_branch])
+            if not create_tgt["success"]:
+                _run_git(["checkout", source_branch])
+                result["error"] = f"Не удалось переключиться на {target_branch}"
+                return result
+
+        # 4. Pull (если есть remote)
+        _run_git(["pull", "origin", target_branch])
+
+        # 5. Merge ветки спринта в main
+        merge = _run_git(["merge", source_branch, "--no-ff", "-m", merge_message])
+        if not merge["success"]:
+            _run_git(["merge", "--abort"])
+            _run_git(["checkout", source_branch])
+            result["error"] = f"Merge conflict: {merge['stderr']}"
+            return result
+
+        # 6. Получаем hash коммита
+        hash_result = _run_git(["rev-parse", "--short", "HEAD"])
+        result["commit"] = hash_result["stdout"] if hash_result["success"] else None
+
+        # 7. Создаём тег версии
+        tag_msg = f"Sprint: {sprint_title}" if sprint_title else f"Release {version}"
+        _run_git(["tag", "-a", version, "-m", tag_msg])
+
+        # 8. Push в remote
+        push = _run_git(["push", "origin", target_branch, "--tags"])
+        result["pushed"] = push["success"]
+
+        if not result["pushed"]:
+            # Откат при неудачном push (не критично — изменения остаются локально)
+            result["push_error"] = push["stderr"]
+            # НЕ откатываем — локальные изменения ценнее
+
+        # 9. Возвращаемся на ветку спринта
+        _run_git(["checkout", source_branch])
+
+        result["success"] = True
+        return result
+
+    except Exception as e:
+        _run_git(["checkout", source_branch])
+        result["error"] = str(e)
+        return result
+
+
 def set_tasks_file(path: str | Path) -> None:
     """Установить путь к файлу tasks.json (для работы с разными проектами)."""
     global TASKS_FILE
@@ -346,6 +450,9 @@ def update_task_status(task_id: str, new_status: str) -> dict:
     """
     Изменить статус задачи.
     new_status: одно из "новая", "в_работе", "на_проверке", "выполнена", "отменена".
+
+    Если это финализирующая задача и new_status == "выполнена",
+    проверяет все задачи спринта и выполняет релиз (merge, tag, push).
     """
     if new_status not in STATUSES:
         return {"error": f"Неверный статус. Допустимые: {', '.join(STATUSES)}"}
@@ -356,7 +463,38 @@ def update_task_status(task_id: str, new_status: str) -> dict:
             task["status"] = new_status
             task["updated_at"] = _now()
             _save(data)
-            return {**task, "old_status": old_status}
+
+            result = {**task, "old_status": old_status}
+
+            # Автоматический релиз при завершении финализирующей задачи
+            if new_status == "выполнена" and task.get("is_finalize"):
+                sprint_id = task.get("sprint_id")
+                if sprint_id:
+                    # Проверяем, все ли задачи спринта выполнены
+                    sprint_tasks = get_tasks(sprint_id=sprint_id)
+                    all_done = all(t["status"] in ("выполнена", "отменена") for t in sprint_tasks)
+
+                    if all_done:
+                        # Получаем название спринта
+                        sprint = get_sprint(sprint_id)
+                        sprint_title = sprint.get("title", "") if sprint else ""
+
+                        # Выполняем релиз
+                        release_result = _release_sprint(sprint_id, sprint_title)
+
+                        if release_result["success"]:
+                            # Обновляем статус спринта
+                            update_sprint_status(sprint_id, "завершён")
+                            result["sprint_released"] = {
+                                "sprint_id": sprint_id,
+                                "version": release_result["version"],
+                                "commit": release_result["commit"],
+                                "pushed": release_result["pushed"],
+                            }
+                        else:
+                            result["sprint_release_error"] = release_result.get("error", "Unknown error")
+
+            return result
     return {"error": f"Задача {task_id} не найдена"}
 
 

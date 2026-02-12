@@ -91,6 +91,8 @@ def _load_data() -> dict[str, Any]:
 
 def _save_data(data: dict[str, Any]) -> None:
     """Сохраняет данные в projects.json."""
+    # Создаём родительскую директорию если её нет
+    PROJECTS_FILE.parent.mkdir(parents=True, exist_ok=True)
     PROJECTS_FILE.write_text(
         json.dumps(data, ensure_ascii=False, indent=2),
         encoding="utf-8"

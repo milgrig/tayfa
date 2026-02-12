@@ -1,5 +1,5 @@
 """
-Tayfa Launcher — запускает tayfa.bat скрыто (без видимой консоли).
+Tayfa Launcher — запускает app.py скрыто (без видимой консоли).
 
 Этот файл компилируется в Tayfa.exe через PyInstaller:
     pyinstaller --onefile --noconsole --icon=static/tayfa-icon.ico --name=Tayfa tayfa_launcher.py
@@ -7,13 +7,23 @@ Tayfa Launcher — запускает tayfa.bat скрыто (без видим�
 
 import subprocess
 import sys
+import os
 from pathlib import Path
+from datetime import datetime
+
+
+def log(msg: str, log_file: Path):
+    """Записывает сообщение в лог-файл."""
+    try:
+        with open(log_file, 'a', encoding='utf-8') as f:
+            timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+            f.write(f"[{timestamp}] {msg}\n")
+    except Exception:
+        pass  # Игнорируем ошибки логирования
 
 
 def main():
-    # Определяем путь к tayfa.bat
-    # При запуске из exe: рядом с exe
-    # При запуске из .py: рядом с .py
+    # Определяем базовую директорию
     if getattr(sys, 'frozen', False):
         # Запущен как exe (PyInstaller)
         base_dir = Path(sys.executable).parent
@@ -21,28 +31,56 @@ def main():
         # Запущен как .py
         base_dir = Path(__file__).parent
 
-    bat_path = base_dir / 'tayfa.bat'
+    log_file = base_dir / 'tayfa_launcher.log'
+    log(f"Tayfa Launcher started", log_file)
+    log(f"base_dir = {base_dir}", log_file)
 
-    if not bat_path.exists():
-        # Попробуем найти в родительской папке
-        bat_path = base_dir.parent / 'kok' / 'tayfa.bat'
-
-    if not bat_path.exists():
-        print(f"Ошибка: tayfa.bat не найден в {bat_path}")
+    # Проверяем наличие app.py
+    app_py = base_dir / 'app.py'
+    if not app_py.exists():
+        log(f"ERROR: app.py not found at {app_py}", log_file)
         return 1
 
-    # Запускаем tayfa.bat скрыто (CREATE_NO_WINDOW)
-    # 0x08000000 = CREATE_NO_WINDOW — окно не создаётся
+    log(f"Found app.py at: {app_py}", log_file)
+
+    # Ищем Python в venv или системный
+    venv_python = base_dir / 'venv' / 'Scripts' / 'python.exe'
+    if venv_python.exists():
+        python_exe = str(venv_python)
+        log(f"Using venv Python: {python_exe}", log_file)
+    else:
+        # Ищем системный Python
+        python_exe = 'python'
+        log(f"venv not found, using system Python", log_file)
+
+    # Запускаем app.py скрыто
     try:
-        subprocess.Popen(
-            ['cmd', '/c', str(bat_path)],
-            creationflags=0x08000000,  # CREATE_NO_WINDOW
-            cwd=str(bat_path.parent),
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-        )
+        log(f"Starting app.py with {python_exe}...", log_file)
+
+        # Копируем текущее окружение и добавляем venv
+        env = os.environ.copy()
+        venv_scripts = base_dir / 'venv' / 'Scripts'
+        if venv_scripts.exists():
+            env['PATH'] = str(venv_scripts) + os.pathsep + env.get('PATH', '')
+            env['VIRTUAL_ENV'] = str(base_dir / 'venv')
+
+        # CREATE_NO_WINDOW для полного скрытия
+        CREATE_NO_WINDOW = 0x08000000
+
+        # Логируем stderr в файл для отладки
+        stderr_log = base_dir / 'tayfa_app.log'
+        with open(stderr_log, 'w', encoding='utf-8') as err_file:
+            subprocess.Popen(
+                [python_exe, str(app_py)],
+                creationflags=CREATE_NO_WINDOW,
+                cwd=str(base_dir),
+                env=env,
+                stdout=err_file,
+                stderr=err_file,
+            )
+        log(f"app.py started, logs in tayfa_app.log", log_file)
     except Exception as e:
-        print(f"Ошибка запуска: {e}")
+        log(f"ERROR: {e}", log_file)
         return 1
 
     return 0

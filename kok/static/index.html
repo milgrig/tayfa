@@ -1585,9 +1585,34 @@ async function removeProject(path) {
     }
 }
 
-function openFolderDialog() {
-    // Сразу показываем модальное окно для ввода пути
-    openFolderManual();
+async function openFolderDialog() {
+    // Вызываем серверный API для открытия системного диалога
+    try {
+        const container = document.getElementById('projectList');
+        const originalContent = container.innerHTML;
+        container.innerHTML = '<div class="project-empty"><div class="project-empty-icon">📂</div><p>Открытие диалога выбора папки...</p></div>';
+
+        const result = await api('GET', '/api/browse-folder');
+
+        if (result.error) {
+            container.innerHTML = originalContent;
+            alert('Ошибка: ' + result.error);
+            return;
+        }
+
+        if (result.cancelled || !result.path) {
+            container.innerHTML = originalContent;
+            return; // Пользователь отменил выбор
+        }
+
+        // Открываем выбранный проект
+        await openProject(result.path);
+
+    } catch (error) {
+        console.error('[openFolderDialog] Ошибка:', error);
+        // Fallback на ручной ввод
+        openFolderManual();
+    }
 }
 
 function openFolderManual(suggestedName = '') {

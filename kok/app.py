@@ -6,6 +6,7 @@ Tayfa Orchestrator — веб-приложение для управления �
 """
 
 import asyncio
+import io
 import json
 import os
 import re
@@ -15,6 +16,14 @@ import subprocess
 import sys
 import webbrowser
 from pathlib import Path, PureWindowsPath, PurePosixPath
+
+# Устанавливаем UTF-8 для stdout/stderr (для корректной работы из exe)
+if sys.stdout and hasattr(sys.stdout, 'reconfigure'):
+    try:
+        sys.stdout.reconfigure(encoding='utf-8', errors='replace')
+        sys.stderr.reconfigure(encoding='utf-8', errors='replace')
+    except Exception:
+        pass
 
 import httpx
 from fastapi import Body, FastAPI, HTTPException
@@ -896,6 +905,55 @@ async def api_remove_project(data: dict):
     return result
 
 
+@app.get("/api/browse-folder")
+async def api_browse_folder():
+    """
+    Открывает системный диалог выбора папки (Windows FolderBrowserDialog).
+    Возвращает {"path": "..."} или {"path": null, "cancelled": true}.
+    """
+    # PowerShell-скрипт для открытия FolderBrowserDialog
+    ps_script = '''
+Add-Type -AssemblyName System.Windows.Forms
+$dialog = New-Object System.Windows.Forms.FolderBrowserDialog
+$dialog.Description = "Выберите папку проекта"
+$dialog.ShowNewFolderButton = $true
+$result = $dialog.ShowDialog()
+if ($result -eq [System.Windows.Forms.DialogResult]::OK) {
+    Write-Output $dialog.SelectedPath
+} else {
+    Write-Output "::CANCELLED::"
+}
+'''
+    try:
+        # Запускаем PowerShell напрямую (если Windows) или через powershell.exe (если WSL)
+        if sys.platform == "win32":
+            cmd = ["powershell", "-NoProfile", "-Command", ps_script]
+        else:
+            # WSL: вызываем Windows PowerShell
+            cmd = ["powershell.exe", "-NoProfile", "-Command", ps_script]
+
+        proc = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            timeout=120  # 2 минуты на выбор папки
+        )
+
+        output = proc.stdout.strip()
+
+        if output == "::CANCELLED::" or not output:
+            return {"path": None, "cancelled": True}
+
+        return {"path": output}
+
+    except subprocess.TimeoutExpired:
+        return {"path": None, "error": "Диалог был закрыт по таймауту"}
+    except FileNotFoundError:
+        return {"path": None, "error": "PowerShell не найден"}
+    except Exception as e:
+        return {"path": None, "error": str(e)}
+
+
 @app.post("/api/start-server")
 async def start_server():
     """Запустить Claude API сервер в WSL."""
@@ -1637,7 +1695,7 @@ async def api_update_task_status(task_id: str, data: dict):
 
     Автоматические git-действия:
     - "на_проверке": git add -A && git commit "TXXX: Заголовок"
-    - "выполнена": если все задачи спринта выполнены → merge в main + tag + push
+    - "выполнена" (финализирующая): merge в main + tag + push (через task_manager)
 
     При переходе в "на_проверке" возвращает git_commit:
     {
@@ -1646,47 +1704,27 @@ async def api_update_task_status(task_id: str, data: dict):
         "message": "T008: Заголовок задачи",
         "files_changed": 5
     }
-    При ошибке: {"success": false, "error": "описание ошибки"}
     """
     new_status = data.get("status")
     if not new_status:
         raise HTTPException(status_code=400, detail="Нужно поле status")
+
+    # update_task_status теперь сам делает релиз при завершении финализирующей задачи
     result = update_task_status(task_id, new_status)
     if "error" in result:
         raise HTTPException(status_code=400, detail=result["error"])
 
-    task = get_task(task_id)
-    if not task:
-        return result
-
     # Автокоммит при переходе в "на_проверке"
     if new_status == "на_проверке":
-        git_commit_result = _perform_auto_commit(task_id, task)
-        result["git_commit"] = git_commit_result
+        task = get_task(task_id)
+        if task:
+            git_commit_result = _perform_auto_commit(task_id, task)
+            result["git_commit"] = git_commit_result
 
-    # Автофинализация при переходе в "выполнена"
-    if new_status == "выполнена":
-        sprint_id = task.get("sprint_id")
-        if sprint_id:
-            # Проверяем, все ли задачи спринта выполнены
-            sprint_tasks = get_tasks(sprint_id=sprint_id)
-            all_done = all(t["status"] in ("выполнена", "отменена") for t in sprint_tasks)
-
-            if all_done:
-                # Финализация: используем release_sprint() из git_manager
-                release_result = release_sprint(sprint_id)
-
-                if release_result["success"]:
-                    result["sprint_finalized"] = {
-                        "sprint_id": sprint_id,
-                        "version": release_result["version"],
-                        "merged": True,
-                        "pushed": release_result["pushed"],
-                        "tag": release_result["version"],
-                        "commit": release_result["commit"],
-                    }
-                else:
-                    result["sprint_finalize_error"] = release_result.get("error", "Release failed")
+    # Результаты релиза уже в result (sprint_released или sprint_release_error)
+    # Переименуем для совместимости с фронтендом
+    if "sprint_released" in result:
+        result["sprint_finalized"] = result.pop("sprint_released")
 
     return result
 
@@ -1879,7 +1917,7 @@ if __name__ == "__main__":
     print(f"\n  Tayfa Orchestrator")
     print(f"  http://localhost:{port}")
     if port != DEFAULT_ORCHESTRATOR_PORT:
-        print(f"  (порт {DEFAULT_ORCHESTRATOR_PORT} занят, используется {port})")
+        print(f"  (port {DEFAULT_ORCHESTRATOR_PORT} busy, using {port})")
     print()
 
     try:
