@@ -56,15 +56,16 @@ def main():
         python_exe = 'python'
         log(f"venv not found, using system Python", log_file)
 
-    # Показываем splash-анимацию перед запуском сервера
+    # Запускаем splash-анимацию ПАРАЛЛЕЛЬНО с сервером
+    splash_thread = None
     try:
-        from splash_animation import show_splash
-        splash_result = show_splash()
-        log(f"Splash animation: {'shown' if splash_result else 'skipped'}", log_file)
+        from splash_animation import start_splash_async
+        splash_thread = start_splash_async()
+        log(f"Splash animation started in background", log_file)
     except Exception as e:
         log(f"Splash animation error (ignored): {e}", log_file)
 
-    # Запускаем app.py скрыто
+    # Запускаем app.py скрыто (параллельно с анимацией)
     try:
         log(f"Starting app.py with {python_exe}...", log_file)
 
@@ -93,6 +94,14 @@ def main():
     except Exception as e:
         log(f"ERROR: {e}", log_file)
         return 1
+
+    # Ждём завершения анимации (сервер уже запущен и работает параллельно)
+    if splash_thread is not None:
+        try:
+            splash_thread.join(timeout=5.0)  # Максимум 5 сек на всякий случай
+            log(f"Splash animation finished", log_file)
+        except Exception:
+            pass
 
     return 0
 
