@@ -31,6 +31,3 @@ _task_*.txt
 *.key
 *.pem
 credentials.*
-
-# Settings с токенами (используйте settings.example.json)
-kok/settings.json
