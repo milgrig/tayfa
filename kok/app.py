@@ -176,7 +176,8 @@ from settings_manager import (
 from project_manager import (
     list_projects, get_project, add_project, remove_project,
     get_current_project, set_current_project, init_project,
-    open_project, get_tayfa_dir, has_tayfa, TAYFA_DIR_NAME
+    open_project, get_tayfa_dir, has_tayfa, TAYFA_DIR_NAME,
+    is_new_user,
 )
 from git_manager import (
     router as git_router,
@@ -793,10 +794,11 @@ async def post_settings(data: dict):
 
 @app.get("/api/projects")
 async def api_list_projects():
-    """Список всех проектов и текущий проект."""
+    """Список всех проектов и текущий проект. Включает флаг is_new_user."""
     return {
         "projects": list_projects(),
-        "current": get_current_project()
+        "current": get_current_project(),
+        "is_new_user": is_new_user(),
     }
 
 
@@ -939,7 +941,13 @@ if ($result -eq [System.Windows.Forms.DialogResult]::OK) {
             timeout=120  # 2 минуты на выбор папки
         )
 
-        output = proc.stdout.strip()
+        # Проверяем stdout на None перед strip()
+        output = (proc.stdout or "").strip()
+        stderr = (proc.stderr or "").strip()
+
+        # Если есть ошибка PowerShell
+        if proc.returncode != 0 and stderr:
+            return {"path": None, "error": f"PowerShell error: {stderr}"}
 
         if output == "::CANCELLED::" or not output:
             return {"path": None, "cancelled": True}

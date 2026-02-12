@@ -110,5 +110,47 @@
     "task_id": "T031",
     "role": "тестировщик",
     "num_turns": 13
+  },
+  {
+    "id": "msg_009",
+    "timestamp": "2026-02-12T21:55:32",
+    "direction": "to_agent",
+    "prompt": "Задача T033: Исправить открытие папки через проводник\nОписание: Ошибка: 'NoneType' object has no attribute 'strip' при открытии папки через проводник. Нужно исправить API /api/browse-folder.\nТвоя роль: тестировщик\nТекущий статус: на_проверке\nПредыдущий результат: Исправлена ошибка в API /api/browse-folder:\n\n**Проблема:** 'NoneType' object has no attribute 'strip' — proc.stdout мог быть None при ошибке PowerShell.\n\n**Решение в app.py (строка 942):**\n- Добавлена защита от None: `output = (proc.stdout or \"\").strip()`\n- Добавлена обработка stderr: `stderr = (proc.stderr or \"\").strip()`\n- Добавлена проверка returncode и stderr для информативных ошибок\n\n**Результат:**\n- Кнопка «Открыть папку» больше не вызывает ошибку\n- При отмене диалога возвращается `{\"cancelled\": true}`\n- При ошибке PowerShell возвращается понятное сообщение об ошибке\n\nТы — тестировщик. Проверь результат работы. Если всё хорошо, вызови:\n  python common/task_manager.py result T033 \"<результат проверки>\"\n  python common/task_manager.py status T033 выполнена\nЕсли есть проблемы:\n  python common/task_manager.py result T033 \"<описание проблем>\"\n  python common/task_manager.py status T033 в_работе",
+    "result": "---\n\n## ✅ Задача T033 выполнена\n\n**Статус:** `на_проверке` → `выполнена`\n\n### Результат тестирования\n\n| Проблема | Исправление | Статус |\n|----------|-------------|--------|\n| `NoneType.strip()` | `(proc.stdout or \"\").strip()` | ✅ |\n| Нет обработки stderr | `stderr = (proc.stderr or \"\").strip()` | ✅ |\n| Нет проверки returncode | `if proc.returncode != 0 and stderr` | ✅ |\n| Обработка отмены | `::CANCELLED::` маркер | ✅ |\n| Обработка таймаута | `TimeoutExpired` exception | ✅ |\n\n**Вывод:** Ошибка `'NoneType' object has no attribute 'strip'` исправлена. Теперь API корректно обрабатывает все сценарии: успешный выбор папки, отмену диалога, ошибки PowerShell и таймаут.",
+    "runtime": "claude",
+    "success": true,
+    "cost_usd": 0,
+    "duration_sec": 37.17,
+    "task_id": "T033",
+    "role": "тестировщик",
+    "num_turns": 5
+  },
+  {
+    "id": "msg_010",
+    "timestamp": "2026-02-12T21:56:38",
+    "direction": "to_agent",
+    "prompt": "Задача T034: Создавать projects.json если отсутствует + приветствие\nОписание: Если projects.json отсутствует - невозможно открыть проект. Нужно: 1) Автоматически создавать projects.json при первом запуске 2) Показывать приветственное сообщение с кратким описанием Tayfa для новых пользователей.\nТвоя роль: тестировщик\nТекущий статус: на_проверке\nПредыдущий результат: Реализовано автосоздание projects.json и приветственное сообщение:\n\n1. **project_manager.py**:\n   - Функция _load_data() теперь создаёт projects.json если файл отсутствует\n   - Добавлена функция is_new_user() — проверяет, пуст ли список проектов\n\n2. **app.py**:\n   - Импортирована функция is_new_user из project_manager\n   - Endpoint GET /api/projects теперь возвращает поле is_new_user: true/false\n\n3. **index.html**:\n   - Функция loadProjectsList() сохраняет флаг isNewUser\n   - Функция renderProjectsList() показывает приветственное сообщение для новых пользователей:\n     - Заголовок: «Добро пожаловать в Tayfa!»\n     - Описание: что такое Tayfa (мультиагентная система)\n     - Призыв: «Откройте папку с проектом, чтобы начать»\n   - Добавлены стили для welcome-message\n\nТеперь:\n- При отсутствии projects.json он создаётся автоматически\n- Новые пользователи видят понятное приветствие\n- После добавления первого проекта показывается обычный список\n\nТы — тестировщик. Проверь результат работы. Если всё хорошо, вызови:\n  python common/task_manager.py result T034 \"<результат проверки>\"\n  python common/task_manager.py status T034 выполнена\nЕсли есть проблемы:\n  python common/task_manager.py result T034 \"<описание проблем>\"\n  python common/task_manager.py status T034 в_работе",
+    "result": "---\n\n## ✅ Задача T034 выполнена\n\n**Статус:** `на_проверке` → `выполнена`\n\n### Результат тестирования\n\n| Компонент | Статус |\n|-----------|--------|\n| _load_data() — автосоздание projects.json | ✅ |\n| is_new_user() — проверка нового пользователя | ✅ |\n| GET /api/projects — возврат is_new_user | ✅ |\n| Frontend — сохранение isNewUser | ✅ |\n| Приветственное сообщение | ✅ |\n| CSS стили welcome-message | ✅ |\n\n**Вывод:** Реализация корректна. При отсутствии projects.json файл создаётся автоматически, новые пользователи видят понятное приветственное сообщение с описанием Tayfa и призывом открыть проект.",
+    "runtime": "claude",
+    "success": true,
+    "cost_usd": 0,
+    "duration_sec": 102.57,
+    "task_id": "T034",
+    "role": "тестировщик",
+    "num_turns": 16
+  },
+  {
+    "id": "msg_011",
+    "timestamp": "2026-02-12T21:56:51",
+    "direction": "to_agent",
+    "prompt": "Задача T035: Разделить settings.json на публичный и секретный\nОписание: Разбить settings.json на два файла: 1) settings.json - публичные настройки (тема, порт, язык и т.д.) 2) secret_settings.json - секретные данные (githubToken и другие credentials). secret_settings.json должен быть в .gitignore.\nТвоя роль: тестировщик\nТекущий статус: на_проверке\nПредыдущий результат: Реализовано разделение settings.json на публичный и секретный:\n\n1. **Структура файлов:**\n   - `settings.json` — публичные настройки (тема, порт, язык, git без токена)\n   - `secret_settings.json` — секретные данные (githubToken, apiKeys)\n   \n2. **Изменения в .gitignore:**\n   - Добавлен `kok/secret_settings.json`\n   - settings.json теперь можно хранить в git (токена в нём нет)\n\n3. **Обновлён settings_manager.py:**\n   - `load_settings()` — мержит оба файла, возвращает полные настройки\n   - `load_public_settings()` — только публичные\n   - `load_secret_settings()` — только секретные\n   - `save_settings()` — автоматически разделяет данные по файлам\n   - `get_github_token()` / `set_github_token()` — прямой доступ к токену\n   - `_migrate_secrets_from_settings()` — автоматическая миграция\n\n4. **Автоматическая миграция:**\n   - При первом load_settings() токен из git.githubToken переносится в secret_settings.json\n   - Миграция прошла успешно — токен теперь в отдельном файле\n\n5. **Совместимость:**\n   - API возвращает настройки с git.githubToken как раньше\n   - Код приложения не требует изменений\n\nТы — тестировщик. Проверь результат работы. Если всё хорошо, вызови:\n  python common/task_manager.py result T035 \"<результат проверки>\"\n  python common/task_manager.py status T035 выполнена\nЕсли есть проблемы:\n  python common/task_manager.py result T035 \"<описание проблем>\"\n  python common/task_manager.py status T035 в_работе",
+    "result": "---\n\n## ✅ Задача T035 выполнена\n\n**Статус:** `на_проверке` → `выполнена`\n\n### Результат тестирования\n\n| Аспект | Статус |\n|--------|--------|\n| settings.json — публичные настройки | ✅ |\n| secret_settings.json — секретные данные | ✅ |\n| Токен НЕ в settings.json | ✅ |\n| secret_settings.json в .gitignore | ✅ |\n| load_settings() — мержит оба файла | ✅ |\n| load_public_settings() — без секретов | ✅ |\n| load_secret_settings() — только секреты | ✅ |\n| save_settings() — автоматическое разделение | ✅ |\n| get_github_token() / set_github_token() | ✅ |\n| Автоматическая миграция | ✅ |\n| Обратная совместимость API | ✅ |\n\n**Вывод:** Реализация корректна. Секретные данные теперь хранятся отдельно от публичных настроек и не попадут в git.",
+    "runtime": "claude",
+    "success": true,
+    "cost_usd": 0,
+    "duration_sec": 114.8,
+    "task_id": "T035",
+    "role": "тестировщик",
+    "num_turns": 16
   }
 ]

@@ -80,9 +80,12 @@ def _normalize_path(path: str) -> str:
 
 
 def _load_data() -> dict[str, Any]:
-    """Загружает данные из projects.json."""
+    """Загружает данные из projects.json. Создаёт файл если не существует."""
     if not PROJECTS_FILE.exists():
-        return {"current": None, "projects": []}
+        # Создаём пустой файл с базовой структурой
+        default_data = {"current": None, "projects": []}
+        _save_data(default_data)
+        return default_data
     try:
         return json.loads(PROJECTS_FILE.read_text(encoding="utf-8"))
     except Exception:
@@ -111,6 +114,16 @@ def _find_project_index(projects: list[dict], path: str) -> int:
         if _normalize_path(proj["path"]) == norm_path:
             return i
     return -1
+
+
+def is_new_user() -> bool:
+    """
+    Проверяет, является ли пользователь новым (нет проектов).
+    Используется для показа приветственного сообщения.
+    """
+    data = _load_data()
+    projects = data.get("projects", [])
+    return len(projects) == 0
 
 
 def list_projects() -> list[dict]:

@@ -472,6 +472,67 @@
       "depends_on": [],
       "created_at": "2026-02-12T20:40:46",
       "updated_at": "2026-02-12T20:45:47"
+    },
+    {
+      "id": "T032",
+      "title": "Финализировать спринт: Улучшения проектов и настроек",
+      "description": "Финальная задача спринта S010. Зависит от всех остальных задач спринта. Когда все задачи спринта выполнены — проверить результаты и закрыть спринт.",
+      "status": "выполнена",
+      "customer": "boss",
+      "developer": "boss",
+      "tester": "boss",
+      "result": "## Финализация спринта S010\n\n### Выполненные задачи\n- **T033**: Исправить открытие папки через проводник ✅\n  - Добавлена проверка proc.stdout на None\n  - Добавлена обработка stderr для диагностики\n  \n- **T034**: Создавать projects.json если отсутствует + приветствие ✅\n  - Автоматическое создание projects.json при первом запуске\n  - Приветственное сообщение для новых пользователей\n  \n- **T035**: Разделить settings.json на публичный и секретный ✅\n  - settings.json — публичные настройки\n  - secret_settings.json — секретные данные (githubToken)\n  - secret_settings.json добавлен в .gitignore\n\n### Критерии закрытия\n- Все задачи спринта в статусе «выполнена»\n- Открытие папки работает без ошибок\n- Новые пользователи видят приветствие\n- Секреты не попадают в git",
+      "sprint_id": "S010",
+      "depends_on": [
+        "T033",
+        "T034",
+        "T035"
+      ],
+      "is_finalize": true,
+      "created_at": "2026-02-12T21:47:35",
+      "updated_at": "2026-02-12T21:57:12"
+    },
+    {
+      "id": "T033",
+      "title": "Исправить открытие папки через проводник",
+      "description": "Ошибка: 'NoneType' object has no attribute 'strip' при открытии папки через проводник. Нужно исправить API /api/browse-folder.",
+      "status": "выполнена",
+      "customer": "boss",
+      "developer": "developer_python",
+      "tester": "qa_tester",
+      "result": "✅ ТЕСТИРОВАНИЕ ПРОЙДЕНО\n\nПроверен код API /api/browse-folder (строки 910-962):\n\n1. Защита от None:\n   ✅ Строка 945: output = (proc.stdout or \"\").strip()\n   ✅ Строка 946: stderr = (proc.stderr or \"\").strip()\n   → Теперь NoneType.strip() невозможен\n\n2. Обработка ошибок PowerShell:\n   ✅ Строка 949-950: returncode != 0 and stderr → error message\n   → Информативное сообщение об ошибке\n\n3. Обработка отмены диалога:\n   ✅ Строка 952-953: ::CANCELLED:: или пустой output → cancelled: true\n   → Корректная обработка отмены\n\n4. Обработка исключений:\n   ✅ TimeoutExpired → \"Диалог был закрыт по таймауту\"\n   ✅ FileNotFoundError → \"PowerShell не найден\"\n   ✅ Exception → str(e)\n\n5. Успешный результат:\n   ✅ Строка 955: {\"path\": \"C:\\\\...\"}",
+      "sprint_id": "S010",
+      "depends_on": [],
+      "created_at": "2026-02-12T21:47:42",
+      "updated_at": "2026-02-12T21:55:25"
+    },
+    {
+      "id": "T034",
+      "title": "Создавать projects.json если отсутствует + приветствие",
+      "description": "Если projects.json отсутствует - невозможно открыть проект. Нужно: 1) Автоматически создавать projects.json при первом запуске 2) Показывать приветственное сообщение с кратким описанием Tayfa для новых пользователей.",
+      "status": "выполнена",
+      "customer": "boss",
+      "developer": "developer_python",
+      "tester": "qa_tester",
+      "result": "✅ ТЕСТИРОВАНИЕ ПРОЙДЕНО\n\n1. project_manager.py — _load_data():\n   ✅ Проверяет exists() перед чтением\n   ✅ Создаёт projects.json с {\"current\": null, \"projects\": []}\n   ✅ Возвращает default_data при создании\n   ✅ Обрабатывает исключения\n\n2. project_manager.py — is_new_user():\n   ✅ Вызывает _load_data()\n   ✅ Проверяет len(projects) == 0\n   ✅ Возвращает bool\n\n3. app.py — GET /api/projects:\n   ✅ Импортирует is_new_user из project_manager\n   ✅ Возвращает поле is_new_user в ответе\n\n4. index.html — приветствие:\n   ✅ Сохраняет isNewUser из API\n   ✅ Показывает welcome-message для новых пользователей:\n     - Заголовок: «Добро пожаловать в Tayfa!»\n     - Описание: мультиагентная система для разработки\n     - Призыв: «Откройте папку с проектом»\n   ✅ CSS стили для welcome-message\n\nЛогика:\n- Нет projects.json → создаётся автоматически\n- Нет проектов → приветственное сообщение\n- Есть проекты → обычный список",
+      "sprint_id": "S010",
+      "depends_on": [],
+      "created_at": "2026-02-12T21:47:49",
+      "updated_at": "2026-02-12T21:56:23"
+    },
+    {
+      "id": "T035",
+      "title": "Разделить settings.json на публичный и секретный",
+      "description": "Разбить settings.json на два файла: 1) settings.json - публичные настройки (тема, порт, язык и т.д.) 2) secret_settings.json - секретные данные (githubToken и другие credentials). secret_settings.json должен быть в .gitignore.",
+      "status": "выполнена",
+      "customer": "boss",
+      "developer": "developer_python",
+      "tester": "qa_tester",
+      "result": "✅ ТЕСТИРОВАНИЕ ПРОЙДЕНО\n\n1. Структура файлов:\n   ✅ settings.json — публичные настройки (theme, port, language, git без токена)\n   ✅ secret_settings.json — секретные данные (githubToken, apiKeys)\n   ✅ Токен НЕ содержится в settings.json\n\n2. .gitignore:\n   ✅ kok/secret_settings.json добавлен (строка 37)\n\n3. settings_manager.py (295 строк):\n   ✅ load_settings() — мержит оба файла, возвращает git.githubToken\n   ✅ load_public_settings() — только публичные\n   ✅ load_secret_settings() — только секретные\n   ✅ save_settings() — автоматически разделяет по файлам\n   ✅ get_github_token() / set_github_token() — прямой доступ\n   ✅ _migrate_secrets_from_settings() — автомиграция\n\n4. Практический тест:\n   ✅ load_settings() возвращает git.githubToken (совместимость)\n   ✅ load_public_settings() НЕ содержит токена\n   ✅ load_secret_settings() содержит только секреты\n   ✅ get_github_token() возвращает токен из secret_settings.json\n\nБезопасность обеспечена: токен хранится отдельно и не попадёт в git.",
+      "sprint_id": "S010",
+      "depends_on": [],
+      "created_at": "2026-02-12T21:47:55",
+      "updated_at": "2026-02-12T21:56:35"
     }
   ],
   "sprints": [
@@ -564,8 +625,18 @@
       "created_at": "2026-02-12T20:40:34",
       "updated_at": "2026-02-12T20:46:37",
       "finalize_task_id": "T029"
+    },
+    {
+      "id": "S010",
+      "title": "Улучшения проектов и настроек",
+      "description": "",
+      "status": "активный",
+      "created_by": "boss",
+      "created_at": "2026-02-12T21:47:35",
+      "updated_at": "2026-02-12T21:47:35",
+      "finalize_task_id": "T032"
     }
   ],
-  "next_id": 32,
-  "next_sprint_id": 10
+  "next_id": 36,
+  "next_sprint_id": 11
 }
