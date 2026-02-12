@@ -300,7 +300,7 @@ def start_claude_api() -> dict:
     wsl_script = (
         'source ~/claude_venv/bin/activate && '
         f'cd "{TAYFA_ROOT_WSL}" && '
-        'python -m uvicorn claude_api:app --app-dir ~ --host 0.0.0.0 --port 8788'
+        f'python -m uvicorn claude_api:app --app-dir "{TAYFA_ROOT_WSL}/kok" --host 0.0.0.0 --port 8788'
     )
 
     try:
