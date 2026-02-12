@@ -564,9 +564,6 @@
             background: transparent;
         }
 
-        /* Hidden file input for folder picker */
-        .folder-input { display: none; }
-
         @media (max-width: 768px) { .main { grid-template-columns: 1fr; } .sidebar { display: none; } }
 
         /* ── Tasks Board ───────────────── */
@@ -931,8 +928,6 @@
             <button class="btn" id="projectPickerCancel" onclick="tryCloseProjectPicker()">Отмена</button>
         </div>
     </div>
-    <!-- Hidden input for folder selection (fallback) -->
-    <input type="file" id="folderInput" class="folder-input" webkitdirectory directory multiple onchange="handleFolderSelect(event)">
 </div>
 
 <!-- Main App Container -->
@@ -1226,6 +1221,7 @@ let agents = {};
 let employees = {};
 let chatHistories = {};
 let agentRuntimes = {};  // per-agent runtime: { agentName: 'claude' | 'cursor' }
+let thinkingAgents = {};  // per-agent thinking state: { agentName: true }
 let runningTasks = {};   // { taskId: { agent, role, runtime, started_at, elapsed_seconds } }
 let runningTasksTimer = null;  // таймер обновления elapsed
 let sprintAutoRunState = {};   // { sprintId: { running: bool, cancelled: bool } }
@@ -1589,42 +1585,9 @@ async function removeProject(path) {
     }
 }
 
-async function openFolderDialog() {
-    // Попробуем использовать File System Access API (Chrome/Edge)
-    if ('showDirectoryPicker' in window) {
-        try {
-            const dirHandle = await window.showDirectoryPicker();
-            // Получаем путь через разрешения (не всегда работает)
-            // Fallback: используем имя папки как путь (для демо)
-            const name = dirHandle.name;
-
-            // Для File System Access API нельзя получить полный путь
-            // Поэтому открываем модальное окно для ввода пути
-            openFolderManual(name);
-            return;
-        } catch (e) {
-            if (e.name === 'AbortError') return; // Пользователь отменил
-            console.warn('showDirectoryPicker failed:', e);
-        }
-    }
-
-    // Fallback: используем input с webkitdirectory
-    document.getElementById('folderInput').click();
-}
-
-function handleFolderSelect(event) {
-    const files = event.target.files;
-    if (files.length === 0) return;
-
-    // Получаем путь из первого файла (относительный)
-    const relativePath = files[0].webkitRelativePath;
-    const folderName = relativePath.split('/')[0];
-
-    // К сожалению, браузер не даёт полный путь, показываем диалог ввода
-    openFolderManual(folderName);
-
-    // Очищаем input для повторного использования
-    event.target.value = '';
+function openFolderDialog() {
+    // Сразу показываем модальное окно для ввода пути
+    openFolderManual();
 }
 
 function openFolderManual(suggestedName = '') {
@@ -1823,6 +1786,9 @@ async function selectAgent(name) {
         renderChat();
     }
 
+    // Показать/скрыть индикатор в зависимости от того, думает ли этот агент
+    updateTypingIndicator(name);
+
     document.getElementById('promptInput').focus();
 }
 
@@ -1973,6 +1939,11 @@ function addSystemMessage(text, isError = false) {
     console.log(`[${isError ? 'ERR' : 'SYS'}] ${text}`);
 }
 
+function updateTypingIndicator(agentName) {
+    const indicator = document.getElementById('typingIndicator');
+    indicator.classList.toggle('show', !!thinkingAgents[agentName]);
+}
+
 async function sendPrompt() {
     if (!currentAgent) return;
     const input = document.getElementById('promptInput');
@@ -1981,32 +1952,38 @@ async function sendPrompt() {
     input.value = ''; input.style.height = 'auto';
     addChatMessage(currentAgent, 'user', text);
 
+    const agentForRequest = currentAgent;  // Сохраняем агента для этого запроса
     const btn = document.getElementById('btnSend');
     btn.disabled = true; btn.textContent = '...';
-    document.getElementById('typingIndicator').classList.add('show');
 
-    const runtime = getAgentRuntime(currentAgent);
+    // Устанавливаем состояние "думает" для этого агента
+    thinkingAgents[agentForRequest] = true;
+    updateTypingIndicator(currentAgent);
+
+    const runtime = getAgentRuntime(agentForRequest);
     try {
         if (runtime === 'cursor') {
-            const result = await api('POST', '/api/send-prompt-cursor', { name: currentAgent, prompt: text });
+            const result = await api('POST', '/api/send-prompt-cursor', { name: agentForRequest, prompt: text });
             if (result.success) {
-                addChatMessage(currentAgent, 'agent', result.result || '(Пустой ответ)', result.stderr ? `Cursor CLI` : 'Cursor CLI');
+                addChatMessage(agentForRequest, 'agent', result.result || '(Пустой ответ)', result.stderr ? `Cursor CLI` : 'Cursor CLI');
             } else {
-                addChatMessage(currentAgent, 'error', (result.stderr || result.result || 'Ошибка Cursor CLI').trim());
+                addChatMessage(agentForRequest, 'error', (result.stderr || result.result || 'Ошибка Cursor CLI').trim());
             }
         } else {
-            const result = await api('POST', '/api/send-prompt', { name: currentAgent, prompt: text });
+            const result = await api('POST', '/api/send-prompt', { name: agentForRequest, prompt: text });
             const response = result.result || result.stdout || JSON.stringify(result);
             const meta = [];
             if (result.cost_usd) meta.push(`$${result.cost_usd.toFixed(4)}`);
             if (result.num_turns) meta.push(`${result.num_turns} turns`);
-            addChatMessage(currentAgent, 'agent', response, meta.join(' &middot; '));
+            addChatMessage(agentForRequest, 'agent', response, meta.join(' &middot; '));
         }
     } catch (e) {
-        addChatMessage(currentAgent, 'error', 'Ошибка: ' + e.message);
+        addChatMessage(agentForRequest, 'error', 'Ошибка: ' + e.message);
     } finally {
         btn.disabled = false; btn.textContent = 'Отправить';
-        document.getElementById('typingIndicator').classList.remove('show');
+        // Убираем состояние "думает" для этого агента
+        delete thinkingAgents[agentForRequest];
+        updateTypingIndicator(currentAgent);
     }
 }
 
