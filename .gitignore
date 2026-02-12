@@ -33,8 +33,8 @@ _task_*.txt
 *.pem
 credentials.*
 
-# Settings с токенами (используйте settings.example.json)
-kok/settings.json
+# Секретные настройки (токены, API ключи)
+kok/secret_settings.json
 
 # Локальный список проектов
 kok/projects.json

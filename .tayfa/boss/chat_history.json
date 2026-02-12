@@ -418,5 +418,71 @@
     "task_id": "T029",
     "role": "заказчик",
     "num_turns": 7
+  },
+  {
+    "id": "msg_034",
+    "timestamp": "2026-02-12T21:06:39",
+    "direction": "to_agent",
+    "prompt": "Я убрал его из секрета. сделай merge в main",
+    "result": "Готово! Push успешен:\n- **main**: e6a4843..dbb8e2c\n- **tag**: v0.7.0",
+    "runtime": "claude",
+    "success": true,
+    "cost_usd": 0,
+    "duration_sec": 83.15,
+    "num_turns": 12
+  },
+  {
+    "id": "msg_035",
+    "timestamp": "2026-02-12T21:47:59",
+    "direction": "to_agent",
+    "prompt": "Создай новый спринт задачи 1) Невозможно открыть папку - новый проект, через проводник ошибка Ошибка: 'NoneType' object has no attribute 'strip' 2) Если projects.json отсутсвует - невозможно никак открыть новый проект. Нужно, чтоб projects.json создавался, если его нет. И появлялось приветственное сообщение с кратким описанием Tayfa. 3) settings.json надо разбить на два settings.json и secre_settings.json, последний нужен для данных GIT, а сам не должен попадать в git",
+    "result": "Спринт S010 создан:\n\n| ID | Задача |\n|----|--------|\n| T033 | Исправить открытие папки через проводник |\n| T034 | Создавать projects.json если отсутствует + приветствие |\n| T035 | Разделить settings.json на публичный и секретный |\n| T032 | Финализировать спринт |",
+    "runtime": "claude",
+    "success": true,
+    "cost_usd": 0,
+    "duration_sec": 34.33,
+    "num_turns": 5
+  },
+  {
+    "id": "msg_036",
+    "timestamp": "2026-02-12T21:51:59",
+    "direction": "to_agent",
+    "prompt": "Задача T034: Создавать projects.json если отсутствует + приветствие\nОписание: Если projects.json отсутствует - невозможно открыть проект. Нужно: 1) Автоматически создавать projects.json при первом запуске 2) Показывать приветственное сообщение с кратким описанием Tayfa для новых пользователей.\nТвоя роль: заказчик\nТекущий статус: новая\n\nТы — заказчик. Детализируй требования задачи. Когда закончишь, вызови:\n  python common/task_manager.py result T034 \"<подробное описание>\"\n  python common/task_manager.py status T034 в_работе",
+    "result": "Задача T034 детализирована и переведена в статус \"в_работе\".\n\n**Требования:**\n1. Автоматическое создание `projects.json` при первом запуске\n2. Приветственное сообщение в project-picker для новых пользователей с описанием Tayfa\n\nТеперь задача готова для разработчика.",
+    "runtime": "claude",
+    "success": true,
+    "cost_usd": 0,
+    "duration_sec": 26.14,
+    "task_id": "T034",
+    "role": "заказчик",
+    "num_turns": 3
+  },
+  {
+    "id": "msg_037",
+    "timestamp": "2026-02-12T21:52:00",
+    "direction": "to_agent",
+    "prompt": "Задача T035: Разделить settings.json на публичный и секретный\nОписание: Разбить settings.json на два файла: 1) settings.json - публичные настройки (тема, порт, язык и т.д.) 2) secret_settings.json - секретные данные (githubToken и другие credentials). secret_settings.json должен быть в .gitignore.\nТвоя роль: заказчик\nТекущий статус: новая\n\nТы — заказчик. Детализируй требования задачи. Когда закончишь, вызови:\n  python common/task_manager.py result T035 \"<подробное описание>\"\n  python common/task_manager.py status T035 в_работе",
+    "result": "Задача T035 детализирована и переведена в статус \"в_работе\".\n\n**Требования:**\n1. Разделить settings.json на публичный и секретный файлы\n2. secret_settings.json добавить в .gitignore\n3. Автоматическая миграция токена из старого settings.json\n4. При отсутствии secret_settings.json — создать шаблон",
+    "runtime": "claude",
+    "success": true,
+    "cost_usd": 0,
+    "duration_sec": 26.98,
+    "task_id": "T035",
+    "role": "заказчик",
+    "num_turns": 3
+  },
+  {
+    "id": "msg_038",
+    "timestamp": "2026-02-12T21:52:12",
+    "direction": "to_agent",
+    "prompt": "Задача T033: Исправить открытие папки через проводник\nОписание: Ошибка: 'NoneType' object has no attribute 'strip' при открытии папки через проводник. Нужно исправить API /api/browse-folder.\nТвоя роль: заказчик\nТекущий статус: новая\n\nТы — заказчик. Детализируй требования задачи. Когда закончишь, вызови:\n  python common/task_manager.py result T033 \"<подробное описание>\"\n  python common/task_manager.py status T033 в_работе",
+    "result": "Задача T033 детализирована и в статусе \"в_работе\".\n\n**Проблема**: `proc.stdout.strip()` падает когда `proc.stdout` равен `None`.\n\n**Решение**: Добавить проверку на None и обработку stderr.",
+    "runtime": "claude",
+    "success": true,
+    "cost_usd": 0,
+    "duration_sec": 39.2,
+    "task_id": "T033",
+    "role": "заказчик",
+    "num_turns": 5
   }
 ]

@@ -526,6 +526,14 @@
             color: var(--text-dim);
         }
         .project-empty-icon { font-size: 48px; margin-bottom: 12px; opacity: 0.5; }
+        .project-empty.welcome-message h3 {
+            color: var(--text-primary);
+            margin: 0 0 0.5rem;
+            font-size: 1.25rem;
+        }
+        .project-empty.welcome-message .project-empty-icon {
+            opacity: 1;
+        }
 
         .project-picker-actions {
             display: flex;
@@ -1466,6 +1474,8 @@ document.getElementById('projectPicker').addEventListener('click', function(e) {
     }
 });
 
+let isNewUser = false;
+
 async function loadProjectsList() {
     const container = document.getElementById('projectList');
     container.innerHTML = '<div class="project-empty"><div class="project-empty-icon">⏳</div><p>Загрузка...</p></div>';
@@ -1474,6 +1484,7 @@ async function loadProjectsList() {
         const data = await api('GET', '/api/projects');
         console.log('[loadProjectsList] Ответ API:', data);
         projectsList = data.projects || [];
+        isNewUser = data.is_new_user || false;
         renderProjectsList();
     } catch (error) {
         console.error('[loadProjectsList] Ошибка:', error);
@@ -1485,11 +1496,28 @@ function renderProjectsList() {
     const container = document.getElementById('projectList');
 
     if (projectsList.length === 0) {
-        container.innerHTML = `
-            <div class="project-empty">
-                <div class="project-empty-icon">📂</div>
-                <p>Нет проектов. Откройте папку с проектом.</p>
-            </div>`;
+        if (isNewUser) {
+            // Приветственное сообщение для новых пользователей
+            container.innerHTML = `
+                <div class="project-empty welcome-message">
+                    <div class="project-empty-icon">👋</div>
+                    <h3>Добро пожаловать в Tayfa!</h3>
+                    <p style="color: var(--text-secondary); margin: 0.5rem 0 1rem; line-height: 1.5;">
+                        Tayfa — мультиагентная система для разработки.<br>
+                        AI-агенты работают как команда: boss ставит задачи,<br>
+                        разработчики пишут код, тестировщики проверяют.
+                    </p>
+                    <p style="color: var(--accent); font-weight: 500;">
+                        Откройте папку с проектом, чтобы начать
+                    </p>
+                </div>`;
+        } else {
+            container.innerHTML = `
+                <div class="project-empty">
+                    <div class="project-empty-icon">📂</div>
+                    <p>Нет проектов. Откройте папку с проектом.</p>
+                </div>`;
+        }
         return;
     }
 
