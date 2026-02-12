@@ -36,11 +36,74 @@ CLI использование:
 
 import argparse
 import json
+import subprocess
 import sys
 from pathlib import Path
 from datetime import datetime
 
 TASKS_FILE = Path(__file__).resolve().parent / "tasks.json"
+
+
+def _get_project_root() -> Path | None:
+    """Получить корень проекта (где .tayfa находится)."""
+    # TASKS_FILE: .tayfa/common/tasks.json → .tayfa/common → .tayfa → project_root
+    tayfa_dir = TASKS_FILE.parent.parent  # .tayfa
+    if tayfa_dir.name == ".tayfa":
+        return tayfa_dir.parent
+    return None
+
+
+def _run_git(args: list[str], cwd: Path | None = None) -> dict:
+    """Выполнить git-команду. Возвращает {success, stdout, stderr}."""
+    if cwd is None:
+        cwd = _get_project_root()
+    if cwd is None:
+        return {"success": False, "stdout": "", "stderr": "Project root not found"}
+    try:
+        result = subprocess.run(
+            ["git"] + args,
+            cwd=str(cwd),
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        return {
+            "success": result.returncode == 0,
+            "stdout": result.stdout.strip(),
+            "stderr": result.stderr.strip(),
+        }
+    except Exception as e:
+        return {"success": False, "stdout": "", "stderr": str(e)}
+
+
+def _create_sprint_branch(sprint_id: str) -> dict:
+    """Создать git-ветку для спринта. Возвращает {success, branch, error}."""
+    branch_name = f"sprint/{sprint_id}"
+
+    # Проверяем, инициализирован ли git
+    check = _run_git(["rev-parse", "--git-dir"])
+    if not check["success"]:
+        return {"success": False, "branch": None, "error": "Git не инициализирован"}
+
+    # Проверяем, есть ли коммиты
+    check_commits = _run_git(["rev-parse", "HEAD"])
+    if not check_commits["success"]:
+        return {"success": False, "branch": None, "error": "Нет коммитов в репозитории"}
+
+    # Проверяем, существует ли уже ветка
+    check_branch = _run_git(["rev-parse", "--verify", branch_name])
+    if check_branch["success"]:
+        # Ветка уже существует — переключаемся на неё
+        _run_git(["checkout", branch_name])
+        return {"success": True, "branch": branch_name, "error": None, "existed": True}
+
+    # Создаём ветку от main (или master, или текущей)
+    for base in ["main", "master", "HEAD"]:
+        create = _run_git(["checkout", "-b", branch_name, base])
+        if create["success"]:
+            return {"success": True, "branch": branch_name, "error": None, "existed": False}
+
+    return {"success": False, "branch": None, "error": "Не удалось создать ветку"}
 
 
 def set_tasks_file(path: str | Path) -> None:
@@ -99,7 +162,7 @@ def create_sprint(
 ) -> dict:
     """
     Создать новый спринт. Возвращает созданный спринт.
-    Автоматически создаёт задачу "Финализировать спринт".
+    Автоматически создаёт задачу "Финализировать спринт" и git-ветку sprint/SXXX.
     """
     data = _load()
     sprint_id = f"S{data['next_sprint_id']:03d}"
@@ -138,6 +201,16 @@ def create_sprint(
 
     sprint["finalize_task_id"] = finalize_task_id
     _save(data)
+
+    # Создаём git-ветку для спринта
+    git_result = _create_sprint_branch(sprint_id)
+    if git_result["success"]:
+        sprint["git_branch"] = git_result["branch"]
+        if git_result.get("existed"):
+            sprint["git_note"] = "Ветка уже существовала"
+    else:
+        sprint["git_warning"] = git_result.get("error", "Не удалось создать git-ветку")
+
     return {**sprint, "finalize_task": finalize_task}
 
 

@@ -1,3 +1,4 @@
+.tayfa/
 # Cursor CLI
 .cursor_cli_prompt.txt
 .cursor_chats.json
@@ -34,3 +35,6 @@ credentials.*
 
 # Settings с токенами (используйте settings.example.json)
 kok/settings.json
+
+# Локальный список проектов
+kok/projects.json

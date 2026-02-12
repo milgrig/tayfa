@@ -10,6 +10,7 @@ import json
 import os
 import re
 import signal
+import socket
 import subprocess
 import sys
 import webbrowser
@@ -23,7 +24,41 @@ from contextlib import asynccontextmanager
 
 # ── Конфигурация ──────────────────────────────────────────────────────────────
 
-CLAUDE_API_URL = "http://localhost:8788"
+# Порты по умолчанию (будут заменены на актуальные при старте)
+DEFAULT_ORCHESTRATOR_PORT = 8008
+DEFAULT_CLAUDE_API_PORT = 8788
+
+# Актуальные порты (устанавливаются динамически при старте)
+ACTUAL_ORCHESTRATOR_PORT = DEFAULT_ORCHESTRATOR_PORT
+ACTUAL_CLAUDE_API_PORT = DEFAULT_CLAUDE_API_PORT
+
+# URL Claude API (обновляется динамически)
+CLAUDE_API_URL = f"http://localhost:{DEFAULT_CLAUDE_API_PORT}"
+
+
+def is_port_in_use(port: int) -> bool:
+    """Проверяет, занят ли порт (есть ли на нём слушающий сервер)."""
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        s.settimeout(0.1)
+        try:
+            s.connect(('127.0.0.1', port))
+            return True  # Подключились — порт занят
+        except (ConnectionRefusedError, socket.timeout, OSError):
+            return False  # Не подключились — порт свободен
+
+
+def find_free_port(start_port: int, max_attempts: int = 10) -> int:
+    """
+    Ищет свободный порт, начиная с start_port.
+    Пробует порты start_port, start_port+1, ..., start_port+max_attempts-1.
+    Если все заняты — возвращает start_port + max_attempts.
+    """
+    for offset in range(max_attempts):
+        port = start_port + offset
+        if not is_port_in_use(port):
+            return port
+    # Fallback: следующий порт после проверенных
+    return start_port + max_attempts
 # app.py находится в TayfaNew/kok/
 # TAYFA_ROOT_WIN указывает на корень проекта (TayfaNew)
 # .tayfa внутри проекта содержит common/, boss/ и т.д.
@@ -143,7 +178,6 @@ from git_manager import (
     release_sprint,
 )
 
-ORCHESTRATOR_PORT = 8008
 CURSOR_CLI_PROMPT_FILE = TAYFA_ROOT_WIN / ".cursor_cli_prompt.txt"  # временный файл для промпта в WSL
 CURSOR_CHATS_FILE = TAYFA_ROOT_WIN / ".cursor_chats.json"  # agent_name -> chat_id (для --resume)
 CURSOR_CLI_TIMEOUT = 600.0  # таймаут вызова Cursor CLI (секунды)
@@ -158,13 +192,17 @@ api_running: bool = False
 import time as _time
 running_tasks: dict[str, dict] = {}
 
+# Автовыключение при закрытии вкладки браузера
+last_ping_time: float = _time.time()
+SHUTDOWN_TIMEOUT = 15.0  # секунд без пинга до выключения
+
 
 # ── Lifespan ──────────────────────────────────────────────────────────────────
 
 async def _auto_open_browser():
     """Открыть браузер после запуска сервера (с небольшой задержкой)."""
     await asyncio.sleep(1.5)
-    url = f"http://localhost:{ORCHESTRATOR_PORT}"
+    url = f"http://localhost:{ACTUAL_ORCHESTRATOR_PORT}"
     print(f"  Открываю браузер: {url}")
     webbrowser.open(url)
 
@@ -186,9 +224,24 @@ def _init_files_for_current_project():
             print(f"  chat_history_dir установлен: {tayfa_path}")
 
 
+async def _shutdown_check_loop():
+    """Проверяет, есть ли активные клиенты. Если нет пингов — выключает сервер."""
+    global last_ping_time
+    while True:
+        await asyncio.sleep(5)
+        elapsed = _time.time() - last_ping_time
+        if elapsed > SHUTDOWN_TIMEOUT:
+            print(f"\n  Нет активных клиентов {elapsed:.0f} сек. Выключаю сервер...")
+            stop_claude_api()
+            os._exit(0)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Запуск и остановка фоновых задач."""
+    global last_ping_time
+    last_ping_time = _time.time()
+
     # Устанавливаем пути к tasks.json и employees.json для текущего проекта
     _init_files_for_current_project()
 
@@ -196,21 +249,23 @@ async def lifespan(app: FastAPI):
     print("  Запускаю Claude API сервер (WSL)...")
     result = start_claude_api()
     if result.get("status") == "started":
-        print(f"  Claude API: запущен (pid={result.get('pid')})")
+        print(f"  Claude API: запущен (pid={result.get('pid')}, port={result.get('port')})")
     elif result.get("status") == "already_running":
-        print(f"  Claude API: уже работает (pid={result.get('pid')})")
+        print(f"  Claude API: уже работает (pid={result.get('pid')}, port={result.get('port')})")
     else:
         print(f"  Claude API: {result.get('status', 'ошибка')} — {result.get('detail', '')}")
 
-    # Запускаем фоновую проверку статуса
-    task = asyncio.create_task(health_check_loop())
+    # Запускаем фоновые задачи
+    health_task = asyncio.create_task(health_check_loop())
+    shutdown_task = asyncio.create_task(_shutdown_check_loop())
 
     # Открыть браузер автоматически
     asyncio.create_task(_auto_open_browser())
 
     yield
     # Завершение
-    task.cancel()
+    health_task.cancel()
+    shutdown_task.cancel()
     stop_claude_api()
 
 
@@ -291,16 +346,20 @@ async def call_claude_api(method: str, path: str, json_data: dict | None = None,
 # ── WSL / uvicorn управление ─────────────────────────────────────────────────
 
 def start_claude_api() -> dict:
-    """Запускает Claude API сервер в WSL."""
-    global wsl_process
+    """Запускает Claude API сервер в WSL с динамическим портом."""
+    global wsl_process, ACTUAL_CLAUDE_API_PORT, CLAUDE_API_URL
 
     if wsl_process and wsl_process.poll() is None:
-        return {"status": "already_running", "pid": wsl_process.pid}
+        return {"status": "already_running", "pid": wsl_process.pid, "port": ACTUAL_CLAUDE_API_PORT}
+
+    # Ищем свободный порт для Claude API
+    ACTUAL_CLAUDE_API_PORT = find_free_port(DEFAULT_CLAUDE_API_PORT)
+    CLAUDE_API_URL = f"http://localhost:{ACTUAL_CLAUDE_API_PORT}"
 
     wsl_script = (
         'source ~/claude_venv/bin/activate && '
         f'cd "{TAYFA_ROOT_WSL}" && '
-        f'python -m uvicorn claude_api:app --app-dir "{TAYFA_ROOT_WSL}/kok" --host 0.0.0.0 --port 8788'
+        f'python -m uvicorn claude_api:app --app-dir "{TAYFA_ROOT_WSL}/kok" --host 0.0.0.0 --port {ACTUAL_CLAUDE_API_PORT}'
     )
 
     try:
@@ -314,7 +373,7 @@ def start_claude_api() -> dict:
         # Передаём скрипт через stdin и закрываем его, чтобы bash начал выполнение
         wsl_process.stdin.write(wsl_script.encode("utf-8"))
         wsl_process.stdin.close()
-        return {"status": "started", "pid": wsl_process.pid}
+        return {"status": "started", "pid": wsl_process.pid, "port": ACTUAL_CLAUDE_API_PORT}
     except Exception as e:
         return {"status": "error", "detail": str(e)}
 
@@ -654,6 +713,24 @@ async def root():
     return HTMLResponse(index_path.read_text(encoding="utf-8"))
 
 
+@app.post("/api/ping")
+async def ping():
+    """Пинг от клиента. Сбрасывает таймер автовыключения."""
+    global last_ping_time
+    last_ping_time = _time.time()
+    return {"status": "ok"}
+
+
+@app.post("/api/shutdown")
+async def shutdown():
+    """Выключить сервер."""
+    print("\n  Получен запрос на выключение...")
+    stop_claude_api()
+    # Выключаем сервер через небольшую задержку (чтобы ответ успел уйти)
+    asyncio.get_event_loop().call_later(0.5, lambda: os._exit(0))
+    return {"status": "shutting_down"}
+
+
 @app.get("/api/status")
 async def get_status():
     """Статус системы."""
@@ -666,6 +743,8 @@ async def get_status():
         "wsl_pid": wsl_process.pid if wsl_running else None,
         "tayfa_root": str(TAYFA_ROOT_WIN),
         "api_url": CLAUDE_API_URL,
+        "orchestrator_port": ACTUAL_ORCHESTRATOR_PORT,
+        "claude_api_port": ACTUAL_CLAUDE_API_PORT,
         "current_project": project,
         "has_project": project is not None,
     }
@@ -1792,6 +1871,22 @@ async def api_trigger_task(task_id: str, data: dict = Body(default_factory=dict)
 
 if __name__ == "__main__":
     import uvicorn
+
+    # Ищем свободный порт для оркестратора
+    port = find_free_port(DEFAULT_ORCHESTRATOR_PORT)
+    ACTUAL_ORCHESTRATOR_PORT = port
+
     print(f"\n  Tayfa Orchestrator")
-    print(f"  http://localhost:{ORCHESTRATOR_PORT}\n")
-    uvicorn.run(app, host="0.0.0.0", port=ORCHESTRATOR_PORT)
+    print(f"  http://localhost:{port}")
+    if port != DEFAULT_ORCHESTRATOR_PORT:
+        print(f"  (порт {DEFAULT_ORCHESTRATOR_PORT} занят, используется {port})")
+    print()
+
+    try:
+        uvicorn.run(app, host="0.0.0.0", port=port)
+    except Exception as e:
+        print(f"\n  [!] ОШИБКА: {e}")
+        import traceback
+        traceback.print_exc()
+        input("\n  Нажмите Enter для выхода...")
+        raise

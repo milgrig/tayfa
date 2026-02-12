@@ -3425,6 +3425,11 @@ async function loadSprints() {
     setInterval(checkStatus, 10000);
     startGlobalRunningPoll();
     startGitAutoRefresh();
+
+    // Пинг сервера каждые 5 секунд (для автовыключения при закрытии вкладки)
+    setInterval(() => {
+        fetch('/api/ping', { method: 'POST' }).catch(() => {});
+    }, 5000);
 })();
 </script>
 
