@@ -86,9 +86,8 @@ echo   [4/4] Starting Tayfa Orchestrator...
 echo.
 echo   =========================================
 echo.
-echo     http://localhost:8008
-echo.
 echo     Browser will open automatically.
+echo     Port is selected dynamically (8008, 8009, ...).
 echo     WSL + Claude API will start on launch.
 echo.
 echo     Press Ctrl+C to stop.
@@ -98,7 +97,14 @@ echo.
 
 python app.py
 
+if %errorlevel% neq 0 (
+    echo.
+    echo   [!] Tayfa crashed with error code %errorlevel%
+    echo.
+    pause
+    exit /b %errorlevel%
+)
+
 echo.
 echo   Tayfa stopped.
 echo.
-pause
