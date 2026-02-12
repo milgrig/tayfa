@@ -2,7 +2,10 @@
 Tayfa Launcher — запускает app.py скрыто (без видимой консоли).
 
 Этот файл компилируется в Tayfa.exe через PyInstaller:
-    pyinstaller --onefile --noconsole --icon=static/tayfa-icon.ico --name=Tayfa tayfa_launcher.py
+    pyinstaller --onefile --noconsole --icon=static/tayfa-icon.ico --name=Tayfa ^
+        --add-data "static/tayfa-icon.png;static" ^
+        --hidden-import PIL._tkinter_finder ^
+        tayfa_launcher.py
 """
 
 import subprocess
@@ -52,6 +55,14 @@ def main():
         # Ищем системный Python
         python_exe = 'python'
         log(f"venv not found, using system Python", log_file)
+
+    # Показываем splash-анимацию перед запуском сервера
+    try:
+        from splash_animation import show_splash
+        splash_result = show_splash()
+        log(f"Splash animation: {'shown' if splash_result else 'skipped'}", log_file)
+    except Exception as e:
+        log(f"Splash animation error (ignored): {e}", log_file)
 
     # Запускаем app.py скрыто
     try:

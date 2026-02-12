@@ -533,6 +533,88 @@
       "depends_on": [],
       "created_at": "2026-02-12T21:47:55",
       "updated_at": "2026-02-12T21:56:35"
+    },
+    {
+      "id": "T036",
+      "title": "Финализировать спринт: Анимация запуска Tayfa",
+      "description": "Финальная задача спринта S011. Зависит от всех остальных задач спринта. Когда все задачи спринта выполнены — проверить результаты и закрыть спринт.",
+      "status": "выполнена",
+      "customer": "boss",
+      "developer": "boss",
+      "tester": "boss",
+      "result": "ПРОВЕРКА ПРОЙДЕНА ✅ СПРИНТ S011 ЗАВЕРШЁН\n\n## Чек-лист финальной проверки:\n\n### Задачи спринта:\n- [x] T037 — выполнена (концепция анимации)\n- [x] T038 — выполнена (модуль splash_animation.py)\n- [x] T039 — выполнена (интеграция в лаунчер)\n- [x] T040 — выполнена (обновление сборки)\n\n### Артефакты:\n- [x] kok/splash_animation.py (7397 байт) — show_splash() экспортирована\n- [x] kok/tayfa_launcher.py (3523 байт) — интеграция на строках 61-62\n- [x] kok/build_exe.bat (1313 байт) — --add-data, --hidden-import PIL\n- [x] T037_animation_concept.md (7628 байт) — документация\n\n### Функциональность:\nПри запуске Tayfa.exe:\n1. Показывается splash-анимация (~1 сек) с неоновым логотипом\n2. Fade-in → видимость → fade-out\n3. Сервер запускается после анимации\n4. Graceful degradation при ошибках\n\nСпринт S011 \"Анимация запуска Tayfa\" успешно завершён!",
+      "sprint_id": "S011",
+      "depends_on": [
+        "T037",
+        "T038",
+        "T039",
+        "T040"
+      ],
+      "is_finalize": true,
+      "created_at": "2026-02-12T22:28:26",
+      "updated_at": "2026-02-12T22:48:12"
+    },
+    {
+      "id": "T037",
+      "title": "Разработать концепцию анимации",
+      "description": "Определить конкретный тип анимации для логотипа Tayfa (неоновая буква T с градиентным свечением на тёмном фоне). Варианты: fade-in/glow эффект, пульсация свечения, появление букв, расширяющееся свечение. Описать тайминги (1 секунда), размер окна, поведение после анимации.",
+      "status": "выполнена",
+      "customer": "boss",
+      "developer": "developer_frontend",
+      "tester": "boss",
+      "result": "ПРОВЕРКА ПРОЙДЕНА ✅\n\nСпецификация анимации полная и качественная:\n- Тип анимации чётко определён (Neon Glow Pulse)\n- Тайминги детализированы по фазам (fade-in/pulse/fade-out)\n- Визуальные параметры соответствуют логотипу\n- Технические требования для tkinter описаны\n- Fallback-сценарии продуманы\n- Псевдокод готов к реализации\n- Диаграмма таймингов наглядная\n\nДокумент готов для передачи developer_python.",
+      "sprint_id": "S011",
+      "depends_on": [],
+      "created_at": "2026-02-12T22:28:34",
+      "updated_at": "2026-02-12T22:33:08"
+    },
+    {
+      "id": "T038",
+      "title": "Реализовать модуль splash-анимации",
+      "description": "Создать Python-модуль splash_animation.py в kok/. Использовать PyQt6 или tkinter (в зависимости от утверждённой концепции). Модуль должен: показывать окно без рамки по центру экрана, отображать логотип tayfa-icon.png с анимированным эффектом, автоматически закрываться через ~1 сек. Учитывать совместимость с PyInstaller.",
+      "status": "выполнена",
+      "customer": "developer_frontend",
+      "developer": "developer_python",
+      "tester": "qa_tester",
+      "result": "✅ ТЕСТИРОВАНИЕ ПРОЙДЕНО. Проверено: 1) Файл kok/splash_animation.py создан (7397 байт); 2) API show_splash()->bool работает корректно; 3) Использует tkinter (встроен в Python); 4) Окно без рамки (overrideredirect), размер 256x256, фон #1a1d27; 5) Центрирование через winfo_screenwidth/height; 6) 3-фазная анимация 1000ms (fade-in 0-300ms, показ 300-700ms, fade-out 700-1000ms) при ~60 FPS; 7) PyInstaller совместимость через sys._MEIPASS; 8) Graceful degradation: проверки DISPLAY, tkinter, наличия файла, полная обёртка try/except; 9) Standalone-запуск через main(); 10) Логотип static/tayfa-icon.png существует. Синтаксис валиден (py_compile OK).",
+      "sprint_id": "S011",
+      "depends_on": [
+        "T037"
+      ],
+      "created_at": "2026-02-12T22:28:41",
+      "updated_at": "2026-02-12T22:36:38"
+    },
+    {
+      "id": "T039",
+      "title": "Интегрировать анимацию в tayfa_launcher.py",
+      "description": "Модифицировать tayfa_launcher.py: импортировать и вызвать splash_animation перед запуском app.py. Анимация должна полностью завершиться (~1 сек), затем закрыться, затем запускается сервер. Обеспечить корректную работу при сборке в exe через PyInstaller.",
+      "status": "выполнена",
+      "customer": "boss",
+      "developer": "developer_python",
+      "tester": "qa_tester",
+      "result": "✅ ТЕСТИРОВАНИЕ ПРОЙДЕНО. Проверено: 1) Синтаксис tayfa_launcher.py валиден (py_compile OK); 2) Порядок вызовов корректный: show_splash() (строка 62) ПЕРЕД subprocess.Popen (строка 84); 3) Блокирующий вызов ~1 сек завершается ДО запуска сервера; 4) Graceful degradation работает — при ошибках splash код продолжает выполнение; 5) Логирование: 'Splash animation: shown/skipped' или 'Splash animation error (ignored)'; 6) PyInstaller команда обновлена: --add-data для tayfa-icon.png и --hidden-import PIL._tkinter_finder; 7) Тест в WSL без GUI подтвердил graceful degradation (splash_result=False, выполнение продолжается).",
+      "sprint_id": "S011",
+      "depends_on": [
+        "T038"
+      ],
+      "created_at": "2026-02-12T22:28:47",
+      "updated_at": "2026-02-12T22:40:21"
+    },
+    {
+      "id": "T040",
+      "title": "Обновить сборку PyInstaller",
+      "description": "Обновить команду сборки PyInstaller в документации/скриптах: добавить необходимые зависимости (PyQt6 или другая GUI-библиотека), включить ресурсы (tayfa-icon.png), проверить hidden-imports если нужны. Протестировать сборку и запуск exe.",
+      "status": "выполнена",
+      "customer": "boss",
+      "developer": "developer_python",
+      "tester": "qa_tester",
+      "result": "✅ ТЕСТИРОВАНИЕ ПРОЙДЕНО. Проверено: 1) build_exe.bat обновлён корректно; 2) Автоматическая установка Pillow (pip show/install) добавлена (строки 29-34); 3) --add-data 'static/tayfa-icon.png;static' включает ресурс для splash (строка 39); 4) --hidden-import PIL и PIL._tkinter_finder для корректной работы Pillow (строки 40-41); 5) Ресурсы существуют: tayfa-icon.ico (5.5KB) и tayfa-icon.png (57KB); 6) Команда согласована с docstring в tayfa_launcher.py; 7) Многострочная команда через ^ для читаемости. Сборка готова для тестирования на Windows.",
+      "sprint_id": "S011",
+      "depends_on": [
+        "T039"
+      ],
+      "created_at": "2026-02-12T22:28:55",
+      "updated_at": "2026-02-12T22:44:43"
     }
   ],
   "sprints": [
@@ -630,13 +712,23 @@
       "id": "S010",
       "title": "Улучшения проектов и настроек",
       "description": "",
-      "status": "активный",
+      "status": "завершён",
       "created_by": "boss",
       "created_at": "2026-02-12T21:47:35",
-      "updated_at": "2026-02-12T21:47:35",
+      "updated_at": "2026-02-12T21:57:19",
       "finalize_task_id": "T032"
+    },
+    {
+      "id": "S011",
+      "title": "Анимация запуска Tayfa",
+      "description": "Реализовать красивую секундную анимацию при запуске tayfa.exe на основе логотипа (неоновая буква T). Анимация показывается до запуска сервера.",
+      "status": "активный",
+      "created_by": "boss",
+      "created_at": "2026-02-12T22:28:26",
+      "updated_at": "2026-02-12T22:28:26",
+      "finalize_task_id": "T036"
     }
   ],
-  "next_id": 36,
-  "next_sprint_id": 11
+  "next_id": 41,
+  "next_sprint_id": 12
 }

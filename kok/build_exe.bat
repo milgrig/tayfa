@@ -26,8 +26,20 @@ if %errorlevel% neq 0 (
     )
 )
 
+REM Ensure Pillow is installed (required for splash animation)
+pip show Pillow >nul 2>&1
+if %errorlevel% neq 0 (
+    echo   Installing Pillow...
+    pip install Pillow
+)
+
 echo   Running PyInstaller...
-pyinstaller --onefile --noconsole --icon=static/tayfa-icon.ico --name=Tayfa --distpath=. --clean -y tayfa_launcher.py
+pyinstaller --onefile --noconsole ^
+    --icon=static/tayfa-icon.ico ^
+    --add-data "static/tayfa-icon.png;static" ^
+    --hidden-import PIL ^
+    --hidden-import PIL._tkinter_finder ^
+    --name=Tayfa --distpath=. --clean -y tayfa_launcher.py
 
 if %errorlevel% neq 0 (
     echo   [!] PyInstaller failed.
