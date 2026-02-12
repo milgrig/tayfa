@@ -17,6 +17,8 @@ import re
 import sys
 from pathlib import Path
 from datetime import date
+import urllib.request
+import urllib.error
 
 # Базовая папка .tayfa — на уровень выше hr/
 SCRIPT_DIR = Path(__file__).resolve().parent
@@ -27,6 +29,25 @@ INCOME_DIR = SCRIPT_DIR / "Income"
 # Импортируем менеджер сотрудников для регистрации в едином реестре
 sys.path.insert(0, str(TAYFA_DIR / "common"))
 from employee_manager import register_employee as _register_in_registry
+
+
+def notify_orchestrator() -> None:
+    """
+    Уведомляет оркестратор о необходимости создать агента.
+    При ошибке соединения — выводит предупреждение, не падает.
+    """
+    try:
+        req = urllib.request.Request(
+            'http://localhost:8767/api/ensure-agents',
+            method='POST',
+            data=b'',
+            headers={'Content-Type': 'application/json'}
+        )
+        with urllib.request.urlopen(req, timeout=5) as resp:
+            if resp.status == 200:
+                print('  [OK] Агент создан в оркестраторе')
+    except (urllib.error.URLError, TimeoutError, OSError):
+        print('  [WARN] Оркестратор недоступен, запустите его и нажмите "Обеспечить агентов"')
 
 
 def validate_name(name: str) -> bool:
@@ -178,6 +199,8 @@ _Нет истории_
     reg_result = _register_in_registry(name, role)
     if reg_result["status"] == "created":
         print(f"  [OK] {name}: зарегистрирован в employees.json")
+        # Автоматический provision агента в оркестраторе
+        notify_orchestrator()
     elif reg_result["status"] == "exists":
         print(f"  [INFO] {name}: уже в employees.json")
 
