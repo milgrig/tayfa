@@ -1,0 +1,12 @@
+{
+  "employees": {
+    "boss": {
+      "role": "Руководитель",
+      "created_at": "auto"
+    },
+    "hr": {
+      "role": "HR-менеджер",
+      "created_at": "auto"
+    }
+  }
+}

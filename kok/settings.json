@@ -1,0 +1,20 @@
+{
+  "theme": "dark",
+  "port": 8008,
+  "language": "ru",
+  "autoOpenBrowser": true,
+  "maxConcurrentTasks": 5,
+  "version": {
+    "major": 0,
+    "minor": 1,
+    "patch": 0,
+    "autoIncrement": "minor"
+  },
+  "git": {
+    "userName": "milgrig",
+    "userEmail": "milgrig@gmail.com",
+    "defaultBranch": "main",
+    "remoteUrl": "https://github.com/milgrig/tayfa.git",
+    "githubToken": ""
+  }
+}
