@@ -1,0 +1,28 @@
+{
+  "employees": {
+    "boss": {
+      "role": "Руководитель",
+      "created_at": "auto"
+    },
+    "hr": {
+      "role": "HR-менеджер",
+      "created_at": "auto"
+    },
+    "developer_frontend": {
+      "role": "Frontend-разработчик",
+      "created_at": "2026-02-12"
+    },
+    "developer_backend": {
+      "role": "Backend-разработчик",
+      "created_at": "2026-02-12"
+    },
+    "devops": {
+      "role": "Devops",
+      "created_at": "2026-02-12"
+    },
+    "qa_tester": {
+      "role": "Qa Tester",
+      "created_at": "2026-02-12"
+    }
+  }
+}

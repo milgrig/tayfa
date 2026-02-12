@@ -1,0 +1,33 @@
+# Cursor CLI
+.cursor_cli_prompt.txt
+.cursor_chats.json
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+venv/
+.venv/
+
+# IDE / OS
+.idea/
+.vscode/
+Thumbs.db
+.DS_Store
+
+# Логи
+logs/
+*.jsonl
+*.log
+
+# Временные файлы оркестратора
+_task_*.txt
+
+# Windows-артефакты
+*.lnk
+
+# Секреты
+.env
+*.key
+*.pem
+credentials.*
