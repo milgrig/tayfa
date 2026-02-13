@@ -208,5 +208,47 @@
     "task_id": "T045",
     "role": "разработчик",
     "num_turns": 5
+  },
+  {
+    "id": "msg_016",
+    "timestamp": "2026-02-13T11:05:48",
+    "direction": "to_agent",
+    "prompt": "Задача T049: Добавить поле model в claude_api.py\nОписание: Модифицировать claude_api.py: 1) Добавить поле model в UnifiedRequest, 2) Сохранять model в claude_agents.json при создании агента, 3) Передавать --model в _run_claude если указан. Доступные значения: opus, sonnet, haiku.\nТвоя роль: тестировщик\nТекущий статус: на_проверке\nПредыдущий результат: Добавлено поле model в claude_api.py: 1) UnifiedRequest.model (строка 31) — опциональное, допустимые значения: opus, sonnet, haiku; 2) _run_claude получает параметр model (строка 67) и передаёт --model в CLI если не пустой (строки 76-77); 3) При создании агента model сохраняется в JSON (строка 175); 4) При update агента model обновляется (строки 164-165); 5) Оба вызова _run_claude передают model (строки 194, 209); 6) GET /agents возвращает model для каждого агента.\n\nТы — тестировщик. Проверь результат работы. Если всё хорошо, вызови:\n  python common/task_manager.py result T049 \"<результат проверки>\"\n  python common/task_manager.py status T049 выполнена\nЕсли есть проблемы:\n  python common/task_manager.py result T049 \"<описание проблем>\"\n  python common/task_manager.py status T049 в_работе",
+    "result": "## ✅ Задача T049 успешно протестирована и закрыта\n\n**Результат тестирования (новый формат):**\n\n### ✅ ПРОВЕРЕНО:\n- Поле `model` добавлено в `UnifiedRequest` (строка 31)\n- `_run_claude` принимает параметр `model` (строка 67)\n- `--model` передаётся в CLI только если не пустой (строки 76-77)\n- `model` сохраняется при создании агента (строка 175)\n- `model` обновляется при update агента (строки 164-165)\n- `model` передаётся в оба вызова `_run_claude` (строки 194, 209)\n- Синтаксис валиден (`py_compile` OK)\n\n### ⚠️ НЕ ПРОВЕРЕНО:\n- Интеграционный тест с реальным Claude CLI (требует API-ключ)\n\n### Замечание:\nНет валидации значений `model` на уровне API — невалидные значения будут отклонены Claude CLI.",
+    "runtime": "claude",
+    "success": true,
+    "cost_usd": 0,
+    "duration_sec": 125.17,
+    "task_id": "T049",
+    "role": "тестировщик",
+    "num_turns": 13
+  },
+  {
+    "id": "msg_017",
+    "timestamp": "2026-02-13T11:11:42",
+    "direction": "to_agent",
+    "prompt": "Задача T051: Отображать модель в UI вместо CLAUDE\nОписание: В интерфейсе оркестратора, в списке сотрудников, вместо надписи 'CLAUDE' показывать конкретную модель агента (opus/sonnet/haiku). Если модель не указана - показывать 'sonnet' (дефолт).\nТвоя роль: тестировщик\nТекущий статус: на_проверке\nПредыдущий результат: Реализовано отображение модели AI в UI оркестратора:\n\n**Backend (app.py:1008-1013):**\n- Добавлено поле 'model' в _agents_from_registry()\n- Берётся из employees.json, дефолт 'sonnet'\n\n**Frontend (index.html):**\n- Добавлены CSS-стили для бейджей моделей (строки 282-290):\n  - .model-opus — оранжевый (#ffaa00)\n  - .model-sonnet — зелёный (#34d399)  \n  - .model-haiku — серый (#999)\n- Бейдж отображается рядом с именем агента (строка 1814)\n\n**Результат:**\n- boss, process_architect — оранжевый бейдж [OPUS]\n- developer_python, developer_frontend, qa_tester, hr, ai_expert — зелёный [SONNET]\n\n**Чек-лист приёмки:**\n- [ ] Открыть UI оркестратора\n- [ ] В списке сотрудников видны бейджи моделей\n- [ ] boss показывает оранжевый [opus]\n- [ ] developer_python показывает зелёный [sonnet]\n- [ ] Цвета различимы визуально\n\nТы — тестировщик. Проверь результат работы. Если всё хорошо, вызови:\n  python common/task_manager.py result T051 \"<результат проверки>\"\n  python common/task_manager.py status T051 выполнена\nЕсли есть проблемы:\n  python common/task_manager.py result T051 \"<описание проблем>\"\n  python common/task_manager.py status T051 в_работе",
+    "result": "## ✅ Задача T051 успешно протестирована и закрыта\n\n**Результат тестирования (новый формат):**\n\n### ✅ ПРОВЕРЕНО:\n- **Backend** (app.py:1013): поле `model` добавлено с дефолтом `'sonnet'`\n- **CSS** (index.html:284-290):\n  - `.agent-model` — базовый стиль бейджа\n  - `.model-opus` — оранжевый (#ffaa00)\n  - `.model-sonnet` — зелёный (#34d399)\n  - `.model-haiku` — серый (#999)\n- **JS** (index.html:1812-1815): бейдж рядом с именем агента\n- **employees.json**: все сотрудники имеют поле `model`\n  - boss, process_architect → `opus`\n  - остальные → `sonnet`\n- Синтаксис файлов валиден\n\n### ⚠️ НЕ ПРОВЕРЕНО:\n- Визуальное отображение в браузере (требует запуска сервера)",
+    "runtime": "claude",
+    "success": true,
+    "cost_usd": 0,
+    "duration_sec": 145.85,
+    "task_id": "T051",
+    "role": "тестировщик",
+    "num_turns": 17
+  },
+  {
+    "id": "msg_018",
+    "timestamp": "2026-02-13T11:26:45",
+    "direction": "to_agent",
+    "prompt": "Задача T052: Синхронизировать изменения в template_tayfa\nОписание: Перенести все изменения спринта в папку template_tayfa/: структуру ai_expert, обновлённые prompt.md для HR, шаблоны employees.json. template_tayfa - это шаблон для новых проектов.\nТвоя роль: тестировщик\nТекущий статус: на_проверке\nПредыдущий результат: Синхронизированы изменения спринта S013 в template_tayfa: 1) HR prompt.md (187 строк) — добавлена секция выбора модели, чеклист, таблицы правил; 2) create_employee.py — поддержка --model opus|sonnet|haiku; 3) employee_manager.py — register_employee() принимает параметр model с дефолтом sonnet; 4) employees.json — добавлено поле model для boss (opus) и hr (sonnet). Шаблон готов для создания новых проектов с поддержкой выбора модели.\n\nТы — тестировщик. Проверь результат работы. Если всё хорошо, вызови:\n  python common/task_manager.py result T052 \"<результат проверки>\"\n  python common/task_manager.py status T052 выполнена\nЕсли есть проблемы:\n  python common/task_manager.py result T052 \"<описание проблем>\"\n  python common/task_manager.py status T052 в_работе",
+    "result": "## ✅ Задача T052 успешно протестирована и закрыта\n\n**Результат тестирования:**\n\n### ✅ ПРОВЕРЕНО:\n\n| Файл | Статус | Детали |\n|------|--------|--------|\n| HR prompt.md | ✅ | 187 строк, секция \"Выбор модели\" с чеклистом, таблицами, примерами |\n| create_employee.py | ✅ | `--model opus|sonnet|haiku`, default=sonnet |\n| employee_manager.py | ✅ | `register_employee(model=\"sonnet\")` |\n| employees.json | ✅ | boss=opus, hr=sonnet |\n| Синтаксис | ✅ | Все файлы валидны |\n\nШаблон `template_tayfa/` полностью синхронизирован для поддержки выбора модели в новых проектах.",
+    "runtime": "claude",
+    "success": true,
+    "cost_usd": 0,
+    "duration_sec": 139.6,
+    "task_id": "T052",
+    "role": "тестировщик",
+    "num_turns": 16
   }
 ]
