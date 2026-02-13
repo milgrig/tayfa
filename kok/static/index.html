@@ -1,0 +1,3915 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Tayfa — Оркестратор</title>
+    <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
+    <link rel="icon" type="image/png" href="/static/tayfa-icon.png">
+    <style>
+        :root, [data-theme="dark"] {
+            --bg: #0f1117;
+            --bg-card: #1a1d27;
+            --bg-card-hover: #22263a;
+            --bg-input: #12141c;
+            --border: #2a2e3e;
+            --border-active: #4f6ef7;
+            --text: #e1e4ed;
+            --text-dim: #7a7f92;
+            --text-bright: #ffffff;
+            --accent: #4f6ef7;
+            --accent-hover: #6b84ff;
+            --success: #34d399;
+            --warning: #fbbf24;
+            --danger: #f87171;
+            --purple: #a78bfa;
+            --font: 'Segoe UI', -apple-system, BlinkMacSystemFont, sans-serif;
+            --mono: 'Cascadia Code', 'Fira Code', 'Consolas', monospace;
+            --radius: 10px;
+            --shadow: 0 4px 24px rgba(0,0,0,0.3);
+        }
+
+        [data-theme="light"] {
+            --bg: #f0f2f5;
+            --bg-card: #ffffff;
+            --bg-card-hover: #e8eaed;
+            --bg-input: #ffffff;
+            --border: #c9cdd4;
+            --border-active: #4f6ef7;
+            --text: #24292e;
+            --text-dim: #525960;
+            --text-bright: #1b1f23;
+            --accent: #4f6ef7;
+            --accent-hover: #3a5bd9;
+            --success: #22c55e;
+            --warning: #f59e0b;
+            --danger: #ef4444;
+            --purple: #8b5cf6;
+            --shadow: 0 2px 8px rgba(0,0,0,0.08);
+        }
+
+        [data-theme="blue"] {
+            --bg: #0a192f;
+            --bg-card: #112240;
+            --bg-card-hover: #1d3557;
+            --bg-input: #0a192f;
+            --border: #233554;
+            --border-active: #64ffda;
+            --text: #8892b0;
+            --text-dim: #495670;
+            --text-bright: #ccd6f6;
+            --accent: #64ffda;
+            --accent-hover: #4fd1c5;
+            --success: #64ffda;
+            --warning: #ffd166;
+            --danger: #ff6b6b;
+            --purple: #bd93f9;
+        }
+
+        [data-theme="girly"] {
+            --bg: #1a1218;
+            --bg-card: #251a22;
+            --bg-card-hover: #2f2329;
+            --bg-input: #1a1218;
+            --border: #3d2d38;
+            --border-active: #e879a9;
+            --text: #e8d5e0;
+            --text-dim: #9a8492;
+            --text-bright: #fff0f5;
+            --accent: #e879a9;
+            --accent-hover: #f4a0c4;
+            --success: #7dd3a8;
+            --warning: #f9c784;
+            --danger: #f87171;
+            --purple: #c4a7e7;
+            --shadow: 0 4px 24px rgba(232,121,169,0.15);
+        }
+
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            font-family: var(--font);
+            background: var(--bg);
+            color: var(--text);
+            min-height: 100vh;
+            overflow-x: hidden;
+        }
+
+        /* ── Header ─────────────────────── */
+        .header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 16px 28px;
+            border-bottom: 1px solid var(--border);
+            background: var(--bg-card);
+        }
+        .header h1 { font-size: 20px; font-weight: 700; color: var(--text-bright); letter-spacing: -0.3px; }
+        .header h1 span { color: var(--accent); }
+
+        .header-left { display: flex; align-items: center; gap: 16px; }
+
+        .current-project {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 6px 12px;
+            background: var(--bg-input);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            cursor: pointer;
+            transition: all 0.15s ease;
+        }
+        .current-project:hover {
+            background: var(--bg-card-hover);
+            border-color: var(--border-active);
+        }
+        .current-project .project-icon { font-size: 14px; }
+        .current-project .project-name {
+            font-size: 13px;
+            font-weight: 500;
+            color: var(--text);
+            max-width: 200px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        .status-bar { display: flex; gap: 16px; align-items: center; position: relative; }
+        .status-dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; margin-right: 6px; }
+        .status-dot.on { background: var(--success); box-shadow: 0 0 8px var(--success); }
+        .status-dot.off { background: var(--danger); box-shadow: 0 0 8px var(--danger); }
+        .status-dot.loading { background: var(--warning); animation: pulse 1s infinite; }
+        @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.3; } }
+        .status-item { font-size: 13px; color: var(--text-dim); display: flex; align-items: center; }
+
+        /* ── Git Status Indicator ─────────── */
+        .git-status-indicator { cursor: pointer; }
+        .git-status-indicator:hover { color: var(--text-bright); }
+        .git-branch-icon-header { font-family: monospace; margin-right: 4px; font-size: 14px; }
+        .git-dot { width: 8px; height: 8px; border-radius: 50%; margin-left: 6px; display: inline-block; }
+        .git-dot.clean { background: var(--success); box-shadow: 0 0 6px var(--success); }
+        .git-dot.dirty { background: var(--warning); box-shadow: 0 0 6px var(--warning); }
+        .git-dot.error { background: var(--danger); box-shadow: 0 0 6px var(--danger); }
+        .git-dot.loading { background: var(--text-dim); animation: pulse 1s infinite; }
+
+        /* ── Git Toast Notification ─────────── */
+        .git-toast {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            padding: 12px 20px;
+            border-radius: 8px;
+            font-size: 14px;
+            z-index: 10000;
+            animation: slideIn 0.3s ease, fadeOut 0.5s ease 4.5s forwards;
+            max-width: 400px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+        }
+        .git-toast.error { background: var(--danger); color: white; }
+        .git-toast.success { background: var(--success); color: white; }
+        .git-toast.warning { background: var(--warning); color: #333; }
+        @keyframes slideIn { from { transform: translateX(100%); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
+        @keyframes fadeOut { from { opacity: 1; } to { opacity: 0; visibility: hidden; } }
+
+        /* ── Settings Dropdown ─────────── */
+        .settings-btn {
+            padding: 6px 10px;
+            font-size: 16px;
+            background: transparent;
+            border: 1px solid transparent;
+            border-radius: 6px;
+            cursor: pointer;
+            color: var(--text-dim);
+            transition: all 0.15s;
+        }
+        .settings-btn:hover {
+            color: var(--text-bright);
+            background: var(--bg-card-hover);
+            border-color: var(--border);
+        }
+
+        .settings-dropdown {
+            position: absolute;
+            top: 100%;
+            right: 0;
+            margin-top: 8px;
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            box-shadow: var(--shadow);
+            min-width: 220px;
+            z-index: 100;
+            display: none;
+        }
+        .settings-dropdown.show { display: block; }
+
+        .settings-item {
+            padding: 12px 16px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            cursor: pointer;
+            font-size: 14px;
+            color: var(--text);
+            transition: background 0.12s;
+        }
+        .settings-item:first-child { border-radius: var(--radius) var(--radius) 0 0; }
+        .settings-item:last-child { border-radius: 0 0 var(--radius) var(--radius); }
+        .settings-item:hover { background: var(--bg-card-hover); }
+        .settings-item.danger { color: var(--danger); }
+        .settings-item span { font-size: 16px; width: 20px; text-align: center; }
+
+        .settings-divider {
+            height: 1px;
+            background: var(--border);
+            margin: 4px 0;
+        }
+
+        /* ── Buttons ────────────────────── */
+        .btn {
+            padding: 8px 16px; border: 1px solid var(--border); border-radius: 6px;
+            background: var(--bg-card); color: var(--text); font-size: 13px;
+            cursor: pointer; transition: all 0.15s ease; font-family: var(--font);
+        }
+        .btn:hover { background: var(--bg-card-hover); border-color: var(--border-active); }
+        .btn:disabled { opacity: 0.4; cursor: not-allowed; }
+        .btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
+        .btn.primary:hover { background: var(--accent-hover); }
+        .btn.danger { border-color: var(--danger); color: var(--danger); }
+        .btn.danger:hover { background: rgba(248,113,113,0.1); }
+        .btn.success { background: var(--success); border-color: var(--success); color: #fff; font-weight: 600; }
+        .btn.success:hover { background: #059669; }
+        .btn.sm { padding: 5px 10px; font-size: 12px; }
+        .btn.warning { border-color: var(--warning); color: var(--warning); }
+        .btn.warning:hover { background: rgba(251,191,36,0.1); }
+
+        /* ── Layout ─────────────────────── */
+        .main { display: grid; grid-template-columns: 320px 1fr; height: calc(100vh - 57px); }
+
+        /* ── Sidebar ────────────────────── */
+        .sidebar { border-right: 1px solid var(--border); overflow-y: auto; background: var(--bg-card); }
+        .sidebar-section { padding: 16px; border-bottom: 1px solid var(--border); }
+        .sidebar-section h3 {
+            font-size: 11px; text-transform: uppercase; letter-spacing: 1px;
+            color: var(--text-dim); margin-bottom: 12px;
+        }
+
+        .agent-list { list-style: none; }
+        .agent-item {
+            display: flex; align-items: center; justify-content: space-between;
+            padding: 10px 12px; border-radius: 8px; cursor: pointer;
+            transition: background 0.12s; margin-bottom: 2px;
+        }
+        .agent-item:hover { background: var(--bg-card-hover); }
+        .agent-item.active { background: rgba(79,110,247,0.12); border-left: 3px solid var(--accent); }
+        .agent-name { font-size: 14px; font-weight: 600; color: var(--text-bright); }
+        .agent-role { font-size: 11px; color: var(--text-dim); }
+        .agent-runtimes { display: flex; gap: 4px; flex-wrap: wrap; margin-top: 4px; }
+        .agent-runtime {
+            font-size: 9px; padding: 2px 6px; border-radius: 4px; font-weight: 600;
+            text-transform: uppercase; cursor: pointer; transition: all 0.15s ease;
+            user-select: none; border: 1px solid transparent;
+        }
+        .agent-runtime.claude { background: rgba(52,211,153,0.08); color: rgba(52,211,153,0.35); }
+        .agent-runtime.claude.selected { background: rgba(52,211,153,0.25); color: var(--success); border-color: var(--success); box-shadow: 0 0 6px rgba(52,211,153,0.3); }
+        .agent-runtime.claude:hover { background: rgba(52,211,153,0.15); color: rgba(52,211,153,0.6); }
+        .agent-runtime.claude.selected:hover { background: rgba(52,211,153,0.3); color: var(--success); }
+        .agent-runtime.cursor { background: rgba(79,110,247,0.08); color: rgba(79,110,247,0.35); }
+        .agent-runtime.cursor.selected { background: rgba(79,110,247,0.25); color: var(--accent); border-color: var(--accent); box-shadow: 0 0 6px rgba(79,110,247,0.3); }
+        .agent-runtime.cursor:hover { background: rgba(79,110,247,0.15); color: rgba(79,110,247,0.6); }
+        .agent-runtime.cursor.selected:hover { background: rgba(79,110,247,0.3); color: var(--accent); }
+
+        /* Model badges */
+        .agent-model {
+            font-size: 9px; padding: 1px 5px; border-radius: 3px; margin-left: 6px;
+            text-transform: uppercase; font-weight: 600; display: inline-block;
+        }
+        .model-opus { background: rgba(255,170,0,0.15); color: #ffaa00; }
+        .model-sonnet { background: rgba(52,211,153,0.15); color: #34d399; }
+        .model-haiku { background: rgba(150,150,150,0.15); color: #999; }
+
+        /* (send-target-row removed — runtime selection moved to agent sidebar badges) */
+
+        /* ── Content Area ───────────────── */
+        .content { display: flex; flex-direction: column; height: 100%; overflow: hidden; }
+        .content-header {
+            padding: 16px 24px; border-bottom: 1px solid var(--border);
+            display: flex; align-items: center; justify-content: space-between; min-height: 60px;
+        }
+        .content-header h2 { font-size: 16px; font-weight: 600; color: var(--text-bright); }
+
+        .chat-area {
+            flex: 1; overflow-y: auto; padding: 20px 24px;
+            display: flex; flex-direction: column; gap: 16px;
+        }
+
+        .message {
+            max-width: 90%; padding: 14px 18px; border-radius: var(--radius);
+            font-size: 14px; line-height: 1.6; white-space: pre-wrap; word-wrap: break-word;
+        }
+        .message.user { align-self: flex-end; background: var(--accent); color: #fff; border-bottom-right-radius: 2px; }
+        .message.agent { align-self: flex-start; background: var(--bg-card); color: var(--text); border: 1px solid var(--border); border-bottom-left-radius: 2px; }
+        .message.system { align-self: center; background: rgba(79,110,247,0.08); color: var(--text-dim); font-size: 13px; padding: 8px 16px; border-radius: 20px; }
+        .message.error { align-self: center; background: rgba(248,113,113,0.1); color: var(--danger); font-size: 13px; padding: 8px 16px; border-radius: 20px; }
+        .message .meta { font-size: 11px; color: var(--text-dim); margin-top: 8px; display: flex; gap: 12px; flex-wrap: wrap; }
+        .message.agent .meta { color: var(--text-dim); }
+        .message.user .meta { color: rgba(255,255,255,0.7); justify-content: flex-end; }
+
+        /* Индикатор загрузки истории чата */
+        .chat-loading {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            padding: 40px;
+            color: var(--text-dim);
+            gap: 12px;
+        }
+        .chat-loading-spinner {
+            width: 32px;
+            height: 32px;
+            border: 3px solid var(--border);
+            border-top-color: var(--accent);
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+        .chat-empty {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            padding: 40px;
+            color: var(--text-dim);
+            text-align: center;
+        }
+
+        .typing-indicator { display: none; align-self: flex-start; padding: 12px 18px; background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius); gap: 4px; }
+        .typing-indicator.show { display: flex; }
+        .typing-indicator span { width: 6px; height: 6px; background: var(--text-dim); border-radius: 50%; animation: bounce 1.4s infinite; }
+        .typing-indicator span:nth-child(2) { animation-delay: 0.2s; }
+        .typing-indicator span:nth-child(3) { animation-delay: 0.4s; }
+        @keyframes bounce { 0%,60%,100% { transform: translateY(0); } 30% { transform: translateY(-6px); } }
+
+        /* ── Input Area ─────────────────── */
+        .input-area { padding: 16px 24px; border-top: 1px solid var(--border); display: flex; gap: 10px; align-items: flex-end; }
+        .input-area textarea {
+            flex: 1; background: var(--bg-input); border: 1px solid var(--border);
+            border-radius: 8px; padding: 12px 14px; color: var(--text);
+            font-family: var(--font); font-size: 14px; resize: none;
+            min-height: 44px; max-height: 200px; outline: none; transition: border-color 0.15s;
+        }
+        .input-area textarea:focus { border-color: var(--accent); }
+        .input-area textarea::placeholder { color: var(--text-dim); }
+
+        /* ── Welcome ────────────────────── */
+        .welcome { display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%; gap: 16px; color: var(--text-dim); }
+        .welcome h2 { font-size: 22px; color: var(--text-bright); }
+        .welcome p { font-size: 14px; max-width: 500px; text-align: center; line-height: 1.6; }
+        .welcome .actions { display: flex; gap: 10px; margin-top: 10px; }
+
+        .empty-state { font-size: 13px; color: var(--text-dim); text-align: center; padding: 16px; }
+
+        /* ── Modal ──────────────────────── */
+        .modal-overlay {
+            position: fixed; inset: 0; background: rgba(0,0,0,0.5);
+            backdrop-filter: blur(4px); display: none; align-items: center;
+            justify-content: center; z-index: 1100;  /* Выше project-picker (1000) */
+        }
+        .modal-overlay.show { display: flex; }
+        .modal {
+            background: var(--bg-card); border: 1px solid var(--border);
+            border-radius: 12px; padding: 24px; width: 600px; max-height: 80vh;
+            overflow-y: auto; box-shadow: var(--shadow);
+        }
+        .modal h3 { font-size: 16px; margin-bottom: 16px; color: var(--text-bright); }
+        .modal pre {
+            background: var(--bg-input); border: 1px solid var(--border);
+            border-radius: 6px; padding: 12px; font-family: var(--mono);
+            font-size: 12px; overflow-x: auto; margin-bottom: 16px; color: var(--text);
+        }
+        .modal .btn-group { display: flex; gap: 8px; justify-content: flex-end; }
+        .modal label { display: block; font-size: 13px; color: var(--text-dim); margin-bottom: 4px; margin-top: 12px; }
+        .modal input, .modal textarea, .modal select {
+            width: 100%; background: var(--bg-input); border: 1px solid var(--border);
+            border-radius: 6px; padding: 8px 12px; color: var(--text);
+            font-family: var(--font); font-size: 13px; outline: none;
+        }
+        .modal input:focus, .modal textarea:focus, .modal select:focus { border-color: var(--accent); }
+
+        /* ── Scrollbar ──────────────────── */
+        ::-webkit-scrollbar { width: 6px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+        ::-webkit-scrollbar-thumb:hover { background: var(--text-dim); }
+
+        /* ── Theme Selector ────────────── */
+        .theme-select {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            color: var(--text);
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 12px;
+            cursor: pointer;
+            transition: border-color 0.15s;
+        }
+        .theme-select:hover { border-color: var(--border-active); }
+        .theme-select:focus { outline: none; border-color: var(--accent); }
+
+        /* ── Project Picker ────────────── */
+        .project-picker {
+            position: fixed;
+            inset: 0;
+            background: var(--bg);
+            display: none;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            z-index: 1000;
+        }
+        .project-picker.show { display: flex; }
+
+        .project-picker-card {
+            position: relative;
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            padding: 32px;
+            width: 100%;
+            max-width: 480px;
+            box-shadow: var(--shadow);
+        }
+
+        .project-picker-logo {
+            text-align: center;
+            margin-bottom: 8px;
+        }
+        .project-picker-logo h1 {
+            font-size: 28px;
+            color: var(--text-bright);
+        }
+        .project-picker-logo h1 span { color: var(--accent); }
+
+        .project-picker h2 {
+            text-align: center;
+            font-size: 14px;
+            color: var(--text-dim);
+            margin-bottom: 24px;
+            font-weight: 400;
+        }
+
+        .project-list {
+            max-height: 400px;
+            overflow-y: auto;
+            margin-bottom: 16px;
+        }
+
+        .project-item {
+            padding: 16px;
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            margin-bottom: 8px;
+            cursor: pointer;
+            transition: all 0.15s ease;
+            display: flex;
+            align-items: flex-start;
+            gap: 12px;
+        }
+        .project-item:hover {
+            background: var(--bg-card-hover);
+            border-color: var(--border-active);
+        }
+        .project-item:last-child { margin-bottom: 0; }
+
+        .project-item-icon {
+            font-size: 24px;
+            flex-shrink: 0;
+            margin-top: 2px;
+        }
+
+        .project-item-info { flex: 1; min-width: 0; }
+
+        .project-item-name {
+            font-size: 16px;
+            font-weight: 600;
+            color: var(--text-bright);
+            margin-bottom: 4px;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .project-item-path {
+            font-size: 12px;
+            color: var(--text-dim);
+            font-family: var(--mono);
+            margin-bottom: 4px;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .project-item-time {
+            font-size: 11px;
+            color: var(--text-dim);
+        }
+
+        .project-item-remove {
+            opacity: 0;
+            color: var(--danger);
+            font-size: 18px;
+            cursor: pointer;
+            padding: 4px;
+            transition: opacity 0.15s;
+        }
+        .project-item:hover .project-item-remove { opacity: 0.6; }
+        .project-item-remove:hover { opacity: 1 !important; }
+
+        .project-empty {
+            text-align: center;
+            padding: 32px;
+            color: var(--text-dim);
+        }
+        .project-empty-icon { font-size: 48px; margin-bottom: 12px; opacity: 0.5; }
+        .project-empty.welcome-message h3 {
+            color: var(--text-primary);
+            margin: 0 0 0.5rem;
+            font-size: 1.25rem;
+        }
+        .project-empty.welcome-message .project-empty-icon {
+            opacity: 1;
+        }
+
+        .project-picker-actions {
+            display: flex;
+            gap: 8px;
+        }
+        .project-picker-actions .btn { flex: 1; justify-content: center; }
+
+        /* Кнопка закрытия project-picker */
+        .project-picker-close {
+            position: absolute;
+            top: 16px;
+            right: 16px;
+            background: transparent;
+            border: none;
+            font-size: 24px;
+            color: var(--text-dim);
+            cursor: pointer;
+            width: 32px;
+            height: 32px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 4px;
+            transition: all 0.15s ease;
+        }
+        .project-picker-close:hover {
+            color: var(--text);
+            background: var(--bg-card-hover);
+        }
+        .project-picker-close:disabled {
+            opacity: 0.3;
+            cursor: not-allowed;
+        }
+        .project-picker-close:disabled:hover {
+            color: var(--text-dim);
+            background: transparent;
+        }
+
+        @media (max-width: 768px) { .main { grid-template-columns: 1fr; } .sidebar { display: none; } }
+
+        /* ── Tasks Board ───────────────── */
+        .tasks-board-wrap { flex: 1; overflow-y: auto; padding: 20px 24px; }
+
+        /* Sprint sections */
+        .sprint-section {
+            margin-bottom: 16px; border: 1px solid var(--border);
+            border-radius: 12px; overflow: hidden; background: var(--bg-card);
+        }
+        .sprint-header {
+            display: flex; align-items: center; justify-content: space-between;
+            padding: 14px 18px; cursor: pointer; user-select: none;
+            transition: background 0.15s; gap: 12px;
+        }
+        .sprint-header:hover { background: var(--bg-card-hover); }
+        .sprint-header-left { display: flex; align-items: center; gap: 10px; flex: 1; min-width: 0; }
+        .sprint-toggle {
+            font-size: 12px; color: var(--text-dim); transition: transform 0.2s;
+            width: 20px; text-align: center; flex-shrink: 0;
+        }
+        .sprint-toggle.open { transform: rotate(90deg); }
+        .sprint-id { font-size: 11px; color: var(--accent); font-family: var(--mono); font-weight: 600; flex-shrink: 0; }
+        .sprint-title { font-size: 14px; font-weight: 600; color: var(--text-bright); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .sprint-meta { display: flex; gap: 8px; align-items: center; flex-shrink: 0; }
+        .sprint-badge {
+            font-size: 10px; padding: 2px 8px; border-radius: 10px; font-weight: 600;
+        }
+        .sprint-badge.active { background: rgba(79,110,247,0.15); color: var(--accent); }
+        .sprint-badge.done { background: rgba(52,211,153,0.15); color: var(--success); }
+        .sprint-progress { font-size: 11px; color: var(--text-dim); }
+        .sprint-body { display: none; padding: 0 18px 18px; }
+        .sprint-body.open { display: block; }
+        .sprint-desc { font-size: 12px; color: var(--text-dim); margin-bottom: 12px; line-height: 1.5; }
+
+        .tasks-columns {
+            display: grid; grid-template-columns: repeat(5, 1fr); gap: 12px; min-height: 120px;
+        }
+        .tasks-column { background: var(--bg-input); border-radius: 10px; padding: 12px; min-width: 0; }
+        .tasks-column-title {
+            font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px;
+            margin-bottom: 10px; padding-bottom: 8px; border-bottom: 2px solid var(--border);
+            display: flex; align-items: center; gap: 8px;
+        }
+        .tasks-column-title .count {
+            font-size: 10px; padding: 1px 7px; border-radius: 10px;
+            background: rgba(79,110,247,0.15); color: var(--accent);
+        }
+        .col-новая .tasks-column-title { border-bottom-color: var(--text-dim); color: var(--text-dim); }
+        .col-в_работе .tasks-column-title { border-bottom-color: var(--accent); color: var(--accent); }
+        .col-на_проверке .tasks-column-title { border-bottom-color: var(--warning); color: var(--warning); }
+        .col-выполнена .tasks-column-title { border-bottom-color: var(--success); color: var(--success); }
+        .col-отменена .tasks-column-title { border-bottom-color: var(--danger); color: var(--danger); }
+
+        .task-card {
+            background: var(--bg-card); border: 1px solid var(--border); border-radius: 8px;
+            padding: 12px; margin-bottom: 8px; transition: border-color 0.15s;
+        }
+        .task-card:hover { border-color: var(--border-active); }
+        .task-card-id { font-size: 11px; color: var(--text-dim); font-family: var(--mono); }
+        .task-card-title { font-size: 13px; font-weight: 600; color: var(--text-bright); margin: 4px 0 8px; }
+        .task-card-roles { font-size: 11px; color: var(--text-dim); line-height: 1.6; }
+        .task-card-roles strong { color: var(--text); }
+        .task-card-actions { margin-top: 10px; display: flex; gap: 6px; flex-wrap: wrap; }
+        .task-card-result { margin-top: 8px; font-size: 11px; color: var(--text-dim); background: var(--bg-input); padding: 6px 8px; border-radius: 4px; max-height: 60px; overflow-y: auto; }
+        .task-card-deps { margin-top: 6px; font-size: 11px; color: var(--purple); }
+        .task-card-deps .dep-tag {
+            display: inline-block; padding: 1px 6px; border-radius: 4px;
+            background: rgba(167,139,250,0.1); margin-right: 4px; font-family: var(--mono);
+        }
+        .task-card-finalize { border-left: 3px solid var(--purple); }
+
+        /* ── Sprint Toolbar ─────────── */
+        .sprint-toolbar {
+            display: flex; gap: 10px; align-items: center; margin-bottom: 14px;
+            padding: 10px 14px; background: var(--bg-input); border-radius: 8px;
+            border: 1px solid var(--border);
+        }
+        .sprint-toolbar .btn.auto-run {
+            background: rgba(52,211,153,0.12); border-color: var(--success); color: var(--success);
+            font-weight: 600; gap: 6px; display: inline-flex; align-items: center;
+        }
+        .sprint-toolbar .btn.auto-run:hover { background: rgba(52,211,153,0.22); }
+        .sprint-toolbar .btn.auto-stop {
+            background: rgba(248,113,113,0.12); border-color: var(--danger); color: var(--danger);
+            font-weight: 600; gap: 6px; display: inline-flex; align-items: center;
+        }
+        .sprint-toolbar .btn.auto-stop:hover { background: rgba(248,113,113,0.22); }
+        .auto-run-progress {
+            display: inline-flex; align-items: center; gap: 8px; font-size: 12px;
+            color: var(--accent); padding: 4px 12px; background: rgba(79,110,247,0.08);
+            border-radius: 16px;
+        }
+        .auto-run-progress .spinner {
+            width: 14px; height: 14px; border: 2px solid rgba(79,110,247,0.3);
+            border-top-color: var(--accent); border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+        }
+        .max-concurrent-inline {
+            display: flex; align-items: center; gap: 6px; margin-left: auto;
+        }
+        .max-concurrent-inline label {
+            font-size: 11px; color: var(--text-dim); white-space: nowrap;
+        }
+        .max-concurrent-inline input {
+            width: 48px; padding: 4px 6px; background: var(--bg-card); border: 1px solid var(--border);
+            border-radius: 4px; color: var(--text); font-size: 13px; text-align: center;
+            font-family: var(--mono);
+        }
+        .max-concurrent-inline input:focus { border-color: var(--accent); outline: none; }
+
+        /* ── Running task animation ──── */
+        .task-card.running {
+            border-color: var(--accent);
+            box-shadow: 0 0 12px rgba(79,110,247,0.2);
+            animation: taskRunningGlow 2s ease-in-out infinite;
+            position: relative;
+            overflow: hidden;
+        }
+        .task-card.running::before {
+            content: '';
+            position: absolute;
+            top: 0; left: -100%;
+            width: 100%; height: 2px;
+            background: linear-gradient(90deg, transparent, var(--accent), transparent);
+            animation: taskRunningBar 2s linear infinite;
+        }
+        @keyframes taskRunningGlow {
+            0%, 100% { box-shadow: 0 0 8px rgba(79,110,247,0.15); }
+            50% { box-shadow: 0 0 20px rgba(79,110,247,0.35); }
+        }
+        @keyframes taskRunningBar {
+            0% { left: -100%; }
+            100% { left: 100%; }
+        }
+
+        .task-running-badge {
+            display: inline-flex; align-items: center; gap: 6px;
+            font-size: 11px; font-weight: 600; color: var(--accent);
+            background: rgba(79,110,247,0.1); padding: 4px 10px;
+            border-radius: 20px; margin-top: 8px;
+        }
+        .task-running-badge .spinner {
+            width: 12px; height: 12px; border: 2px solid rgba(79,110,247,0.3);
+            border-top-color: var(--accent); border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        .task-running-badge .elapsed {
+            color: var(--text-dim); font-weight: 400;
+        }
+
+        .btn.running {
+            background: rgba(79,110,247,0.15) !important;
+            border-color: var(--accent) !important;
+            color: var(--accent) !important;
+            cursor: wait !important;
+            position: relative;
+            padding-left: 28px;
+        }
+        .btn.running::before {
+            content: '';
+            position: absolute; left: 10px; top: 50%;
+            width: 12px; height: 12px;
+            margin-top: -6px;
+            border: 2px solid rgba(79,110,247,0.3);
+            border-top-color: var(--accent);
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+        }
+
+        /* ── Git Section ───────────────── */
+        .git-status-card {
+            background: var(--bg-input);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 12px;
+            margin-bottom: 10px;
+        }
+        .git-branch-row {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-bottom: 8px;
+        }
+        .git-branch-icon { font-size: 16px; }
+        .git-branch-name {
+            font-family: var(--mono);
+            font-size: 13px;
+            font-weight: 600;
+            color: var(--text-bright);
+        }
+        .git-status-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            flex-shrink: 0;
+        }
+        .git-status-dot.clean { background: var(--success); box-shadow: 0 0 6px var(--success); }
+        .git-status-dot.dirty { background: var(--warning); box-shadow: 0 0 6px var(--warning); }
+        .git-changes {
+            font-size: 11px;
+            color: var(--text-dim);
+            font-family: var(--mono);
+        }
+        .git-changes .staged { color: var(--success); }
+        .git-changes .unstaged { color: var(--warning); }
+        .git-changes .untracked { color: var(--text-dim); }
+        .git-sync-status {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 11px;
+            color: var(--text-dim);
+            margin-top: 6px;
+        }
+        .git-sync-status.synced { color: var(--success); }
+        .git-sync-status.ahead { color: var(--accent); }
+        .git-sync-status.behind { color: var(--warning); }
+        .git-sync-status.diverged { color: var(--danger); }
+
+        .git-actions {
+            display: flex;
+            gap: 6px;
+            flex-wrap: wrap;
+        }
+        .git-actions .btn {
+            flex: 1;
+            min-width: 70px;
+            justify-content: center;
+            text-align: center;
+        }
+
+        .git-history {
+            margin-top: 10px;
+        }
+        .git-history-toggle {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 12px;
+            color: var(--text-dim);
+            cursor: pointer;
+            padding: 6px 0;
+            user-select: none;
+        }
+        .git-history-toggle:hover { color: var(--text); }
+        .git-history-toggle .arrow {
+            font-size: 10px;
+            transition: transform 0.2s;
+        }
+        .git-history-toggle .arrow.open { transform: rotate(90deg); }
+        .git-history-list {
+            display: none;
+            margin-top: 6px;
+            max-height: 300px;
+            overflow-y: auto;
+        }
+        .git-history-list.open { display: block; }
+        .git-commit-item {
+            display: flex;
+            gap: 8px;
+            align-items: flex-start;
+            padding: 6px 0;
+            border-bottom: 1px solid var(--border);
+            font-size: 11px;
+        }
+        .git-commit-item:last-child { border-bottom: none; }
+        .git-commit-hash {
+            font-family: var(--mono);
+            color: var(--accent);
+            flex-shrink: 0;
+        }
+        .git-commit-msg {
+            color: var(--text);
+            flex: 1;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+        .git-commit-time {
+            color: var(--text-dim);
+            flex-shrink: 0;
+        }
+
+        .git-unavailable {
+            text-align: center;
+            padding: 16px;
+            color: var(--text-dim);
+            font-size: 12px;
+        }
+        .git-unavailable .icon { font-size: 24px; margin-bottom: 8px; opacity: 0.5; }
+
+        /* Modal file list for commit */
+        .commit-files-list {
+            max-height: 200px;
+            overflow-y: auto;
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            margin-top: 8px;
+        }
+        .commit-file-item {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 8px 12px;
+            border-bottom: 1px solid var(--border);
+            font-size: 12px;
+        }
+        .commit-file-item:last-child { border-bottom: none; }
+        .commit-file-item:hover { background: var(--bg-card-hover); }
+        .commit-file-item input[type="checkbox"] {
+            accent-color: var(--accent);
+        }
+        .commit-file-path {
+            flex: 1;
+            font-family: var(--mono);
+            color: var(--text);
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+        .commit-file-stats {
+            font-family: var(--mono);
+            font-size: 10px;
+        }
+        .commit-file-stats .add { color: var(--success); }
+        .commit-file-stats .del { color: var(--danger); }
+
+        /* Commit type selector */
+        .commit-type-row {
+            display: flex;
+            gap: 8px;
+            margin-bottom: 12px;
+        }
+        .commit-type-row select,
+        .commit-type-row input {
+            flex: 1;
+        }
+
+        /* ── Backlog ───────────────────── */
+        .backlog-item {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            padding: 16px;
+            transition: all 0.15s ease;
+        }
+        .backlog-item:hover {
+            border-color: var(--border-active);
+            box-shadow: var(--shadow);
+        }
+        .backlog-item.next-sprint {
+            border-color: var(--accent);
+            background: linear-gradient(135deg, var(--bg-card) 0%, rgba(79,110,247,0.05) 100%);
+        }
+        .backlog-item-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 8px;
+        }
+        .backlog-item-title {
+            font-size: 14px;
+            font-weight: 500;
+            color: var(--text-bright);
+            flex: 1;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+        .backlog-item-id {
+            font-family: var(--mono);
+            font-size: 11px;
+            color: var(--text-dim);
+            margin-right: 8px;
+        }
+        .backlog-item-description {
+            font-size: 13px;
+            color: var(--text-dim);
+            margin-bottom: 12px;
+            line-height: 1.5;
+        }
+        .backlog-item-footer {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+        }
+        .backlog-item-meta {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            flex: 1;
+        }
+        .priority-badge {
+            display: inline-block;
+            padding: 4px 10px;
+            border-radius: 6px;
+            font-size: 11px;
+            font-weight: 600;
+            text-transform: uppercase;
+        }
+        .priority-badge.high {
+            background: rgba(248, 113, 113, 0.15);
+            color: var(--danger);
+            border: 1px solid rgba(248, 113, 113, 0.3);
+        }
+        .priority-badge.medium {
+            background: rgba(251, 191, 36, 0.15);
+            color: var(--warning);
+            border: 1px solid rgba(251, 191, 36, 0.3);
+        }
+        .priority-badge.low {
+            background: rgba(52, 211, 153, 0.15);
+            color: var(--success);
+            border: 1px solid rgba(52, 211, 153, 0.3);
+        }
+        .next-sprint-checkbox {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            cursor: pointer;
+            font-size: 12px;
+            color: var(--text-dim);
+            transition: color 0.15s ease;
+        }
+        .next-sprint-checkbox:hover {
+            color: var(--text);
+        }
+        .next-sprint-checkbox input[type="checkbox"] {
+            width: 18px;
+            height: 18px;
+            accent-color: var(--accent);
+            cursor: pointer;
+        }
+        .backlog-item-actions {
+            display: flex;
+            gap: 6px;
+        }
+        .backlog-item-actions button {
+            padding: 6px 10px;
+            background: var(--bg-input);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            color: var(--text);
+            font-size: 12px;
+            cursor: pointer;
+            transition: all 0.15s ease;
+        }
+        .backlog-item-actions button:hover {
+            background: var(--bg-card-hover);
+            border-color: var(--border-active);
+        }
+        .backlog-empty-state {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            padding: 60px 20px;
+            color: var(--text-dim);
+        }
+        .backlog-empty-state .icon {
+            font-size: 48px;
+            margin-bottom: 16px;
+            opacity: 0.3;
+        }
+        .backlog-empty-state p {
+            font-size: 14px;
+            margin-bottom: 20px;
+        }
+
+    </style>
+</head>
+<body>
+
+<!-- Project Picker -->
+<div class="project-picker" id="projectPicker">
+    <div class="project-picker-card">
+        <button class="project-picker-close" id="projectPickerClose" onclick="tryCloseProjectPicker()" title="Закрыть">×</button>
+        <div class="project-picker-logo">
+            <h1><span>Tayfa</span></h1>
+        </div>
+        <h2>Выберите проект</h2>
+        <div class="project-list" id="projectList">
+            <div class="project-empty">
+                <div class="project-empty-icon">📂</div>
+                <p>Загрузка...</p>
+            </div>
+        </div>
+        <div class="project-picker-actions">
+            <button class="btn primary" onclick="openFolderDialog()">📁 Открыть папку</button>
+            <button class="btn" onclick="openFolderManual()">✏️ Ввести путь</button>
+            <button class="btn" id="projectPickerCancel" onclick="tryCloseProjectPicker()">Отмена</button>
+        </div>
+    </div>
+</div>
+
+<!-- Main App Container -->
+<div id="mainApp">
+
+<!-- Header -->
+<div class="header">
+    <div class="header-left">
+        <h1><span>Tayfa</span></h1>
+        <div class="current-project" id="currentProjectBadge" onclick="switchProject()" title="Сменить проект">
+            <span class="project-icon">📁</span>
+            <span class="project-name" id="currentProjectName">—</span>
+        </div>
+    </div>
+    <div class="status-bar">
+        <div class="status-item">
+            <span class="status-dot off" id="wslDot"></span>
+            WSL: <span id="wslStatus">выкл</span>
+        </div>
+        <div class="status-item">
+            <span class="status-dot off" id="apiDot"></span>
+            API: <span id="apiStatus">выкл</span>
+        </div>
+        <div class="status-item git-status-indicator" id="gitStatusIndicator" title="Git статус">
+            <span class="git-branch-icon-header">⎇</span>
+            <span id="gitBranchHeader">—</span>
+            <span class="git-dot" id="gitDotHeader"></span>
+        </div>
+        <div class="status-item" id="runningTasksIndicator" style="display:none; cursor:pointer;" onclick="showTasksBoard()">
+            <span class="status-dot loading"></span>
+            <span id="runningTasksCount">0</span> задач в работе
+        </div>
+        <select id="themeSelect" onchange="changeTheme(this.value)" class="theme-select">
+            <option value="dark">🌙 Dark</option>
+            <option value="light">☀️ Light</option>
+            <option value="blue">🌊 Blue</option>
+            <option value="girly">💖 Girly</option>
+        </select>
+        <button class="btn success btn-start-server" id="btnStartServer" onclick="startServer()">Запустить сервер</button>
+        <button class="btn danger" id="btnStopServer" onclick="stopServer()" style="display:none;">Остановить</button>
+        <button class="btn primary" onclick="ensureAgents()">Обеспечить агентов</button>
+        <button class="btn" onclick="refreshAll()">Обновить</button>
+        <button class="settings-btn" onclick="toggleSettingsDropdown(event)" title="Настройки">⚙️</button>
+        <!-- Settings Dropdown -->
+        <div class="settings-dropdown" id="settingsDropdown">
+            <div class="settings-item" onclick="switchProject()">
+                <span>📁</span> Сменить проект
+            </div>
+            <div class="settings-item" onclick="showSettingsScreen()">
+                <span>🎨</span> Оформление
+            </div>
+            <div class="settings-item" onclick="ensureAgents()">
+                <span>🔄</span> Перезапустить агентов
+            </div>
+            <div class="settings-divider"></div>
+            <div class="settings-item danger" onclick="stopServer()">
+                <span>❌</span> Остановить сервер
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Main -->
+<div class="main">
+    <!-- Sidebar -->
+    <div class="sidebar">
+        <!-- Agents (renamed from "Агенты (чат)" to "Сотрудники") -->
+        <div class="sidebar-section">
+            <h3>Сотрудники</h3>
+            <ul class="agent-list" id="agentList">
+                <li class="empty-state">Загрузка...</li>
+            </ul>
+        </div>
+
+        <!-- Navigation -->
+        <div class="sidebar-section">
+            <h3>Навигация</h3>
+            <div style="display: flex; flex-direction: column; gap: 6px;">
+                <button class="btn primary" onclick="showTasksBoard()">Доска задач</button>
+                <button class="btn" onclick="showBacklogScreen()">📋 Бэклог</button>
+                <button class="btn" onclick="showOldTasksBoard()">Задачи (tasks.md)</button>
+                <button class="btn" onclick="showSettingsScreen()">⚙️ Настройки</button>
+            </div>
+        </div>
+
+        <!-- Git Section -->
+        <div class="sidebar-section" id="gitSection">
+            <h3>Git</h3>
+            <div id="gitStatusContainer">
+                <div class="git-unavailable">
+                    <div class="icon">⏳</div>
+                    <p>Загрузка...</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Content -->
+    <div class="content" id="contentArea">
+        <!-- Welcome Screen -->
+        <div class="welcome" id="welcomeScreen">
+            <h2>Tayfa Orchestrator</h2>
+            <p>Мультиагентная система на Claude Code.<br>Запустите сервер, проверьте агентов и начните работу.</p>
+            <div class="actions">
+                <button class="btn primary" onclick="showTasksBoard()">Доска задач</button>
+                <button class="btn" onclick="startServer()">Запустить сервер</button>
+                <button class="btn" onclick="ensureAgents()">Обеспечить агентов</button>
+            </div>
+        </div>
+
+        <!-- Tasks Board Screen (NEW — kanban) -->
+        <div id="tasksBoardScreen" style="display:none; flex-direction:column; height:100%; overflow:hidden;">
+            <div class="content-header">
+                <h2>Доска задач</h2>
+                <div style="display:flex; gap:8px; align-items:center;">
+                    <div class="max-concurrent-inline">
+                        <label>Макс. задач в работе:</label>
+                        <input type="number" id="maxConcurrentInput" value="5" min="1" max="50">
+                    </div>
+                    <button class="btn sm primary" onclick="showCreateSprintModal()">+ Спринт</button>
+                    <button class="btn sm" onclick="showCreateTaskModal()">+ Задача</button>
+                    <button class="btn sm" onclick="showCreateBacklogModal()">+ Бэклог</button>
+                    <button class="btn sm" onclick="refreshTasksBoardNew()">Обновить</button>
+                </div>
+            </div>
+            <div class="tasks-board-wrap" id="tasksBoardWrap">
+                <div class="empty-state">Загрузка...</div>
+            </div>
+        </div>
+
+        <!-- Old Tasks Board Screen (tasks.md) -->
+        <div id="tasksScreen" style="display:none; flex-direction:column; height:100%; overflow:hidden;">
+            <div class="content-header">
+                <h2>Задачи (tasks.md)</h2>
+                <button class="btn sm" onclick="refreshOldTasksBoard()">Обновить</button>
+            </div>
+            <div style="flex:1; overflow-y:auto; padding:20px 24px;">
+                <pre id="oldTasksBoardContent" style="white-space:pre-wrap; word-wrap:break-word; font-family:var(--mono); font-size:13px; color:var(--text); margin:0;"></pre>
+            </div>
+        </div>
+
+        <!-- Chat Screen -->
+        <div id="chatScreen" style="display:none; flex-direction:column; height:100%;">
+            <div class="content-header">
+                <div><h2 id="chatAgentName">—</h2></div>
+                <div style="display:flex; gap:8px;">
+                    <button class="btn sm" onclick="clearChatHistory()">Очистить историю</button>
+                    <button class="btn sm" onclick="resetCurrentAgent()">Сбросить память</button>
+                    <button class="btn sm danger" onclick="deleteCurrentAgent()">Удалить</button>
+                </div>
+            </div>
+            <div class="chat-area" id="chatArea"></div>
+            <div class="typing-indicator" id="typingIndicator"><span></span><span></span><span></span></div>
+            <div class="input-area">
+                <textarea id="promptInput" placeholder="Введите сообщение для агента..." rows="1"
+                    onkeydown="handleKeyDown(event)" oninput="autoGrow(this)"></textarea>
+                <button class="btn primary" id="btnSend" onclick="sendPrompt()">Отправить</button>
+            </div>
+        </div>
+
+        <!-- Settings Screen -->
+        <div id="settingsScreen" style="display:none; flex-direction:column; height:100%;">
+            <div class="content-header">
+                <h2>⚙️ Настройки</h2>
+            </div>
+            <div style="flex:1; overflow-y:auto; padding:24px;">
+                <div style="max-width:600px;">
+                    <!-- Тема оформления -->
+                    <div style="background:var(--bg-card); border:1px solid var(--border); border-radius:var(--radius); padding:20px; margin-bottom:16px;">
+                        <h3 style="font-size:14px; color:var(--text-bright); margin-bottom:12px;">🎨 Тема оформления</h3>
+                        <div style="display:flex; gap:12px; flex-wrap:wrap;">
+                            <label style="display:flex; align-items:center; gap:8px; cursor:pointer; padding:10px 16px; background:var(--bg-input); border:1px solid var(--border); border-radius:8px; transition:all 0.15s;" class="theme-option" data-theme="dark">
+                                <input type="radio" name="settingsTheme" value="dark" style="accent-color:var(--accent);">
+                                <span>🌙 Тёмная</span>
+                            </label>
+                            <label style="display:flex; align-items:center; gap:8px; cursor:pointer; padding:10px 16px; background:var(--bg-input); border:1px solid var(--border); border-radius:8px; transition:all 0.15s;" class="theme-option" data-theme="light">
+                                <input type="radio" name="settingsTheme" value="light" style="accent-color:var(--accent);">
+                                <span>☀️ Светлая</span>
+                            </label>
+                            <label style="display:flex; align-items:center; gap:8px; cursor:pointer; padding:10px 16px; background:var(--bg-input); border:1px solid var(--border); border-radius:8px; transition:all 0.15s;" class="theme-option" data-theme="blue">
+                                <input type="radio" name="settingsTheme" value="blue" style="accent-color:var(--accent);">
+                                <span>🌊 Синяя</span>
+                            </label>
+                            <label style="display:flex; align-items:center; gap:8px; cursor:pointer; padding:10px 16px; background:var(--bg-input); border:1px solid var(--border); border-radius:8px; transition:all 0.15s;" class="theme-option" data-theme="girly">
+                                <input type="radio" name="settingsTheme" value="girly" style="accent-color:var(--accent);">
+                                <span>💖 Розовая</span>
+                            </label>
+                        </div>
+                    </div>
+
+                    <!-- Информация о сервере -->
+                    <div style="background:var(--bg-card); border:1px solid var(--border); border-radius:var(--radius); padding:20px; margin-bottom:16px;">
+                        <h3 style="font-size:14px; color:var(--text-bright); margin-bottom:12px;">🖥️ Сервер</h3>
+                        <div style="display:flex; flex-direction:column; gap:10px;">
+                            <div style="display:flex; justify-content:space-between; align-items:center;">
+                                <span style="color:var(--text-dim); font-size:13px;">Порт оркестратора</span>
+                                <span id="settingsPort" style="font-family:var(--mono); color:var(--text); font-size:13px;">—</span>
+                            </div>
+                            <div style="display:flex; justify-content:space-between; align-items:center;">
+                                <span style="color:var(--text-dim); font-size:13px;">Язык интерфейса</span>
+                                <span id="settingsLanguage" style="color:var(--text); font-size:13px;">—</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Автозапуск -->
+                    <div style="background:var(--bg-card); border:1px solid var(--border); border-radius:var(--radius); padding:20px; margin-bottom:16px;">
+                        <h3 style="font-size:14px; color:var(--text-bright); margin-bottom:12px;">🚀 Автоматизация</h3>
+                        <label style="display:flex; align-items:center; gap:10px; cursor:pointer;">
+                            <input type="checkbox" id="settingsAutoOpen" style="accent-color:var(--accent); width:18px; height:18px;" onchange="saveSettingAutoOpen(this.checked)">
+                            <div>
+                                <div style="font-size:13px; color:var(--text);">Открывать браузер при запуске</div>
+                                <div style="font-size:11px; color:var(--text-dim);">Автоматически открывать веб-интерфейс при старте сервера</div>
+                            </div>
+                        </label>
+                    </div>
+
+                    <!-- Задачи -->
+                    <div style="background:var(--bg-card); border:1px solid var(--border); border-radius:var(--radius); padding:20px; margin-bottom:16px;">
+                        <h3 style="font-size:14px; color:var(--text-bright); margin-bottom:12px;">📋 Задачи</h3>
+                        <div style="display:flex; align-items:center; gap:10px;">
+                            <span style="color:var(--text-dim); font-size:13px;">Макс. параллельных задач:</span>
+                            <input type="number" id="settingsMaxTasks" min="1" max="50" value="5"
+                                style="width:60px; padding:6px 10px; background:var(--bg-input); border:1px solid var(--border); border-radius:6px; color:var(--text); font-family:var(--mono); font-size:13px; text-align:center;"
+                                onchange="saveSettingMaxTasks(this.value)">
+                        </div>
+                    </div>
+
+                    <!-- Git / GitHub -->
+                    <div style="background:var(--bg-card); border:1px solid var(--border); border-radius:var(--radius); padding:20px;">
+                        <h3 style="font-size:14px; color:var(--text-bright); margin-bottom:12px;">🔧 Git / GitHub</h3>
+                        <div style="display:flex; flex-direction:column; gap:12px;">
+                            <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px;">
+                                <div>
+                                    <label style="display:block; color:var(--text-dim); font-size:12px; margin-bottom:4px;">Имя (user.name)</label>
+                                    <input type="text" id="settingsGitUserName" placeholder="Your Name"
+                                        style="width:100%; padding:8px 12px; background:var(--bg-input); border:1px solid var(--border); border-radius:6px; color:var(--text); font-size:13px;"
+                                        onchange="saveSettingGit()">
+                                </div>
+                                <div>
+                                    <label style="display:block; color:var(--text-dim); font-size:12px; margin-bottom:4px;">Email (user.email)</label>
+                                    <input type="email" id="settingsGitUserEmail" placeholder="you@example.com"
+                                        style="width:100%; padding:8px 12px; background:var(--bg-input); border:1px solid var(--border); border-radius:6px; color:var(--text); font-size:13px;"
+                                        onchange="saveSettingGit()">
+                                </div>
+                            </div>
+                            <div>
+                                <label style="display:block; color:var(--text-dim); font-size:12px; margin-bottom:4px;">Ветка по умолчанию</label>
+                                <input type="text" id="settingsGitDefaultBranch" placeholder="main"
+                                    style="width:100%; padding:8px 12px; background:var(--bg-input); border:1px solid var(--border); border-radius:6px; color:var(--text); font-size:13px;"
+                                    onchange="saveSettingGit()">
+                            </div>
+                            <div>
+                                <label style="display:block; color:var(--text-dim); font-size:12px; margin-bottom:4px;">GitHub Remote URL</label>
+                                <input type="text" id="settingsGitRemoteUrl" placeholder="https://github.com/username/repo.git"
+                                    style="width:100%; padding:8px 12px; background:var(--bg-input); border:1px solid var(--border); border-radius:6px; color:var(--text); font-family:var(--mono); font-size:12px;"
+                                    onchange="saveSettingGit()">
+                            </div>
+                            <div>
+                                <label style="display:block; color:var(--text-dim); font-size:12px; margin-bottom:4px;">GitHub Token (Personal Access Token)</label>
+                                <input type="password" id="settingsGitHubToken" placeholder="ghp_xxxxxxxxxxxx"
+                                    style="width:100%; padding:8px 12px; background:var(--bg-input); border:1px solid var(--border); border-radius:6px; color:var(--text); font-family:var(--mono); font-size:12px;"
+                                    onchange="saveSettingGit()">
+                                <div style="font-size:10px; color:var(--text-dim); margin-top:4px;">
+                                    Токен нужен для push/PR. Создайте на <a href="https://github.com/settings/tokens" target="_blank" style="color:var(--accent);">github.com/settings/tokens</a>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Backlog Screen -->
+        <div id="backlogScreen" style="display:none; flex-direction:column; height:100%;">
+            <div class="content-header">
+                <h2>📋 Бэклог</h2>
+                <div style="display:flex; gap:8px; align-items:center;">
+                    <select id="backlogPriorityFilter" onchange="loadBacklog()" style="padding:6px 10px; background:var(--bg-input); border:1px solid var(--border); border-radius:6px; color:var(--text); font-size:13px; cursor:pointer;">
+                        <option value="">Все приоритеты</option>
+                        <option value="high">🔴 Высокий</option>
+                        <option value="medium">🟡 Средний</option>
+                        <option value="low">🟢 Низкий</option>
+                    </select>
+                    <label style="display:flex; align-items:center; gap:6px; cursor:pointer; font-size:13px; color:var(--text);">
+                        <input type="checkbox" id="backlogNextSprintFilter" onchange="loadBacklog()" style="accent-color:var(--accent);">
+                        <span>Только для следующего спринта</span>
+                    </label>
+                    <button class="btn sm primary" onclick="showAddBacklogModal()">➕ Добавить</button>
+                    <button class="btn sm" onclick="loadBacklog()">Обновить</button>
+                </div>
+            </div>
+            <div style="flex:1; overflow-y:auto; padding:24px;">
+                <div id="backlogList" style="display:flex; flex-direction:column; gap:12px;">
+                    <div class="empty-state">Загрузка...</div>
+                </div>
+            </div>
+        </div>
+
+    </div>
+</div>
+
+</div><!-- /mainApp -->
+
+<!-- Modal -->
+<div class="modal-overlay" id="modalOverlay">
+    <div class="modal" id="modalContent" onclick="event.stopPropagation()">
+        <h3 id="modalTitle">—</h3>
+        <div id="modalBody"></div>
+        <div class="btn-group" id="modalActions" style="margin-top: 16px;"></div>
+    </div>
+</div>
+
+<script>
+// ── State ──────────────────────────────────────────────────────────────────
+
+let currentAgent = null;
+let agents = {};
+let employees = {};
+let chatHistories = {};
+let agentRuntimes = {};  // per-agent runtime: { agentName: 'claude' | 'cursor' }
+let thinkingAgents = {};  // per-agent thinking state: { agentName: true }
+let runningTasks = {};   // { taskId: { agent, role, runtime, started_at, elapsed_seconds } }
+let runningTasksTimer = null;  // таймер обновления elapsed
+let sprintAutoRunState = {};   // { sprintId: { running: bool, cancelled: bool } }
+
+const API_BASE = (typeof location !== 'undefined' && location.origin) ? location.origin : '';
+
+// ── Theme Functions ────────────────────────────────────────────────────────
+
+function applyTheme(themeName) {
+    document.documentElement.setAttribute('data-theme', themeName);
+}
+
+async function changeTheme(newTheme) {
+    try {
+        const response = await api('POST', '/api/settings', { theme: newTheme });
+        if (response.status === 'updated') {
+            applyTheme(newTheme);
+        }
+    } catch (error) {
+        alert('Ошибка сохранения темы: ' + error.message);
+        // Вернуть селектор к предыдущему значению
+        const currentTheme = document.documentElement.getAttribute('data-theme') || 'dark';
+        document.getElementById('themeSelect').value = currentTheme;
+    }
+}
+
+async function loadSettings() {
+    try {
+        const settings = await api('GET', '/api/settings');
+
+        // Применяем тему
+        const theme = settings.theme || 'dark';
+        applyTheme(theme);
+
+        // Устанавливаем значение в селекторе header
+        const themeSelect = document.getElementById('themeSelect');
+        if (themeSelect) themeSelect.value = theme;
+
+        // Устанавливаем maxConcurrentTasks если есть
+        const maxInput = document.getElementById('maxConcurrentInput');
+        if (maxInput && settings.maxConcurrentTasks) {
+            maxInput.value = settings.maxConcurrentTasks;
+        }
+
+        // Обновляем экран настроек если он существует
+        updateSettingsScreen(settings);
+
+        return settings;
+    } catch (error) {
+        console.warn('Не удалось загрузить настройки:', error.message);
+        // Применяем тему по умолчанию
+        applyTheme('dark');
+        return null;
+    }
+}
+
+function updateSettingsScreen(settings) {
+    if (!settings) return;
+
+    // Тема — радио-кнопки
+    const themeRadios = document.querySelectorAll('input[name="settingsTheme"]');
+    themeRadios.forEach(radio => {
+        radio.checked = radio.value === settings.theme;
+        // Подсветка выбранной опции
+        const label = radio.closest('.theme-option') || radio.parentElement;
+        if (label) {
+            label.style.borderColor = radio.checked ? 'var(--accent)' : 'var(--border)';
+            label.style.background = radio.checked ? 'rgba(79,110,247,0.1)' : 'var(--bg-input)';
+        }
+    });
+
+    // Порт
+    const portEl = document.getElementById('settingsPort');
+    if (portEl) portEl.textContent = settings.port || '8008';
+
+    // Язык
+    const langEl = document.getElementById('settingsLanguage');
+    if (langEl) langEl.textContent = settings.language === 'ru' ? 'Русский' : 'English';
+
+    // Автооткрытие браузера
+    const autoOpenEl = document.getElementById('settingsAutoOpen');
+    if (autoOpenEl) autoOpenEl.checked = settings.autoOpenBrowser !== false;
+
+    // Макс. задач
+    const maxTasksEl = document.getElementById('settingsMaxTasks');
+    if (maxTasksEl) maxTasksEl.value = settings.maxConcurrentTasks || 5;
+
+    // Git настройки
+    const gitSettings = settings.git || {};
+    const gitUserNameEl = document.getElementById('settingsGitUserName');
+    if (gitUserNameEl) gitUserNameEl.value = gitSettings.userName || '';
+    const gitUserEmailEl = document.getElementById('settingsGitUserEmail');
+    if (gitUserEmailEl) gitUserEmailEl.value = gitSettings.userEmail || '';
+    const gitDefaultBranchEl = document.getElementById('settingsGitDefaultBranch');
+    if (gitDefaultBranchEl) gitDefaultBranchEl.value = gitSettings.defaultBranch || 'main';
+    const gitRemoteUrlEl = document.getElementById('settingsGitRemoteUrl');
+    if (gitRemoteUrlEl) gitRemoteUrlEl.value = gitSettings.remoteUrl || '';
+    const gitHubTokenEl = document.getElementById('settingsGitHubToken');
+    if (gitHubTokenEl) gitHubTokenEl.value = gitSettings.githubToken || '';
+}
+
+async function showSettingsScreen() {
+    hideAllScreens();
+    document.getElementById('settingsScreen').style.display = 'flex';
+
+    // Загружаем и отображаем текущие настройки
+    const settings = await loadSettings();
+    updateSettingsScreen(settings);
+
+    // Добавляем обработчики для радио-кнопок темы
+    document.querySelectorAll('input[name="settingsTheme"]').forEach(radio => {
+        radio.onchange = async function() {
+            await changeTheme(this.value);
+            updateSettingsScreen(await api('GET', '/api/settings'));
+        };
+    });
+}
+
+async function saveSettingAutoOpen(value) {
+    try {
+        await api('POST', '/api/settings', { autoOpenBrowser: value });
+    } catch (error) {
+        alert('Ошибка сохранения: ' + error.message);
+        document.getElementById('settingsAutoOpen').checked = !value;
+    }
+}
+
+async function saveSettingGit() {
+    const userName = document.getElementById('settingsGitUserName').value.trim();
+    const userEmail = document.getElementById('settingsGitUserEmail').value.trim();
+    const defaultBranch = document.getElementById('settingsGitDefaultBranch').value.trim() || 'main';
+    const remoteUrl = document.getElementById('settingsGitRemoteUrl').value.trim();
+    const githubToken = document.getElementById('settingsGitHubToken').value.trim();
+    try {
+        await api('POST', '/api/settings', {
+            git: { userName, userEmail, defaultBranch, remoteUrl, githubToken }
+        });
+    } catch (error) {
+        alert('Ошибка сохранения Git настроек: ' + error.message);
+    }
+}
+
+async function saveSettingMaxTasks(value) {
+    const numValue = parseInt(value);
+    if (isNaN(numValue) || numValue < 1 || numValue > 50) {
+        alert('Значение должно быть от 1 до 50');
+        document.getElementById('settingsMaxTasks').value = 5;
+        return;
+    }
+    try {
+        await api('POST', '/api/settings', { maxConcurrentTasks: numValue });
+        // Синхронизируем с input на доске задач
+        const boardInput = document.getElementById('maxConcurrentInput');
+        if (boardInput) boardInput.value = numValue;
+    } catch (error) {
+        alert('Ошибка сохранения: ' + error.message);
+    }
+}
+
+// ── Settings Dropdown Functions ────────────────────────────────────────────
+
+function toggleSettingsDropdown(event) {
+    event.stopPropagation();
+    const dropdown = document.getElementById('settingsDropdown');
+    dropdown.classList.toggle('show');
+}
+
+function closeSettingsDropdown() {
+    const dropdown = document.getElementById('settingsDropdown');
+    if (dropdown) dropdown.classList.remove('show');
+}
+
+// Закрытие при клике вне меню
+document.addEventListener('click', (e) => {
+    const dropdown = document.getElementById('settingsDropdown');
+    const btn = document.querySelector('.settings-btn');
+    if (dropdown && btn && !dropdown.contains(e.target) && !btn.contains(e.target)) {
+        dropdown.classList.remove('show');
+    }
+});
+
+// ── Current Project Badge ──────────────────────────────────────────────────
+
+function updateCurrentProjectBadge(project) {
+    const nameEl = document.getElementById('currentProjectName');
+    if (!nameEl) return;
+
+    if (project && project.name) {
+        nameEl.textContent = project.name;
+    } else {
+        nameEl.textContent = '—';
+    }
+}
+
+// ── Project Picker Functions ───────────────────────────────────────────────
+
+let projectsList = [];
+let hasCurrentProject = false; // Флаг: есть ли открытый проект
+
+async function showProjectPicker() {
+    // Проверяем, есть ли текущий проект
+    try {
+        const status = await api('GET', '/api/status');
+        hasCurrentProject = !!status.has_project;
+    } catch {
+        hasCurrentProject = false;
+    }
+
+    // Показываем/скрываем кнопки закрытия в зависимости от наличия проекта
+    const closeBtn = document.getElementById('projectPickerClose');
+    const cancelBtn = document.getElementById('projectPickerCancel');
+
+    if (closeBtn) {
+        closeBtn.style.display = hasCurrentProject ? '' : 'none';
+    }
+    if (cancelBtn) {
+        cancelBtn.style.display = hasCurrentProject ? '' : 'none';
+    }
+
+    document.getElementById('projectPicker').classList.add('show');
+    document.getElementById('mainApp').style.display = 'none';
+    loadProjectsList();
+}
+
+function hideProjectPicker() {
+    document.getElementById('projectPicker').classList.remove('show');
+    document.getElementById('mainApp').style.display = '';
+}
+
+// Попытка закрыть project-picker (только если есть открытый проект)
+function tryCloseProjectPicker() {
+    if (hasCurrentProject) {
+        hideProjectPicker();
+    }
+}
+
+// Обработчик клика на overlay (фон) project-picker
+document.getElementById('projectPicker').addEventListener('click', function(e) {
+    // Закрываем только если клик был на сам overlay (не на карточку) и есть открытый проект
+    if (e.target === this && hasCurrentProject) {
+        hideProjectPicker();
+    }
+});
+
+let isNewUser = false;
+
+async function loadProjectsList() {
+    const container = document.getElementById('projectList');
+    container.innerHTML = '<div class="project-empty"><div class="project-empty-icon">⏳</div><p>Загрузка...</p></div>';
+
+    try {
+        const data = await api('GET', '/api/projects');
+        console.log('[loadProjectsList] Ответ API:', data);
+        projectsList = data.projects || [];
+        isNewUser = data.is_new_user || false;
+        renderProjectsList();
+    } catch (error) {
+        console.error('[loadProjectsList] Ошибка:', error);
+        container.innerHTML = `<div class="project-empty"><div class="project-empty-icon">❌</div><p>Ошибка загрузки: ${escapeHtml(error.message)}</p></div>`;
+    }
+}
+
+function renderProjectsList() {
+    const container = document.getElementById('projectList');
+
+    if (projectsList.length === 0) {
+        if (isNewUser) {
+            // Приветственное сообщение для новых пользователей
+            container.innerHTML = `
+                <div class="project-empty welcome-message">
+                    <div class="project-empty-icon">👋</div>
+                    <h3>Добро пожаловать в Tayfa!</h3>
+                    <p style="color: var(--text-secondary); margin: 0.5rem 0 1rem; line-height: 1.5;">
+                        Tayfa — мультиагентная система для разработки.<br>
+                        AI-агенты работают как команда: boss ставит задачи,<br>
+                        разработчики пишут код, тестировщики проверяют.
+                    </p>
+                    <p style="color: var(--accent); font-weight: 500;">
+                        Откройте папку с проектом, чтобы начать
+                    </p>
+                </div>`;
+        } else {
+            container.innerHTML = `
+                <div class="project-empty">
+                    <div class="project-empty-icon">📂</div>
+                    <p>Нет проектов. Откройте папку с проектом.</p>
+                </div>`;
+        }
+        return;
+    }
+
+    const html = projectsList.map(project => `
+        <div class="project-item" onclick="openProject('${escapeHtml(project.path.replace(/\\/g, '\\\\').replace(/'/g, "\\'"))}')">
+            <div class="project-item-icon">📁</div>
+            <div class="project-item-info">
+                <div class="project-item-name">${escapeHtml(project.name)}</div>
+                <div class="project-item-path">${escapeHtml(project.path)}</div>
+                <div class="project-item-time">Открыт: ${formatLastOpened(project.last_opened)}</div>
+            </div>
+            <div class="project-item-remove" onclick="event.stopPropagation(); removeProject('${escapeHtml(project.path.replace(/\\/g, '\\\\').replace(/'/g, "\\'"))}')" title="Удалить из списка">×</div>
+        </div>
+    `).join('');
+
+    container.innerHTML = html;
+}
+
+function formatLastOpened(isoDate) {
+    if (!isoDate) return 'неизвестно';
+
+    const date = new Date(isoDate);
+    const now = new Date();
+    const diffMs = now - date;
+    const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+
+    if (diffDays === 0) {
+        const diffHours = Math.floor(diffMs / (1000 * 60 * 60));
+        if (diffHours === 0) {
+            const diffMins = Math.floor(diffMs / (1000 * 60));
+            if (diffMins < 1) return 'только что';
+            return diffMins + ' мин. назад';
+        }
+        return 'сегодня в ' + date.toLocaleTimeString('ru', { hour: '2-digit', minute: '2-digit' });
+    } else if (diffDays === 1) {
+        return 'вчера';
+    } else if (diffDays < 7) {
+        return diffDays + ' дн. назад';
+    } else {
+        return date.toLocaleDateString('ru');
+    }
+}
+
+async function openProject(path) {
+    const container = document.getElementById('projectList');
+    const originalContent = container.innerHTML;
+    container.innerHTML = '<div class="project-empty"><div class="project-empty-icon">⏳</div><p>Открытие проекта...</p></div>';
+
+    console.log('[openProject] Открытие проекта:', path);
+
+    try {
+        const result = await api('POST', '/api/projects/open', { path });
+        console.log('[openProject] Ответ API:', result);
+
+        if (result.status === 'opened' || result.status === 'initialized') {
+            console.log('[openProject] Успешно! Скрываем picker...');
+            hasCurrentProject = true; // Теперь есть открытый проект
+            hideProjectPicker();
+
+            // Перезагружаем агентов и статус (ошибки не должны блокировать открытие)
+            try {
+                await Promise.all([loadAgents(), checkStatus(), loadEmployees()]);
+            } catch (loadError) {
+                console.warn('[openProject] Ошибка загрузки данных (не критично):', loadError);
+            }
+
+            // Обновляем имя проекта в header
+            updateCurrentProjectBadge(result.project);
+
+            // Имя проекта в result.project.name или fallback на path
+            const projectName = result.project?.name || path.split(/[\\\/]/).pop() || path;
+            addSystemMessage(`Проект "${projectName}" открыт`);
+            console.log('[openProject] Готово!');
+        } else {
+            console.error('[openProject] Неожиданный status:', result.status);
+            throw new Error(result.error || 'Неизвестная ошибка');
+        }
+    } catch (error) {
+        console.error('[openProject] Ошибка:', error);
+        container.innerHTML = originalContent;
+        alert('Ошибка открытия проекта: ' + error.message);
+    }
+}
+
+async function removeProject(path) {
+    if (!confirm('Удалить проект из списка недавних?\n\nПапка проекта не будет удалена.')) return;
+
+    try {
+        await api('POST', '/api/projects/remove', { path });
+        await loadProjectsList();
+    } catch (error) {
+        alert('Ошибка: ' + error.message);
+    }
+}
+
+async function openFolderDialog() {
+    // Вызываем серверный API для открытия системного диалога
+    try {
+        const container = document.getElementById('projectList');
+        const originalContent = container.innerHTML;
+        container.innerHTML = '<div class="project-empty"><div class="project-empty-icon">📂</div><p>Открытие диалога выбора папки...</p></div>';
+
+        const result = await api('GET', '/api/browse-folder');
+
+        if (result.error) {
+            container.innerHTML = originalContent;
+            alert('Ошибка: ' + result.error);
+            return;
+        }
+
+        if (result.cancelled || !result.path) {
+            container.innerHTML = originalContent;
+            return; // Пользователь отменил выбор
+        }
+
+        // Открываем выбранный проект
+        await openProject(result.path);
+
+    } catch (error) {
+        console.error('[openFolderDialog] Ошибка:', error);
+        // Fallback на ручной ввод
+        openFolderManual();
+    }
+}
+
+function openFolderManual(suggestedName = '') {
+    const placeholder = suggestedName
+        ? `Например: C:\\Projects\\${suggestedName}`
+        : 'Например: C:\\Projects\\MyApp или /home/user/projects/app';
+
+    const body = `
+        <p style="font-size:13px; color:var(--text-dim); margin-bottom:12px;">
+            Введите полный путь к папке проекта:
+        </p>
+        <input type="text" id="manualPathInput" placeholder="${placeholder}"
+               style="width:100%; margin-bottom:8px;" autofocus>
+        <p style="font-size:11px; color:var(--text-dim);">
+            Браузер не позволяет автоматически получить путь к папке.
+            Введите путь вручную или скопируйте из проводника.
+        </p>
+    `;
+
+    openModal('Открыть папку проекта', body,
+        `<button class="btn" onclick="closeModal()">Отмена</button>
+         <button class="btn primary" onclick="submitManualPath()">Открыть</button>`);
+
+    // Фокус на input
+    setTimeout(() => {
+        const input = document.getElementById('manualPathInput');
+        if (input) input.focus();
+    }, 100);
+}
+
+async function submitManualPath() {
+    const input = document.getElementById('manualPathInput');
+    const path = input.value.trim();
+
+    if (!path) {
+        alert('Введите путь к папке');
+        return;
+    }
+
+    console.log('[submitManualPath] Путь:', path);
+    closeModal();
+    await openProject(path);
+}
+
+// Функция для показа project-picker из настроек или header
+function switchProject() {
+    closeSettingsDropdown();
+    showProjectPicker();
+}
+
+// ── API Calls ──────────────────────────────────────────────────────────────
+
+async function api(method, path, body = null) {
+    const url = API_BASE ? (API_BASE + path) : path;
+    const opts = { method, headers: { 'Content-Type': 'application/json' } };
+    if (body) opts.body = JSON.stringify(body);
+    const resp = await fetch(url, opts);
+    if (!resp.ok) {
+        const err = await resp.json().catch(() => ({ detail: resp.statusText }));
+        let msg = err.detail || resp.statusText || 'Ошибка API';
+        throw new Error(typeof msg === 'string' ? msg : JSON.stringify(msg));
+    }
+    return resp.json();
+}
+
+function escapeHtml(s) {
+    const div = document.createElement('div');
+    div.textContent = s;
+    return div.innerHTML;
+}
+
+// ── Screens ────────────────────────────────────────────────────────────────
+
+function hideAllScreens() {
+    ['welcomeScreen','tasksBoardScreen','tasksScreen','chatScreen','settingsScreen','backlogScreen'].forEach(id => {
+        document.getElementById(id).style.display = 'none';
+    });
+    stopBoardAutoRefresh();
+    stopRunningTasksTimer();
+}
+
+// ── Status ─────────────────────────────────────────────────────────────────
+
+async function checkStatus() {
+    try {
+        const s = await api('GET', '/api/status');
+        updateStatusUI(s);
+        return s;
+    } catch {
+        updateStatusUI({ wsl_running: false, api_running: false });
+        return null;
+    }
+}
+
+function updateStatusUI(s) {
+    document.getElementById('wslDot').className = `status-dot ${s.wsl_running ? 'on' : 'off'}`;
+    document.getElementById('apiDot').className = `status-dot ${s.api_running ? 'on' : 'off'}`;
+    document.getElementById('wslStatus').textContent = s.wsl_running ? 'работает' : 'выкл';
+    document.getElementById('apiStatus').textContent = s.api_running ? 'работает' : 'выкл';
+    document.getElementById('btnStartServer').style.display = s.api_running ? 'none' : '';
+    document.getElementById('btnStopServer').style.display = s.api_running ? '' : 'none';
+
+    // Обновляем badge текущего проекта
+    if (s.current_project) {
+        updateCurrentProjectBadge(s.current_project);
+    }
+}
+
+async function startServer() {
+    const btn = document.getElementById('btnStartServer');
+    btn.disabled = true; btn.textContent = 'Запускаю...';
+    document.getElementById('wslDot').className = 'status-dot loading';
+    try {
+        await api('POST', '/api/start-server');
+        await checkStatus(); await loadAgents();
+    } catch (e) { addSystemMessage('Ошибка запуска: ' + e.message, true); }
+    finally { btn.disabled = false; btn.textContent = 'Запустить сервер'; }
+}
+
+async function stopServer() {
+    try { await api('POST', '/api/stop-server'); await checkStatus(); }
+    catch (e) { addSystemMessage('Ошибка: ' + e.message, true); }
+}
+
+// ── Employees (данные для модалки создания задач) ──────────────────────────
+
+async function loadEmployees() {
+    try {
+        const data = await api('GET', '/api/employees');
+        employees = data.employees || {};
+    } catch {
+        employees = {};
+    }
+}
+
+// ── Agents ─────────────────────────────────────────────────────────────────
+
+async function loadAgents() {
+    const list = document.getElementById('agentList');
+    try {
+        agents = await api('GET', '/api/agents');
+        if (!agents || typeof agents !== 'object' || Object.keys(agents).length === 0) {
+            list.innerHTML = '<li class="empty-state">Нет агентов</li>';
+            return;
+        }
+        list.innerHTML = '';
+        for (const [name, config] of Object.entries(agents)) {
+            const runtimes = config.runtimes || ['claude', 'cursor'];
+            // Initialize default runtime selection (claude by default)
+            if (!agentRuntimes[name]) {
+                agentRuntimes[name] = runtimes.includes('claude') ? 'claude' : runtimes[0];
+            }
+            const selected = agentRuntimes[name];
+            const runtimesHtml = runtimes.map(r =>
+                `<span class="agent-runtime ${r} ${r === selected ? 'selected' : ''}" onclick="event.stopPropagation(); toggleAgentRuntime('${name}', '${r}')">${r}</span>`
+            ).join('');
+            const li = document.createElement('li');
+            li.className = `agent-item ${name === currentAgent ? 'active' : ''}`;
+            li.onclick = () => selectAgent(name);
+            const model = config.model || 'sonnet';
+            li.innerHTML = `
+                <div style="flex:1; min-width:0;">
+                    <div class="agent-name">${name}<span class="agent-model model-${model}">${model}</span></div>
+                    <div class="agent-role">${escapeHtml(config.role || '')}</div>
+                    <div class="agent-runtimes" id="runtimes-${name}">${runtimesHtml}</div>
+                </div>
+            `;
+            list.appendChild(li);
+        }
+    } catch {
+        list.innerHTML = '<li class="empty-state">API недоступен</li>';
+    }
+}
+
+async function selectAgent(name) {
+    currentAgent = name;
+    hideAllScreens();
+    document.getElementById('chatScreen').style.display = 'flex';
+    document.getElementById('chatAgentName').textContent = name;
+
+    // Ensure runtime is initialized
+    if (!agentRuntimes[name]) {
+        const config = agents[name] || {};
+        const runtimes = config.runtimes || ['claude', 'cursor'];
+        agentRuntimes[name] = runtimes.includes('claude') ? 'claude' : runtimes[0];
+    }
+
+    document.querySelectorAll('.agent-item').forEach(el => el.classList.remove('active'));
+    document.querySelectorAll('.agent-item').forEach(el => {
+        if (el.querySelector('.agent-name')?.textContent === name) el.classList.add('active');
+    });
+
+    // Загружаем историю из API если её ещё нет в памяти
+    if (!chatHistories[name] || chatHistories[name].length === 0) {
+        await loadChatHistory(name);
+    } else {
+        renderChat();
+    }
+
+    // Показать/скрыть индикатор в зависимости от того, думает ли этот агент
+    updateTypingIndicator(name);
+
+    document.getElementById('promptInput').focus();
+}
+
+function toggleAgentRuntime(agentName, runtime) {
+    agentRuntimes[agentName] = runtime;
+    // Update the runtime badges UI for this agent
+    const container = document.getElementById('runtimes-' + agentName);
+    if (container) {
+        container.querySelectorAll('.agent-runtime').forEach(el => {
+            el.classList.toggle('selected', el.textContent.trim() === runtime);
+        });
+    }
+    // Also refresh task board if it's visible, to update tooltips
+    if (document.getElementById('tasksBoardScreen').style.display !== 'none') {
+        refreshTasksBoardNew();
+    }
+}
+
+function getAgentRuntime(agentName) {
+    return agentRuntimes[agentName] || 'claude';
+}
+
+async function resetCurrentAgent() {
+    if (!currentAgent || !confirm(`Сбросить память агента "${currentAgent}"?`)) return;
+    try {
+        await api('POST', '/api/reset-agent', { name: currentAgent });
+        addSystemMessage(`Память ${currentAgent} сброшена`);
+        chatHistories[currentAgent] = [];
+        renderChat();
+    } catch (e) { addSystemMessage('Ошибка: ' + e.message, true); }
+}
+
+async function deleteCurrentAgent() {
+    if (!currentAgent || !confirm(`Удалить агента "${currentAgent}"?`)) return;
+    try {
+        await api('DELETE', `/api/agents/${currentAgent}`);
+        addSystemMessage(`Агент ${currentAgent} удалён`);
+        currentAgent = null;
+        hideAllScreens();
+        document.getElementById('welcomeScreen').style.display = 'flex';
+        await loadAgents();
+    } catch (e) { addSystemMessage('Ошибка: ' + e.message, true); }
+}
+
+// ── Chat ───────────────────────────────────────────────────────────────────
+
+// Форматирование времени для чата (только часы:минуты)
+function formatChatTime(isoString) {
+    if (!isoString) return '';
+    const d = new Date(isoString);
+    return d.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
+}
+
+// Построение строки метаданных для сообщения агента
+function buildChatMeta(msg) {
+    const parts = [];
+    if (msg.runtime) parts.push(msg.runtime);
+    if (msg.cost_usd && msg.cost_usd > 0) parts.push(`$${msg.cost_usd.toFixed(4)}`);
+    if (msg.duration_sec && msg.duration_sec > 0) parts.push(`${msg.duration_sec.toFixed(1)}s`);
+    if (msg.task_id) parts.push(msg.task_id);
+    if (msg.timestamp) parts.push(formatChatTime(msg.timestamp));
+    return parts.join(' · ');
+}
+
+// Загрузка истории чата из API
+async function loadChatHistory(agentName) {
+    const area = document.getElementById('chatArea');
+    area.innerHTML = '<div class="chat-loading"><div class="chat-loading-spinner"></div><span>Загрузка истории...</span></div>';
+
+    try {
+        const data = await api('GET', `/api/chat-history/${agentName}?limit=50`);
+        chatHistories[agentName] = [];
+
+        // Преобразуем сообщения из API в формат чата
+        for (const msg of data.messages || []) {
+            // Промпт пользователя
+            if (msg.prompt) {
+                chatHistories[agentName].push({
+                    type: 'user',
+                    text: msg.prompt,
+                    meta: formatChatTime(msg.timestamp)
+                });
+            }
+            // Ответ агента
+            if (msg.result) {
+                chatHistories[agentName].push({
+                    type: msg.success === false ? 'error' : 'agent',
+                    text: msg.result,
+                    meta: buildChatMeta(msg)
+                });
+            }
+        }
+
+        renderChat();
+
+        // Показываем пустое состояние если нет сообщений
+        if (chatHistories[agentName].length === 0) {
+            area.innerHTML = '<div class="chat-empty"><p>История пуста</p><p style="font-size:12px; margin-top:8px;">Отправьте сообщение агенту</p></div>';
+        }
+    } catch (e) {
+        console.warn('[loadChatHistory] Ошибка загрузки:', e.message);
+        // Если API не поддерживает историю — просто инициализируем пустой массив
+        chatHistories[agentName] = [];
+        area.innerHTML = '<div class="chat-empty"><p>Начните диалог</p></div>';
+    }
+}
+
+// Очистка истории чата
+async function clearChatHistory() {
+    if (!currentAgent || !confirm('Очистить всю историю переписки с этим агентом?')) return;
+    try {
+        await api('POST', `/api/chat-history/${currentAgent}/clear`);
+        chatHistories[currentAgent] = [];
+        renderChat();
+        addSystemMessage('История переписки очищена');
+    } catch (e) {
+        addSystemMessage('Ошибка: ' + e.message, true);
+    }
+}
+
+function renderChat() {
+    const area = document.getElementById('chatArea');
+    area.innerHTML = '';
+    const history = chatHistories[currentAgent] || [];
+    for (const msg of history) {
+        const div = document.createElement('div');
+        div.className = `message ${msg.type}`;
+        div.textContent = msg.text;
+        if (msg.meta) {
+            const metaDiv = document.createElement('div');
+            metaDiv.className = 'meta';
+            metaDiv.innerHTML = msg.meta;
+            div.appendChild(metaDiv);
+        }
+        area.appendChild(div);
+    }
+    area.scrollTop = area.scrollHeight;
+}
+
+function addChatMessage(agent, type, text, meta = '') {
+    if (!chatHistories[agent]) chatHistories[agent] = [];
+    chatHistories[agent].push({ type, text, meta });
+    if (agent === currentAgent) renderChat();
+}
+
+function addSystemMessage(text, isError = false) {
+    if (currentAgent) addChatMessage(currentAgent, isError ? 'error' : 'system', text);
+    console.log(`[${isError ? 'ERR' : 'SYS'}] ${text}`);
+}
+
+function updateTypingIndicator(agentName) {
+    const indicator = document.getElementById('typingIndicator');
+    indicator.classList.toggle('show', !!thinkingAgents[agentName]);
+}
+
+async function sendPrompt() {
+    if (!currentAgent) return;
+    const input = document.getElementById('promptInput');
+    const text = input.value.trim();
+    if (!text) return;
+    input.value = ''; input.style.height = 'auto';
+    addChatMessage(currentAgent, 'user', text);
+
+    const agentForRequest = currentAgent;  // Сохраняем агента для этого запроса
+    const btn = document.getElementById('btnSend');
+    btn.disabled = true; btn.textContent = '...';
+
+    // Устанавливаем состояние "думает" для этого агента
+    thinkingAgents[agentForRequest] = true;
+    updateTypingIndicator(currentAgent);
+
+    const runtime = getAgentRuntime(agentForRequest);
+    try {
+        if (runtime === 'cursor') {
+            const result = await api('POST', '/api/send-prompt-cursor', { name: agentForRequest, prompt: text });
+            if (result.success) {
+                addChatMessage(agentForRequest, 'agent', result.result || '(Пустой ответ)', result.stderr ? `Cursor CLI` : 'Cursor CLI');
+            } else {
+                addChatMessage(agentForRequest, 'error', (result.stderr || result.result || 'Ошибка Cursor CLI').trim());
+            }
+        } else {
+            const result = await api('POST', '/api/send-prompt', { name: agentForRequest, prompt: text });
+            const response = result.result || result.stdout || JSON.stringify(result);
+            const meta = [];
+            if (result.cost_usd) meta.push(`$${result.cost_usd.toFixed(4)}`);
+            if (result.num_turns) meta.push(`${result.num_turns} turns`);
+            addChatMessage(agentForRequest, 'agent', response, meta.join(' &middot; '));
+        }
+    } catch (e) {
+        addChatMessage(agentForRequest, 'error', 'Ошибка: ' + e.message);
+    } finally {
+        btn.disabled = false; btn.textContent = 'Отправить';
+        // Убираем состояние "думает" для этого агента
+        delete thinkingAgents[agentForRequest];
+        updateTypingIndicator(currentAgent);
+    }
+}
+
+function handleKeyDown(e) { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendPrompt(); } }
+function autoGrow(el) { el.style.height = 'auto'; el.style.height = Math.min(el.scrollHeight, 200) + 'px'; }
+
+// ── Modals ──────────────────────────────────────────────────────────────────
+
+function openModal(title, bodyHtml, actionsHtml) {
+    document.getElementById('modalTitle').textContent = title;
+    document.getElementById('modalBody').innerHTML = bodyHtml;
+    document.getElementById('modalActions').innerHTML = actionsHtml;
+    document.getElementById('modalOverlay').classList.add('show');
+}
+
+function closeModal() {
+    document.getElementById('modalOverlay').classList.remove('show');
+}
+
+document.getElementById('modalOverlay').addEventListener('click', function(e) {
+    if (e.target === this) closeModal();
+});
+
+// ── Tasks Board (NEW — kanban with sprints) ────────────────────────────────
+
+const STATUS_LABELS = {
+    'новая': 'Новая',
+    'в_работе': 'В работе',
+    'на_проверке': 'На проверке',
+    'выполнена': 'Выполнена',
+    'отменена': 'Отменена',
+};
+
+const STATUS_NEXT_ROLE = {
+    'новая': { role: 'customer', label: 'Заказчик детализирует', btnClass: 'primary' },
+    'в_работе': { role: 'developer', label: 'Разработчик выполняет', btnClass: 'primary' },
+    'на_проверке': { role: 'tester', label: 'Тестировщик проверяет', btnClass: 'warning' },
+};
+
+let boardAutoRefreshTimer = null;
+let expandedSprints = {};  // { sprintId: true/false } — какие спринты раскрыты
+let allSprints = [];       // кэш спринтов
+let allTasks = [];         // кэш задач
+
+function showTasksBoard() {
+    hideAllScreens();
+    document.getElementById('tasksBoardScreen').style.display = 'flex';
+    refreshTasksBoardNew();
+    startBoardAutoRefresh();
+}
+
+function startBoardAutoRefresh() {
+    stopBoardAutoRefresh();
+    boardAutoRefreshTimer = setInterval(() => {
+        if (document.getElementById('tasksBoardScreen').style.display !== 'none') {
+            fetchRunningTasks().then(() => {
+                if (Object.keys(runningTasks).length > 0) {
+                    refreshTasksBoardNew();
+                }
+            });
+        } else {
+            stopBoardAutoRefresh();
+        }
+    }, 5000);
+}
+
+function stopBoardAutoRefresh() {
+    if (boardAutoRefreshTimer) { clearInterval(boardAutoRefreshTimer); boardAutoRefreshTimer = null; }
+}
+
+async function fetchRunningTasks() {
+    try {
+        const data = await api('GET', '/api/running-tasks');
+        const serverRunning = data.running || {};
+        for (const tid of Object.keys(runningTasks)) {
+            if (!serverRunning[tid] && runningTasks[tid]._local) {
+                serverRunning[tid] = runningTasks[tid];
+            }
+        }
+        runningTasks = serverRunning;
+        updateRunningTasksIndicator();
+    } catch { }
+}
+
+function startRunningTasksTimer() {
+    stopRunningTasksTimer();
+    runningTasksTimer = setInterval(() => {
+        const badges = document.querySelectorAll('.task-running-badge .elapsed');
+        badges.forEach(el => {
+            const startedAt = parseFloat(el.dataset.startedAt);
+            if (startedAt) {
+                const elapsed = Math.round(Date.now() / 1000 - startedAt);
+                el.textContent = formatElapsed(elapsed);
+            }
+        });
+    }, 1000);
+}
+
+function stopRunningTasksTimer() {
+    if (runningTasksTimer) { clearInterval(runningTasksTimer); runningTasksTimer = null; }
+}
+
+function formatElapsed(seconds) {
+    if (seconds < 60) return `${seconds}с`;
+    const m = Math.floor(seconds / 60);
+    const s = seconds % 60;
+    return `${m}м ${s}с`;
+}
+
+function toggleSprint(sprintId) {
+    expandedSprints[sprintId] = !expandedSprints[sprintId];
+    const body = document.getElementById('sprint-body-' + sprintId);
+    const toggle = document.getElementById('sprint-toggle-' + sprintId);
+    if (body) body.classList.toggle('open', expandedSprints[sprintId]);
+    if (toggle) toggle.classList.toggle('open', expandedSprints[sprintId]);
+}
+
+async function refreshTasksBoardNew() {
+    const wrap = document.getElementById('tasksBoardWrap');
+    wrap.innerHTML = '<div class="empty-state">Загрузка...</div>';
+    try {
+        const [tasksData, sprintsData] = await Promise.all([
+            api('GET', '/api/tasks-list'),
+            api('GET', '/api/sprints'),
+            fetchRunningTasks(),
+        ]);
+        allTasks = tasksData.tasks || [];
+        allSprints = sprintsData.sprints || [];
+
+        if (allTasks.length === 0 && allSprints.length === 0) {
+            wrap.innerHTML = `<div class="empty-state" style="padding:40px;">
+                <p style="margin-bottom:16px;">Задач и спринтов пока нет. Создайте первый спринт.</p>
+                <button class="btn primary" onclick="showCreateSprintModal()">+ Создать спринт</button>
+            </div>`;
+            stopRunningTasksTimer();
+            return;
+        }
+
+        const hasRunning = Object.keys(runningTasks).length > 0;
+
+        // Группируем задачи по спринтам
+        const tasksBySprint = {};
+        const orphanTasks = [];
+        for (const t of allTasks) {
+            const sid = t.sprint_id || '';
+            if (sid) {
+                if (!tasksBySprint[sid]) tasksBySprint[sid] = [];
+                tasksBySprint[sid].push(t);
+            } else {
+                orphanTasks.push(t);
+            }
+        }
+
+        let html = '';
+
+        // Спринты: первые (старые) внизу -> рендерим в обратном порядке (новые сверху)
+        // Но требование "первые внизу" => рендерим в прямом порядке (старые сверху),
+        // и контейнер будет flex-direction: column-reverse
+        // Нет, проще: "первые внизу" значит самые ранние спринты внизу списка.
+        // Т.е. рендерим sprints в обратном порядке (newest first, oldest last at bottom)
+        // Но на экране oldest должен быть внизу, newest сверху.
+        // Порядок в массиве: sprints[0] = oldest, sprints[N-1] = newest
+        // Рендерим в обратном порядке: newest сверху.
+        const sortedSprints = [...allSprints].reverse();
+
+        for (const sprint of sortedSprints) {
+            const sprintTasks = tasksBySprint[sprint.id] || [];
+            const isOpen = expandedSprints[sprint.id] || false;
+            // Считаем задачи (включая финальную)
+            const doneCount = sprintTasks.filter(t => t.status === 'выполнена').length;
+            const totalCount = sprintTasks.length;
+            // Спринт завершён, если финальная задача выполнена
+            const finalizeTask = sprintTasks.find(t => t.is_finalize);
+            const isSprintDone = sprint.status === 'завершён' || (finalizeTask && finalizeTask.status === 'выполнена');
+            const statusBadge = isSprintDone
+                ? '<span class="sprint-badge done">завершён</span>'
+                : '<span class="sprint-badge active">активный</span>';
+
+            html += `<div class="sprint-section">
+                <div class="sprint-header" onclick="toggleSprint('${sprint.id}')">
+                    <div class="sprint-header-left">
+                        <span class="sprint-toggle${isOpen ? ' open' : ''}" id="sprint-toggle-${sprint.id}">&#9654;</span>
+                        <span class="sprint-id">${escapeHtml(sprint.id)}</span>
+                        <span class="sprint-title">${escapeHtml(sprint.title)}</span>
+                    </div>
+                    <div class="sprint-meta">
+                        ${statusBadge}
+                        <span class="sprint-progress">${doneCount}/${totalCount} задач</span>
+                    </div>
+                </div>
+                <div class="sprint-body${isOpen ? ' open' : ''}" id="sprint-body-${sprint.id}">
+                    ${sprint.description ? `<div class="sprint-desc">${escapeHtml(sprint.description)}</div>` : ''}
+                    ${renderSprintToolbar(sprint, sprintTasks)}
+                    ${renderKanbanBoard(sprintTasks)}
+                </div>
+            </div>`;
+        }
+
+        // Задачи без спринта (если есть)
+        if (orphanTasks.length > 0) {
+            const isOpen = expandedSprints['_orphan'] || false;
+            html += `<div class="sprint-section" style="border-color: var(--text-dim);">
+                <div class="sprint-header" onclick="toggleSprint('_orphan')">
+                    <div class="sprint-header-left">
+                        <span class="sprint-toggle${isOpen ? ' open' : ''}" id="sprint-toggle-_orphan">&#9654;</span>
+                        <span class="sprint-id" style="color:var(--text-dim);">—</span>
+                        <span class="sprint-title" style="color:var(--text-dim);">Задачи без спринта</span>
+                    </div>
+                    <div class="sprint-meta">
+                        <span class="sprint-progress">${orphanTasks.length} задач</span>
+                    </div>
+                </div>
+                <div class="sprint-body${isOpen ? ' open' : ''}" id="sprint-body-_orphan">
+                    ${renderKanbanBoard(orphanTasks)}
+                </div>
+            </div>`;
+        }
+
+        wrap.innerHTML = html;
+
+        if (hasRunning) {
+            startRunningTasksTimer();
+        } else {
+            stopRunningTasksTimer();
+        }
+    } catch (e) {
+        wrap.innerHTML = '<div class="empty-state" style="color:var(--danger);">Ошибка: ' + escapeHtml(e.message) + '</div>';
+    }
+}
+
+function renderKanbanBoard(tasks) {
+    const statuses = ['новая', 'в_работе', 'на_проверке', 'выполнена', 'отменена'];
+    const grouped = {};
+    statuses.forEach(s => grouped[s] = []);
+    tasks.forEach(t => {
+        if (grouped[t.status]) grouped[t.status].push(t);
+        else grouped['новая'].push(t);
+    });
+
+    let html = '<div class="tasks-columns">';
+    for (const status of statuses) {
+        const col = grouped[status];
+        html += `<div class="tasks-column col-${status}">
+            <div class="tasks-column-title">${STATUS_LABELS[status]} <span class="count">${col.length}</span></div>`;
+        for (const t of col) {
+            html += renderTaskCard(t);
+        }
+        html += '</div>';
+    }
+    html += '</div>';
+    return html;
+}
+
+function renderTaskCard(t) {
+    const isRunning = !!runningTasks[t.id];
+    const runInfo = runningTasks[t.id];
+    const next = STATUS_NEXT_ROLE[t.status];
+    let actionsHtml = '';
+    const isFinalize = t.is_finalize || false;
+
+    if (isRunning) {
+        actionsHtml += `<button class="btn sm running" disabled title="Агент ${escapeHtml(runInfo.agent || '?')} работает...">${escapeHtml(runInfo.agent || 'Агент')} думает...</button>`;
+    } else if (next) {
+        const agentName = t[next.role] || '—';
+        const agentRuntime = getAgentRuntime(agentName);
+        const runtimeLabel = agentRuntime === 'cursor' ? 'Через Cursor CLI' : 'Через Claude API';
+        actionsHtml += `<button class="btn sm ${next.btnClass}" onclick="triggerTask('${t.id}','${agentRuntime}')" title="${runtimeLabel}">${escapeHtml(next.label)} (${escapeHtml(agentName)})</button>`;
+    }
+
+    if (!isRunning && t.status !== 'выполнена' && t.status !== 'отменена') {
+        actionsHtml += `<button class="btn sm danger" onclick="cancelTask('${t.id}')" title="Отменить задачу">Отменить</button>`;
+    }
+    if (!isRunning && t.status === 'на_проверке') {
+        actionsHtml += `<button class="btn sm" onclick="rejectTask('${t.id}')" title="Вернуть в работу">Вернуть</button>`;
+    }
+
+    let resultHtml = '';
+    if (t.result) {
+        resultHtml = `<div class="task-card-result">${escapeHtml(t.result.slice(0, 200))}${t.result.length > 200 ? '...' : ''}</div>`;
+    }
+
+    // Зависимости
+    let depsHtml = '';
+    const deps = t.depends_on || [];
+    if (deps.length > 0) {
+        const depTags = deps.map(depId => {
+            const depTask = allTasks.find(x => x.id === depId);
+            const depStatus = depTask ? depTask.status : '?';
+            const depDone = depStatus === 'выполнена';
+            const depColor = depDone ? 'color:var(--success)' : 'color:var(--warning)';
+            const icon = depDone ? '&#10003;' : '&#9679;';
+            return `<span class="dep-tag" style="${depColor}" title="${depId}: ${depStatus}">${icon} ${depId}</span>`;
+        }).join('');
+        depsHtml = `<div class="task-card-deps">Зависит от: ${depTags}</div>`;
+    }
+
+    // Running badge
+    let runningBadgeHtml = '';
+    if (isRunning) {
+        const elapsed = runInfo.elapsed_seconds || 0;
+        const startedAt = runInfo.started_at || (Date.now() / 1000 - elapsed);
+        const runtimeIcon = runInfo.runtime === 'cursor' ? 'Cursor' : 'Claude';
+        runningBadgeHtml = `<div class="task-running-badge">
+            <div class="spinner"></div>
+            <span>${escapeHtml(runInfo.agent || '?')} · ${escapeHtml(runInfo.role || '')} · ${runtimeIcon}</span>
+            <span class="elapsed" data-started-at="${startedAt}">${formatElapsed(elapsed)}</span>
+        </div>`;
+    }
+
+    return `<div class="task-card${isRunning ? ' running' : ''}${isFinalize ? ' task-card-finalize' : ''}">
+        <div class="task-card-id">${escapeHtml(t.id)}${isFinalize ? ' · ФИНАЛИЗАЦИЯ' : ''} · ${escapeHtml((t.updated_at || t.created_at || '').replace('T',' ').slice(0,16))}</div>
+        <div class="task-card-title">${escapeHtml(t.title)}</div>
+        ${t.description && !isFinalize ? `<div style="font-size:12px;color:var(--text-dim);margin-bottom:6px;">${escapeHtml(t.description.slice(0, 120))}${t.description.length > 120 ? '...' : ''}</div>` : ''}
+        <div class="task-card-roles">
+            <strong>Заказчик:</strong> ${escapeHtml(t.customer || '—')} &nbsp;
+            <strong>Разраб:</strong> ${escapeHtml(t.developer || '—')} &nbsp;
+            <strong>Тестер:</strong> ${escapeHtml(t.tester || '—')}
+        </div>
+        ${depsHtml}
+        ${resultHtml}
+        ${runningBadgeHtml}
+        <div class="task-card-actions">${actionsHtml}</div>
+    </div>`;
+}
+
+async function triggerTask(taskId, runtime) {
+    if (runningTasks[taskId]) return;
+
+    const btn = event.target;
+    runningTasks[taskId] = {
+        agent: btn.textContent.match(/\(([^)]+)\)/)?.[1] || '?',
+        role: '',
+        runtime: runtime,
+        started_at: Date.now() / 1000,
+        elapsed_seconds: 0,
+        _local: true,
+    };
+    updateRunningTasksIndicator();
+    await refreshTasksBoardNew();
+
+    try {
+        const result = await api('POST', `/api/tasks-list/${taskId}/trigger`, { runtime });
+        if (result.agent) {
+            addChatMessage(result.agent, 'system', `Задача ${taskId}: ${result.role}`);
+            if (result.result) {
+                addChatMessage(result.agent, 'agent', result.result);
+            }
+        }
+    } catch (e) {
+        console.error('triggerTask error:', e.message);
+        if (!e.message.includes('уже выполняется')) {
+            alert('Ошибка: ' + e.message);
+        }
+    } finally {
+        delete runningTasks[taskId];
+        if (document.getElementById('tasksBoardScreen').style.display !== 'none') {
+            await refreshTasksBoardNew();
+        }
+    }
+}
+
+async function cancelTask(taskId) {
+    if (!confirm(`Отменить задачу ${taskId}?`)) return;
+    try {
+        await api('PUT', `/api/tasks-list/${taskId}/status`, { status: 'отменена' });
+        await refreshTasksBoardNew();
+    } catch (e) { alert('Ошибка: ' + e.message); }
+}
+
+async function rejectTask(taskId) {
+    try {
+        await api('PUT', `/api/tasks-list/${taskId}/status`, { status: 'в_работе' });
+        await refreshTasksBoardNew();
+    } catch (e) { alert('Ошибка: ' + e.message); }
+}
+
+// ── Sprint Auto-Run ────────────────────────────────────────────────────────
+
+function renderSprintToolbar(sprint, sprintTasks) {
+    // Only show toolbar for active sprints that have tasks
+    const nonFinalTasks = sprintTasks.filter(t => !t.is_finalize);
+    if (nonFinalTasks.length === 0) return '';
+
+    const isAutoRunning = sprintAutoRunState[sprint.id]?.running;
+    const doneCount = sprintTasks.filter(t => t.status === 'выполнена' || t.status === 'отменена').length;
+    const totalCount = sprintTasks.length;
+    const allDone = sprintTasks.every(t => t.status === 'выполнена' || t.status === 'отменена');
+
+    let btnHtml = '';
+    if (allDone && sprint.status === 'завершён') {
+        // Спринт уже завершён и релиз выпущен
+        btnHtml = `<span style="font-size:12px; color:var(--success); font-weight:600;">✓ Релиз ${sprint.version || ''} выпущен</span>`;
+    } else if (allDone) {
+        // Все задачи выполнены — показать кнопку релиза
+        btnHtml = `<button class="btn sm success" onclick="event.stopPropagation(); showReleaseModal('${sprint.id}')">🚀 Выпустить релиз</button>`;
+    } else if (isAutoRunning) {
+        btnHtml = `<button class="btn sm auto-stop" onclick="event.stopPropagation(); stopSprintAutoRun('${sprint.id}')">⏹ Остановить</button>`;
+        btnHtml += `<div class="auto-run-progress"><div class="spinner"></div><span>Автозапуск: ${doneCount}/${totalCount} задач выполнено</span></div>`;
+    } else {
+        btnHtml = `<button class="btn sm auto-run" onclick="event.stopPropagation(); runAllSprintTasks('${sprint.id}')">▶ Сделать все задачи спринта</button>`;
+    }
+
+    return `<div class="sprint-toolbar">${btnHtml}</div>`;
+}
+
+// ── Release Functions ───────────────────────────────────────────────────────
+
+async function showReleaseModal(sprintId) {
+    // Показываем модальное окно с индикатором загрузки
+    const loadingBody = `
+        <div style="text-align:center; padding:20px;">
+            <div class="spinner" style="margin:0 auto 16px;"></div>
+            <p>Проверка готовности к релизу...</p>
+        </div>
+    `;
+    openModal('🚀 Выпустить релиз', loadingBody, '');
+
+    try {
+        // Получаем информацию о готовности к релизу
+        const releaseInfo = await api('GET', `/api/sprints/${sprintId}/release-ready`);
+
+        if (!releaseInfo.ready) {
+            const pendingIds = (releaseInfo.pending_tasks || []).map(t => t.id || t).join(', ');
+            closeModal();
+            alert('Не все задачи выполнены: ' + pendingIds);
+            return;
+        }
+
+        const sprint = allSprints.find(s => s.id === sprintId);
+        const sprintTitle = sprint?.title || sprintId;
+        const nextVersion = releaseInfo.next_version || 'v0.1.0';
+        const doneCount = releaseInfo.done_count || '?';
+
+        // Показываем форму релиза
+        const body = `
+            <div style="display:flex; flex-direction:column; gap:16px;">
+                <div>
+                    <label style="font-size:12px; color:var(--text-dim);">Спринт</label>
+                    <p style="margin:4px 0; font-weight:600;">${escapeHtml(sprintId)} «${escapeHtml(sprintTitle)}»</p>
+                </div>
+                <div>
+                    <label style="font-size:12px; color:var(--text-dim);">Выполнено задач</label>
+                    <p style="margin:4px 0;">${doneCount}</p>
+                </div>
+                <div>
+                    <label style="font-size:12px; color:var(--text-dim);">Версия релиза</label>
+                    <input type="text" id="releaseVersion" value="${escapeHtml(nextVersion)}" style="width:100%; margin-top:4px;">
+                </div>
+                <p style="font-size:12px; color:var(--text-dim); margin:0;">
+                    Будет создан коммит со всеми изменениями, тег с версией и push в GitHub.
+                </p>
+            </div>
+        `;
+
+        openModal('🚀 Выпустить релиз', body,
+            `<button class="btn" onclick="closeModal()">Отмена</button>
+             <button class="btn success" onclick="executeRelease('${sprintId}')">Выпустить</button>`);
+    } catch (e) {
+        closeModal();
+        alert('Ошибка проверки готовности: ' + e.message);
+    }
+}
+
+async function executeRelease(sprintId) {
+    const versionInput = document.getElementById('releaseVersion');
+    const version = versionInput?.value?.trim();
+
+    // Показываем индикатор загрузки
+    document.getElementById('modalBody').innerHTML = `
+        <div style="text-align:center; padding:20px;">
+            <div class="spinner" style="margin:0 auto 16px;"></div>
+            <p>Создание релиза...</p>
+            <p style="font-size:12px; color:var(--text-dim); margin-top:8px;">Коммит, тег, push в GitHub...</p>
+        </div>
+    `;
+    document.getElementById('modalActions').innerHTML = '';
+
+    try {
+        const result = await api('POST', '/api/git/release', {
+            sprint_id: sprintId,
+            version: version || undefined
+        });
+
+        closeModal();
+
+        if (result.success) {
+            // Показываем сообщение об успехе
+            const successMsg = `🚀 Релиз ${result.version} опубликован!\nКоммит: ${result.commit || 'created'}\nТег: ${result.tag_created ? 'создан' : 'нет'}`;
+            alert(successMsg);
+
+            // Обновляем UI
+            await Promise.all([
+                refreshTasksBoardNew(),
+                loadSprints(),
+                loadGitStatus()
+            ]);
+        } else {
+            alert('Ошибка релиза: ' + (result.error || result.message || 'Unknown error'));
+        }
+    } catch (e) {
+        closeModal();
+        alert('Ошибка: ' + e.message);
+    }
+}
+
+async function triggerTaskAutoRun(taskId, runtime) {
+    if (runningTasks[taskId]) return;
+
+    const task = allTasks.find(t => t.id === taskId);
+    if (!task) return;
+    const next = STATUS_NEXT_ROLE[task.status];
+    if (!next) return;
+    const agentName = task[next.role] || '?';
+
+    runningTasks[taskId] = {
+        agent: agentName,
+        role: next.label || '',
+        runtime: runtime,
+        started_at: Date.now() / 1000,
+        elapsed_seconds: 0,
+        _local: true,
+    };
+    updateRunningTasksIndicator();
+
+    try {
+        const result = await api('POST', `/api/tasks-list/${taskId}/trigger`, { runtime });
+        if (result.agent && result.result) {
+            addChatMessage(result.agent, 'system', `Задача ${taskId}: ${result.role}`);
+            addChatMessage(result.agent, 'agent', result.result);
+        }
+    } catch (e) {
+        console.error(`[AutoRun] triggerTask ${taskId} error:`, e.message);
+    } finally {
+        delete runningTasks[taskId];
+        updateRunningTasksIndicator();
+    }
+}
+
+async function runAllSprintTasks(sprintId) {
+    if (sprintAutoRunState[sprintId]?.running) return;
+
+    const maxConcurrent = parseInt(document.getElementById('maxConcurrentInput')?.value) || 5;
+    sprintAutoRunState[sprintId] = { running: true, cancelled: false };
+
+    // Expand this sprint so user sees progress
+    expandedSprints[sprintId] = true;
+    await refreshTasksBoardNew();
+
+    console.log(`[AutoRun] Starting sprint ${sprintId}, maxConcurrent=${maxConcurrent}`);
+
+    try {
+        while (!sprintAutoRunState[sprintId]?.cancelled) {
+            // Refresh all tasks from server
+            const tasksData = await api('GET', '/api/tasks-list');
+            const allTasksFresh = tasksData.tasks || [];
+            allTasks = allTasksFresh; // update global cache
+
+            const sprintTasks = allTasksFresh.filter(t => t.sprint_id === sprintId);
+
+            // Check if all tasks are done
+            const allDone = sprintTasks.every(t =>
+                t.status === 'выполнена' || t.status === 'отменена'
+            );
+            if (allDone) {
+                console.log(`[AutoRun] Sprint ${sprintId}: all tasks done!`);
+                break;
+            }
+
+            // Find actionable tasks (not finished)
+            const actionable = sprintTasks.filter(t =>
+                ['новая', 'в_работе', 'на_проверке'].includes(t.status)
+            );
+
+            if (actionable.length === 0) break;
+
+            // Find ready tasks: not currently running, dependencies met, have valid next step
+            const ready = actionable.filter(t => {
+                // Skip already running
+                if (runningTasks[t.id]) return false;
+
+                // Must have a valid next step
+                const next = STATUS_NEXT_ROLE[t.status];
+                if (!next) return false;
+
+                // For 'новая' tasks, check all dependencies are done
+                if (t.status === 'новая') {
+                    const deps = t.depends_on || [];
+                    return deps.every(depId => {
+                        const depTask = allTasksFresh.find(x => x.id === depId);
+                        return depTask && (depTask.status === 'выполнена' || depTask.status === 'отменена');
+                    });
+                }
+
+                // в_работе and на_проверке are always ready to continue
+                return true;
+            });
+
+            // Sort by task number (lower number = higher priority)
+            ready.sort((a, b) => {
+                const numA = parseInt(a.id.replace(/\D/g, ''));
+                const numB = parseInt(b.id.replace(/\D/g, ''));
+                return numA - numB;
+            });
+
+            // Calculate available slots
+            const currentRunning = Object.keys(runningTasks).length;
+            const slots = Math.max(0, maxConcurrent - currentRunning);
+            const batch = ready.slice(0, slots);
+
+            console.log(`[AutoRun] Sprint ${sprintId}: actionable=${actionable.length}, ready=${ready.length}, running=${currentRunning}, slots=${slots}, batch=${batch.length}`);
+
+            if (batch.length === 0) {
+                if (currentRunning > 0) {
+                    // Wait for currently running tasks to finish
+                    await new Promise(r => setTimeout(r, 3000));
+                    await refreshTasksBoardNew();
+                    continue;
+                }
+                // Nothing running and nothing ready - stuck (deps block or error)
+                console.warn(`[AutoRun] Sprint ${sprintId}: no tasks ready and nothing running. Stopping.`);
+                break;
+            }
+
+            // Update board to show running state
+            await refreshTasksBoardNew();
+
+            // Trigger batch in parallel
+            const promises = batch.map(t => {
+                const next = STATUS_NEXT_ROLE[t.status];
+                const agentName = t[next.role] || '';
+                const runtime = getAgentRuntime(agentName);
+                return triggerTaskAutoRun(t.id, runtime);
+            });
+
+            await Promise.allSettled(promises);
+
+            // Refresh board after batch completes
+            await refreshTasksBoardNew();
+        }
+    } catch (e) {
+        console.error('[AutoRun] Error:', e);
+    } finally {
+        const wasCancelled = sprintAutoRunState[sprintId]?.cancelled;
+        delete sprintAutoRunState[sprintId];
+        await refreshTasksBoardNew();
+        console.log(`[AutoRun] Sprint ${sprintId} finished. ${wasCancelled ? '(cancelled)' : '(complete)'}`);
+    }
+}
+
+function stopSprintAutoRun(sprintId) {
+    if (sprintAutoRunState[sprintId]) {
+        sprintAutoRunState[sprintId].cancelled = true;
+        console.log(`[AutoRun] Sprint ${sprintId}: cancel requested`);
+    }
+}
+
+// ── Create Sprint Modal ────────────────────────────────────────────────────
+
+function showCreateSprintModal() {
+    const body = `
+        <label>Название спринта</label>
+        <input type="text" id="newSprintTitle" placeholder="Например: MVP, Спринт 4 — Озвучивание">
+        <label>Описание</label>
+        <textarea id="newSprintDesc" rows="3" placeholder="Цель спринта, ключевые задачи (необязательно)"></textarea>
+    `;
+    openModal('Создать спринт', body,
+        `<button class="btn" onclick="closeModal()">Отмена</button>
+         <button class="btn primary" onclick="createSprintFromModal()">Создать</button>`);
+}
+
+async function createSprintFromModal() {
+    const title = document.getElementById('newSprintTitle').value.trim();
+    if (!title) { alert('Укажите название спринта'); return; }
+    const data = {
+        title,
+        description: document.getElementById('newSprintDesc').value.trim(),
+        created_by: 'boss',
+    };
+    try {
+        const sprint = await api('POST', '/api/sprints', data);
+        closeModal();
+        // Автоматически раскрыть новый спринт
+        expandedSprints[sprint.id] = true;
+        await refreshTasksBoardNew();
+        addSystemMessage(`Спринт ${sprint.id} создан: ${sprint.title}`);
+    } catch (e) { alert('Ошибка: ' + e.message); }
+}
+
+// ── Create Task Modal ──────────────────────────────────────────────────────
+
+function showCreateTaskModal() {
+    const empOptions = Object.keys(employees).map(n => `<option value="${n}">${n} — ${escapeHtml(employees[n].role || '')}</option>`).join('');
+    const sprintOptions = '<option value="">— без спринта —</option>' +
+        allSprints.filter(s => s.status === 'активный').map(s =>
+            `<option value="${s.id}">${s.id} — ${escapeHtml(s.title)}</option>`
+        ).join('');
+    const taskOptions = allTasks.map(t =>
+        `<option value="${t.id}">${t.id} — ${escapeHtml(t.title.slice(0, 50))}</option>`
+    ).join('');
+
+    const body = `
+        <label>Спринт</label>
+        <select id="newTaskSprint">${sprintOptions}</select>
+        <label>Заголовок</label>
+        <input type="text" id="newTaskTitle" placeholder="Краткое название задачи">
+        <label>Описание</label>
+        <textarea id="newTaskDesc" rows="3" placeholder="Подробное описание (необязательно)"></textarea>
+        <label>Заказчик</label>
+        <select id="newTaskCustomer">${empOptions}</select>
+        <label>Разработчик</label>
+        <select id="newTaskDeveloper">${empOptions}</select>
+        <label>Тестировщик</label>
+        <select id="newTaskTester">${empOptions}</select>
+        <label>Зависит от задач (Ctrl+Click для множественного выбора)</label>
+        <select id="newTaskDeps" multiple size="4" style="min-height:80px;">${taskOptions}</select>
+    `;
+    openModal('Создать задачу', body,
+        `<button class="btn" onclick="closeModal()">Отмена</button>
+         <button class="btn primary" onclick="createTaskFromModal()">Создать</button>`);
+}
+
+async function createTaskFromModal() {
+    const title = document.getElementById('newTaskTitle').value.trim();
+    if (!title) { alert('Укажите заголовок'); return; }
+    const depsSelect = document.getElementById('newTaskDeps');
+    const depends_on = Array.from(depsSelect.selectedOptions).map(o => o.value);
+    const data = {
+        title,
+        description: document.getElementById('newTaskDesc').value.trim(),
+        customer: document.getElementById('newTaskCustomer').value,
+        developer: document.getElementById('newTaskDeveloper').value,
+        tester: document.getElementById('newTaskTester').value,
+        sprint_id: document.getElementById('newTaskSprint').value,
+        depends_on: depends_on.length > 0 ? depends_on : undefined,
+    };
+    try {
+        const task = await api('POST', '/api/tasks-list', data);
+        closeModal();
+        // Раскрыть спринт, куда добавили задачу
+        if (task.sprint_id) expandedSprints[task.sprint_id] = true;
+        await refreshTasksBoardNew();
+        addSystemMessage(`Задача ${task.id} создана: ${task.title}`);
+    } catch (e) { alert('Ошибка: ' + e.message); }
+}
+
+function showCreateBacklogModal() {
+    const sprintOptions = '<option value="">— без спринта —</option>' +
+        allSprints.filter(s => s.status === 'активный').map(s =>
+            `<option value="${s.id}">${s.id} — ${escapeHtml(s.title)}</option>`
+        ).join('');
+
+    const body = `
+        <label>Спринт для всех задач бэклога</label>
+        <select id="backlogSprint">${sprintOptions}</select>
+        <p style="font-size:13px;color:var(--text-dim);margin-bottom:12px; margin-top:12px;">
+            Вставьте JSON-массив задач. Каждая задача: { "title", "description", "customer", "developer", "tester" }.
+            Поле sprint_id будет добавлено автоматически из выбранного спринта.
+        </p>
+        <textarea id="backlogJson" rows="12" style="font-family:var(--mono); font-size:12px;" placeholder='[
+  {
+    "title": "Название задачи",
+    "description": "Описание",
+    "customer": "boss",
+    "developer": "developer_frontend",
+    "tester": "qa_tester"
+  }
+]'></textarea>
+    `;
+    openModal('Создать бэклог', body,
+        `<button class="btn" onclick="closeModal()">Отмена</button>
+         <button class="btn primary" onclick="createBacklogFromModal()">Создать</button>`);
+}
+
+async function createBacklogFromModal() {
+    const text = document.getElementById('backlogJson').value.trim();
+    const sprintId = document.getElementById('backlogSprint').value;
+    let tasks;
+    try { tasks = JSON.parse(text); } catch { alert('Невалидный JSON'); return; }
+    if (!Array.isArray(tasks) || tasks.length === 0) { alert('Нужен непустой массив задач'); return; }
+    // Добавляем sprint_id ко всем задачам
+    if (sprintId) {
+        tasks = tasks.map(t => ({ ...t, sprint_id: sprintId }));
+    }
+    try {
+        const result = await api('POST', '/api/tasks-list', { tasks });
+        closeModal();
+        if (sprintId) expandedSprints[sprintId] = true;
+        await refreshTasksBoardNew();
+        addSystemMessage(`Создано ${result.count} задач`);
+    } catch (e) { alert('Ошибка: ' + e.message); }
+}
+
+// ── Old Tasks Board (tasks.md) ─────────────────────────────────────────────
+
+function showOldTasksBoard() {
+    hideAllScreens();
+    document.getElementById('tasksScreen').style.display = 'flex';
+    refreshOldTasksBoard();
+}
+
+async function refreshOldTasksBoard() {
+    const el = document.getElementById('oldTasksBoardContent');
+    el.textContent = 'Загрузка...';
+    try {
+        const data = await api('GET', '/api/tasks');
+        el.textContent = data.content || '';
+    } catch (e) { el.textContent = 'Ошибка: ' + e.message; }
+}
+
+// ── Ensure Agents ──────────────────────────────────────────────────────────
+
+async function ensureAgents() {
+    addSystemMessage('Проверяю агентов...');
+    try {
+        const result = await api('POST', '/api/ensure-agents');
+        for (const r of result.results) {
+            addSystemMessage(`Агент "${r.agent}": ${r.status}`, r.status === 'error');
+        }
+        await loadAgents();
+    } catch (e) { addSystemMessage('Ошибка: ' + e.message, true); }
+}
+
+async function createCursorChats() {
+    addSystemMessage('Создаю чаты Cursor...');
+    try {
+        const result = await api('POST', '/api/cursor-create-chats');
+        for (const r of result.results || []) {
+            if (r.created && r.chat_id) addSystemMessage(`Cursor чат "${r.agent}": ${r.chat_id}`);
+            else if (r.chat_id) addSystemMessage(`Чат "${r.agent}" уже есть`);
+            else addSystemMessage(`"${r.agent}": ${r.error || 'не создан'}`, true);
+        }
+    } catch (e) { addSystemMessage('Ошибка: ' + e.message, true); }
+}
+
+// ── Running tasks header indicator ─────────────────────────────────────────
+
+function updateRunningTasksIndicator() {
+    const count = Object.keys(runningTasks).length;
+    const el = document.getElementById('runningTasksIndicator');
+    const countEl = document.getElementById('runningTasksCount');
+    if (count > 0) {
+        el.style.display = 'flex';
+        countEl.textContent = count;
+    } else {
+        el.style.display = 'none';
+    }
+}
+
+// Глобальный поллинг running tasks (не только когда доска видна)
+let globalRunningPollTimer = null;
+
+function startGlobalRunningPoll() {
+    if (globalRunningPollTimer) return;
+    globalRunningPollTimer = setInterval(async () => {
+        await fetchRunningTasks();
+        updateRunningTasksIndicator();
+    }, 5000);
+}
+
+// ── Git Functions ───────────────────────────────────────────────────────────
+
+let gitStatus = null;
+let gitHistoryExpanded = false;
+let gitAutoRefreshTimer = null;
+
+async function loadGitStatus() {
+    const container = document.getElementById('gitStatusContainer');
+
+    // Обновляем индикатор в header
+    updateGitHeaderIndicator('loading');
+
+    try {
+        const data = await api('GET', '/api/git/status');
+        gitStatus = data;
+        if (container) renderGitSection(data);
+        updateGitHeaderIndicator('success', data);
+    } catch (e) {
+        console.warn('Git недоступен:', e.message);
+        if (container) renderGitUnavailable(e.message);
+        updateGitHeaderIndicator('error', null, e.message);
+    }
+}
+
+// Обновляет индикатор git-статуса в header
+function updateGitHeaderIndicator(state, data = null, errorMsg = null) {
+    const branchEl = document.getElementById('gitBranchHeader');
+    const dotEl = document.getElementById('gitDotHeader');
+    const indicator = document.getElementById('gitStatusIndicator');
+
+    if (!branchEl || !dotEl || !indicator) return;
+
+    switch(state) {
+        case 'loading':
+            branchEl.textContent = '...';
+            dotEl.className = 'git-dot loading';
+            indicator.title = 'Загрузка git-статуса...';
+            break;
+
+        case 'success':
+            if (data && data.branch) {
+                branchEl.textContent = data.branch;
+                const stagedCount = (data.staged || []).length;
+                const unstagedCount = (data.unstaged || []).length;
+                const untrackedCount = (data.untracked || []).length;
+                const hasChanges = stagedCount + unstagedCount + untrackedCount > 0;
+
+                dotEl.className = 'git-dot ' + (hasChanges ? 'dirty' : 'clean');
+
+                // Формируем tooltip
+                let tooltip = `Ветка: ${data.branch}\n`;
+                if (hasChanges) {
+                    if (stagedCount > 0) tooltip += `Staged: ${stagedCount} файл(ов)\n`;
+                    if (unstagedCount > 0) tooltip += `Изменено: ${unstagedCount} файл(ов)\n`;
+                    if (untrackedCount > 0) tooltip += `Не отслеживается: ${untrackedCount} файл(ов)`;
+                } else {
+                    tooltip += 'Нет локальных изменений';
+                }
+                indicator.title = tooltip.trim();
+            } else {
+                branchEl.textContent = '—';
+                dotEl.className = 'git-dot';
+                indicator.title = 'Git не инициализирован';
+            }
+            break;
+
+        case 'error':
+            branchEl.textContent = '—';
+            dotEl.className = 'git-dot error';
+            indicator.title = errorMsg || 'Ошибка получения git-статуса';
+            break;
+    }
+}
+
+// Показывает toast-уведомление о git-операциях
+function showGitToast(message, type = 'error') {
+    // Удаляем предыдущий toast если есть
+    const existing = document.querySelector('.git-toast');
+    if (existing) existing.remove();
+
+    const toast = document.createElement('div');
+    toast.className = `git-toast ${type}`;
+    toast.textContent = message;
+    document.body.appendChild(toast);
+
+    // Автоматически удаляем через 5 секунд
+    setTimeout(() => toast.remove(), 5000);
+}
+
+function renderGitUnavailable(message = 'Git недоступен') {
+    const container = document.getElementById('gitStatusContainer');
+    if (!container) return;
+
+    // Проверяем, это ли ошибка "Git not initialized"
+    // Также проверяем JSON-ответ {"initialized": false}
+    const lowerMsg = message.toLowerCase();
+    const isNotInitialized = lowerMsg.includes('initialized') ||
+                              lowerMsg.includes('not a git') ||
+                              lowerMsg.includes('not initialized') ||
+                              lowerMsg.includes('"initialized"') ||
+                              lowerMsg.includes('false');
+
+    if (isNotInitialized) {
+        container.innerHTML = `
+            <div class="git-unavailable">
+                <div class="icon">📁</div>
+                <p>Git репозиторий не инициализирован</p>
+                <button class="btn primary" onclick="initGitRepo()" style="margin-top: 10px;">
+                    🔧 Инициализировать Git
+                </button>
+            </div>
+        `;
+    } else {
+        container.innerHTML = `
+            <div class="git-unavailable">
+                <div class="icon">⚠️</div>
+                <p>${escapeHtml(message)}</p>
+            </div>
+        `;
+    }
+}
+
+async function initGitRepo() {
+    const container = document.getElementById('gitStatusContainer');
+    if (container) {
+        container.innerHTML = `
+            <div class="git-unavailable">
+                <div class="icon">⏳</div>
+                <p>Инициализация репозитория...</p>
+            </div>
+        `;
+    }
+
+    try {
+        const result = await api('POST', '/api/git/init', { create_gitignore: true });
+        if (result.success) {
+            showNotification('Git репозиторий инициализирован' + (result.gitignore_created ? ' (.gitignore создан)' : ''), 'success');
+            showGitToast('Git репозиторий инициализирован', 'success');
+            await loadGitStatus();
+        } else {
+            throw new Error(result.message || 'Ошибка инициализации');
+        }
+    } catch (e) {
+        showNotification('Ошибка: ' + e.message, 'error');
+        showGitToast('Ошибка инициализации: ' + e.message, 'error');
+        updateGitHeaderIndicator('error', null, e.message);
+        renderGitUnavailable(e.message);
+    }
+}
+
+function renderGitSection(data) {
+    const container = document.getElementById('gitStatusContainer');
+    if (!container) return;
+
+    if (!data || !data.branch) {
+        renderGitUnavailable('Не Git-репозиторий');
+        return;
+    }
+
+    // Подсчёт файлов из массивов
+    const stagedCount = (data.staged || []).length;
+    const unstagedCount = (data.unstaged || []).length;
+    const untrackedCount = (data.untracked || []).length;
+    const isClean = stagedCount === 0 && unstagedCount === 0 && untrackedCount === 0;
+    const statusClass = isClean ? 'clean' : 'dirty';
+    const statusText = isClean ? 'clean' : 'dirty';
+
+    // Форматирование изменений
+    let changesHtml = '';
+    if (stagedCount > 0 || unstagedCount > 0 || untrackedCount > 0) {
+        changesHtml = `<div class="git-changes">`;
+        if (stagedCount > 0) changesHtml += `<span class="staged">+${stagedCount} staged</span> `;
+        if (unstagedCount > 0) changesHtml += `<span class="unstaged">${unstagedCount} modified</span> `;
+        if (untrackedCount > 0) changesHtml += `<span class="untracked">${untrackedCount} untracked</span>`;
+        changesHtml += `</div>`;
+    }
+
+    container.innerHTML = `
+        <div class="git-status-card">
+            <div class="git-branch-row">
+                <span class="git-branch-icon">🌿</span>
+                <span class="git-branch-name">${escapeHtml(data.branch)}</span>
+                <span class="git-status-dot ${statusClass}" title="${statusText}"></span>
+            </div>
+            ${changesHtml}
+        </div>
+
+        <div class="git-actions">
+            <button class="btn sm" onclick="showGitCommitModal()" ${isClean ? 'disabled title="Нет изменений"' : ''}>📝 Commit</button>
+            <button class="btn sm" onclick="gitPush()">⬆️ Push</button>
+            <button class="btn sm" onclick="showGitPRModal()">🔀 PR</button>
+        </div>
+
+        <div class="git-history">
+            <div class="git-history-toggle" onclick="toggleGitHistory()">
+                <span class="arrow ${gitHistoryExpanded ? 'open' : ''}" id="gitHistoryArrow">▶</span>
+                <span>История (последние 20)</span>
+            </div>
+            <div class="git-history-list ${gitHistoryExpanded ? 'open' : ''}" id="gitHistoryList">
+                <div style="text-align:center; padding:10px; color:var(--text-dim);">Загрузка...</div>
+            </div>
+        </div>
+    `;
+
+    if (gitHistoryExpanded) {
+        loadGitHistory();
+    }
+}
+
+async function toggleGitHistory() {
+    gitHistoryExpanded = !gitHistoryExpanded;
+    const arrow = document.getElementById('gitHistoryArrow');
+    const list = document.getElementById('gitHistoryList');
+
+    if (arrow) arrow.classList.toggle('open', gitHistoryExpanded);
+    if (list) list.classList.toggle('open', gitHistoryExpanded);
+
+    if (gitHistoryExpanded) {
+        await loadGitHistory();
+    }
+}
+
+async function loadGitHistory() {
+    const list = document.getElementById('gitHistoryList');
+    if (!list) return;
+
+    try {
+        const data = await api('GET', '/api/git/log?limit=20');
+        const commits = data.commits || [];
+
+        if (commits.length === 0) {
+            list.innerHTML = '<div style="text-align:center; padding:10px; color:var(--text-dim);">Нет коммитов</div>';
+            return;
+        }
+
+        list.innerHTML = commits.map(c => `
+            <div class="git-commit-item">
+                <span class="git-commit-hash">${escapeHtml(c.hash?.slice(0, 7) || '?')}</span>
+                <span class="git-commit-msg" title="${escapeHtml(c.message || '')}">${escapeHtml(c.message?.split('\n')[0] || '')}</span>
+                <span class="git-commit-time">${formatGitTime(c.date)}</span>
+            </div>
+        `).join('');
+    } catch (e) {
+        list.innerHTML = `<div style="text-align:center; padding:10px; color:var(--danger);">Ошибка: ${escapeHtml(e.message)}</div>`;
+    }
+}
+
+function formatGitTime(dateStr) {
+    if (!dateStr) return '';
+    const date = new Date(dateStr);
+    const now = new Date();
+    const diffMs = now - date;
+    const diffHours = Math.floor(diffMs / (1000 * 60 * 60));
+
+    if (diffHours < 1) return 'только что';
+    if (diffHours < 24) return `${diffHours}ч назад`;
+    const diffDays = Math.floor(diffHours / 24);
+    if (diffDays < 7) return `${diffDays}д назад`;
+    return date.toLocaleDateString('ru');
+}
+
+// ── Git Commit Modal ────────────────────────────────────────────────────────
+
+async function showGitCommitModal() {
+    // Показываем модалку с загрузкой
+    const loadingBody = `
+        <div style="text-align:center; padding:20px; color:var(--text-dim);">
+            <div style="font-size:24px; margin-bottom:10px;">⏳</div>
+            <p>Загрузка списка файлов...</p>
+        </div>
+    `;
+    openModal('Commit', loadingBody, '<button class="btn" onclick="closeModal()">Отмена</button>');
+
+    try {
+        const data = await api('GET', '/api/git/status');
+
+        const staged = data.staged || [];
+        const unstaged = data.unstaged || [];
+        const untracked = data.untracked || [];
+        const isClean = staged.length === 0 && unstaged.length === 0 && untracked.length === 0;
+
+        if (isClean) {
+            closeModal();
+            alert('Нет изменений для коммита');
+            return;
+        }
+
+        let filesHtml = '';
+        if (staged.length > 0) {
+            filesHtml += `<div style="font-size:12px; color:var(--success); margin:8px 0 4px;">Staged (${staged.length})</div>`;
+            filesHtml += staged.map(f => renderCommitFileItem(f, true)).join('');
+        }
+        if (unstaged.length > 0) {
+            filesHtml += `<div style="font-size:12px; color:var(--warning); margin:8px 0 4px;">Modified (${unstaged.length})</div>`;
+            filesHtml += unstaged.map(f => renderCommitFileItem(f, false)).join('');
+        }
+        if (untracked.length > 0) {
+            filesHtml += `<div style="font-size:12px; color:var(--text-dim); margin:8px 0 4px;">Untracked (${untracked.length})</div>`;
+            filesHtml += untracked.map(f => renderCommitFileItem(f, false)).join('');
+        }
+
+        const body = `
+            <div class="commit-type-row">
+                <select id="commitType">
+                    <option value="feat">feat</option>
+                    <option value="fix">fix</option>
+                    <option value="docs">docs</option>
+                    <option value="style">style</option>
+                    <option value="refactor">refactor</option>
+                    <option value="test">test</option>
+                    <option value="chore">chore</option>
+                </select>
+                <input type="text" id="commitScope" placeholder="scope (optional)">
+            </div>
+            <label>Сообщение</label>
+            <textarea id="commitMessage" rows="3" placeholder="Описание изменений..."></textarea>
+
+            <label>Файлы</label>
+            <div class="commit-files-list">
+                ${filesHtml}
+            </div>
+        `;
+
+        openModal('Commit', body,
+            `<button class="btn" onclick="closeModal()">Отмена</button>
+             <button class="btn primary" onclick="submitGitCommit()">Commit</button>`);
+
+    } catch (e) {
+        closeModal();
+        alert('Ошибка получения статуса: ' + e.message);
+    }
+}
+
+function renderCommitFileItem(file, isStaged) {
+    // file может быть строкой (имя файла) или объектом
+    const path = typeof file === 'string' ? file : (file.path || file.file || '');
+
+    return `
+        <div class="commit-file-item">
+            <input type="checkbox" name="commitFiles" value="${escapeHtml(path)}" ${isStaged ? 'checked' : ''}>
+            <span class="commit-file-path" title="${escapeHtml(path)}">${escapeHtml(path)}</span>
+        </div>
+    `;
+}
+
+async function submitGitCommit() {
+    const type = document.getElementById('commitType').value;
+    const scope = document.getElementById('commitScope').value.trim();
+    const message = document.getElementById('commitMessage').value.trim();
+
+    if (!message) {
+        alert('Введите сообщение коммита');
+        return;
+    }
+
+    // Собираем выбранные файлы
+    const checkboxes = document.querySelectorAll('input[name="commitFiles"]:checked');
+    const files = Array.from(checkboxes).map(cb => cb.value);
+
+    if (files.length === 0) {
+        alert('Выберите хотя бы один файл');
+        return;
+    }
+
+    // Формируем сообщение коммита
+    const fullMessage = scope
+        ? `${type}(${scope}): ${message}`
+        : `${type}: ${message}`;
+
+    try {
+        const result = await api('POST', '/api/git/commit', {
+            message: fullMessage,
+            files: files
+        });
+
+        closeModal();
+        addSystemMessage(`Commit создан: ${result.hash?.slice(0, 7) || 'OK'}`);
+        showGitToast('Commit создан успешно', 'success');
+        await loadGitStatus();
+    } catch (e) {
+        const errorMsg = parseGitError(e.message);
+        showGitToast('Git ошибка: ' + errorMsg, 'error');
+        updateGitHeaderIndicator('error', null, errorMsg);
+    }
+}
+
+// ── Git Push ────────────────────────────────────────────────────────────────
+
+async function gitPush() {
+    if (!confirm('Выполнить git push?')) return;
+
+    try {
+        const result = await api('POST', '/api/git/push');
+        addSystemMessage(`Push выполнен: ${result.message || 'OK'}`);
+        showGitToast('Push выполнен успешно', 'success');
+        await loadGitStatus();
+    } catch (e) {
+        const errorMsg = parseGitError(e.message);
+        showGitToast('Git ошибка: ' + errorMsg, 'error');
+        updateGitHeaderIndicator('error', null, errorMsg);
+    }
+}
+
+// Парсит сообщения об ошибках git для понятного отображения
+function parseGitError(message) {
+    const lowerMsg = (message || '').toLowerCase();
+
+    if (lowerMsg.includes('could not resolve host') || lowerMsg.includes('unable to access')) {
+        return 'Нет доступа к remote репозиторию';
+    }
+    if (lowerMsg.includes('permission denied') || lowerMsg.includes('authentication failed')) {
+        return 'Ошибка аутентификации';
+    }
+    if (lowerMsg.includes('merge conflict') || lowerMsg.includes('conflict')) {
+        return 'Конфликт слияния';
+    }
+    if (lowerMsg.includes('already exists')) {
+        return 'Ветка уже существует';
+    }
+    if (lowerMsg.includes('not a git repository')) {
+        return 'Не Git-репозиторий';
+    }
+    if (lowerMsg.includes('rejected') || lowerMsg.includes('failed to push')) {
+        return 'Push отклонён (возможно, нужен pull)';
+    }
+    if (lowerMsg.includes('nothing to commit')) {
+        return 'Нет изменений для коммита';
+    }
+
+    return message || 'Неизвестная ошибка';
+}
+
+// ── Git PR Modal ────────────────────────────────────────────────────────────
+
+async function showGitPRModal() {
+    // Загружаем ветки
+    const loadingBody = `
+        <div style="text-align:center; padding:20px; color:var(--text-dim);">
+            <div style="font-size:24px; margin-bottom:10px;">⏳</div>
+            <p>Загрузка веток...</p>
+        </div>
+    `;
+    openModal('Create Pull Request', loadingBody, '<button class="btn" onclick="closeModal()">Отмена</button>');
+
+    try {
+        const [statusData, branchesData] = await Promise.all([
+            api('GET', '/api/git/status'),
+            api('GET', '/api/git/branches')
+        ]);
+
+        const currentBranch = statusData.branch || 'unknown';
+        const branches = branchesData.branches || [];
+
+        // Опции для base branch (исключаем текущую ветку)
+        const baseOptions = branches
+            .filter(b => b !== currentBranch)
+            .map(b => `<option value="${escapeHtml(b)}" ${b === 'develop' ? 'selected' : ''}>${escapeHtml(b)}</option>`)
+            .join('');
+
+        const body = `
+            <div style="margin-bottom:12px;">
+                <label style="display:block; margin-bottom:4px;">Branch</label>
+                <div style="font-family:var(--mono); font-size:14px; color:var(--accent);">${escapeHtml(currentBranch)}</div>
+            </div>
+
+            <label>Base branch</label>
+            <select id="prBaseBranch">${baseOptions}</select>
+
+            <label>Title</label>
+            <input type="text" id="prTitle" placeholder="PR title" value="${escapeHtml(currentBranch)}">
+
+            <label>Description</label>
+            <textarea id="prDescription" rows="6" placeholder="## Summary&#10;- ...&#10;&#10;## Changes&#10;- ..."></textarea>
+        `;
+
+        openModal('Create Pull Request', body,
+            `<button class="btn" onclick="closeModal()">Отмена</button>
+             <button class="btn primary" onclick="submitGitPR()">Create PR</button>`);
+
+    } catch (e) {
+        closeModal();
+        alert('Ошибка: ' + e.message);
+    }
+}
+
+async function submitGitPR() {
+    const baseBranch = document.getElementById('prBaseBranch').value;
+    const title = document.getElementById('prTitle').value.trim();
+    const description = document.getElementById('prDescription').value.trim();
+
+    if (!title) {
+        alert('Введите заголовок PR');
+        return;
+    }
+
+    try {
+        const result = await api('POST', '/api/git/pr', {
+            base: baseBranch,
+            title: title,
+            body: description
+        });
+
+        closeModal();
+
+        if (result.url) {
+            addSystemMessage(`PR создан: ${result.url}`);
+            showGitToast('PR создан успешно', 'success');
+            if (confirm(`PR создан!\n\nОткрыть в браузере?\n${result.url}`)) {
+                window.open(result.url, '_blank');
+            }
+        } else {
+            addSystemMessage(`PR создан: ${result.number || 'OK'}`);
+            showGitToast('PR создан успешно', 'success');
+        }
+
+        await loadGitStatus();
+    } catch (e) {
+        const errorMsg = parseGitError(e.message);
+        showGitToast('Git ошибка: ' + errorMsg, 'error');
+    }
+}
+
+// ── Git Auto-refresh ────────────────────────────────────────────────────────
+
+function startGitAutoRefresh() {
+    if (gitAutoRefreshTimer) return;
+    gitAutoRefreshTimer = setInterval(() => {
+        loadGitStatus();
+    }, 30000); // каждые 30 секунд
+}
+
+function stopGitAutoRefresh() {
+    if (gitAutoRefreshTimer) {
+        clearInterval(gitAutoRefreshTimer);
+        gitAutoRefreshTimer = null;
+    }
+}
+
+// ── Backlog Functions ──────────────────────────────────────────────────────
+
+function showBacklogScreen() {
+    hideAllScreens();
+    document.getElementById('backlogScreen').style.display = 'flex';
+    loadBacklog();
+}
+
+async function loadBacklog() {
+    const container = document.getElementById('backlogList');
+
+    // Получаем значения фильтров
+    const priorityFilter = document.getElementById('backlogPriorityFilter')?.value || '';
+    const nextSprintFilter = document.getElementById('backlogNextSprintFilter')?.checked;
+
+    // Строим query параметры
+    const params = new URLSearchParams();
+    if (priorityFilter) params.append('priority', priorityFilter);
+    if (nextSprintFilter) params.append('next_sprint', 'true');
+
+    try {
+        container.innerHTML = '<div class="empty-state">Загрузка...</div>';
+
+        const data = await api('GET', '/api/backlog' + (params.toString() ? '?' + params.toString() : ''));
+        const items = data.items || [];
+
+        if (items.length === 0) {
+            container.innerHTML = `
+                <div class="backlog-empty-state">
+                    <div class="icon">📋</div>
+                    <p>Бэклог пуст</p>
+                    <button class="btn primary" onclick="showAddBacklogModal()">➕ Добавить запись</button>
+                </div>
+            `;
+            return;
+        }
+
+        // Рендерим записи
+        container.innerHTML = items.map(item => renderBacklogItem(item)).join('');
+
+    } catch (e) {
+        container.innerHTML = `<div class="empty-state" style="color:var(--danger);">Ошибка загрузки: ${escapeHtml(e.message)}</div>`;
+    }
+}
+
+function renderBacklogItem(item) {
+    const priorityEmoji = {
+        high: '🔴',
+        medium: '🟡',
+        low: '🟢'
+    };
+
+    const createdDate = new Date(item.created_at).toLocaleDateString('ru-RU', {
+        day: '2-digit',
+        month: '2-digit',
+        year: 'numeric'
+    });
+
+    const nextSprintClass = item.next_sprint ? ' next-sprint' : '';
+
+    return `
+        <div class="backlog-item${nextSprintClass}" id="backlog-item-${item.id}">
+            <div class="backlog-item-header">
+                <div style="display:flex; align-items:center; gap:8px; flex:1; min-width:0;">
+                    <span class="backlog-item-id">${escapeHtml(item.id)}</span>
+                    <span class="backlog-item-title" title="${escapeHtml(item.title)}">${escapeHtml(item.title)}</span>
+                </div>
+            </div>
+            ${item.description ? `<div class="backlog-item-description">${escapeHtml(item.description)}</div>` : ''}
+            <div class="backlog-item-footer">
+                <div class="backlog-item-meta">
+                    <span class="priority-badge ${item.priority}">
+                        ${priorityEmoji[item.priority] || '⚪'} ${item.priority}
+                    </span>
+                    <label class="next-sprint-checkbox" onclick="event.stopPropagation();">
+                        <input type="checkbox" ${item.next_sprint ? 'checked' : ''}
+                               onchange="toggleBacklogNextSprint('${item.id}')">
+                        <span>В следующий спринт</span>
+                    </label>
+                    <span style="font-size:11px; color:var(--text-dim);">
+                        ${escapeHtml(item.created_by)} • ${createdDate}
+                    </span>
+                </div>
+                <div class="backlog-item-actions">
+                    <button onclick="showEditBacklogModal('${item.id}')" title="Редактировать">✏️</button>
+                    <button onclick="deleteBacklogItem('${item.id}')" title="Удалить" style="color:var(--danger);">🗑️</button>
+                </div>
+            </div>
+        </div>
+    `;
+}
+
+function showAddBacklogModal() {
+    const body = `
+        <label>Название *</label>
+        <input type="text" id="backlogTitleInput" placeholder="Краткое описание задачи" autofocus>
+
+        <label>Описание</label>
+        <textarea id="backlogDescriptionInput" rows="4" placeholder="Подробное описание (опционально)"></textarea>
+
+        <label>Приоритет</label>
+        <select id="backlogPriorityInput">
+            <option value="medium" selected>🟡 Средний</option>
+            <option value="high">🔴 Высокий</option>
+            <option value="low">🟢 Низкий</option>
+        </select>
+
+        <label style="display:flex; align-items:center; gap:8px; margin-top:12px; cursor:pointer;">
+            <input type="checkbox" id="backlogNextSprintInput" style="width:18px; height:18px; accent-color:var(--accent);">
+            <span>Добавить в следующий спринт</span>
+        </label>
+    `;
+
+    openModal('➕ Добавить в бэклог', body,
+        `<button class="btn" onclick="closeModal()">Отмена</button>
+         <button class="btn primary" onclick="submitAddBacklog()" id="backlogSubmitBtn">Создать</button>`);
+
+    // Валидация в реальном времени
+    const titleInput = document.getElementById('backlogTitleInput');
+    const submitBtn = document.getElementById('backlogSubmitBtn');
+
+    titleInput.addEventListener('input', () => {
+        submitBtn.disabled = !titleInput.value.trim();
+    });
+
+    submitBtn.disabled = true;
+}
+
+async function submitAddBacklog() {
+    const title = document.getElementById('backlogTitleInput').value.trim();
+    const description = document.getElementById('backlogDescriptionInput').value.trim();
+    const priority = document.getElementById('backlogPriorityInput').value;
+    const nextSprint = document.getElementById('backlogNextSprintInput').checked;
+
+    if (!title) {
+        alert('Название обязательно');
+        return;
+    }
+
+    try {
+        await api('POST', '/api/backlog', {
+            title,
+            description,
+            priority,
+            next_sprint: nextSprint,
+            created_by: 'boss'
+        });
+
+        closeModal();
+        await loadBacklog();
+        addSystemMessage(`Запись добавлена в бэклог: ${title}`);
+    } catch (e) {
+        alert('Ошибка создания: ' + e.message);
+    }
+}
+
+async function showEditBacklogModal(itemId) {
+    try {
+        const item = await api('GET', `/api/backlog/${itemId}`);
+
+        const body = `
+            <label>Название *</label>
+            <input type="text" id="backlogTitleInput" value="${escapeHtml(item.title)}" autofocus>
+
+            <label>Описание</label>
+            <textarea id="backlogDescriptionInput" rows="4">${escapeHtml(item.description || '')}</textarea>
+
+            <label>Приоритет</label>
+            <select id="backlogPriorityInput">
+                <option value="high" ${item.priority === 'high' ? 'selected' : ''}>🔴 Высокий</option>
+                <option value="medium" ${item.priority === 'medium' ? 'selected' : ''}>🟡 Средний</option>
+                <option value="low" ${item.priority === 'low' ? 'selected' : ''}>🟢 Низкий</option>
+            </select>
+
+            <label style="display:flex; align-items:center; gap:8px; margin-top:12px; cursor:pointer;">
+                <input type="checkbox" id="backlogNextSprintInput" ${item.next_sprint ? 'checked' : ''}
+                       style="width:18px; height:18px; accent-color:var(--accent);">
+                <span>В следующий спринт</span>
+            </label>
+
+            <input type="hidden" id="backlogItemId" value="${itemId}">
+        `;
+
+        openModal('✏️ Редактировать запись', body,
+            `<button class="btn" onclick="closeModal()">Отмена</button>
+             <button class="btn primary" onclick="submitEditBacklog()">Сохранить</button>`);
+
+    } catch (e) {
+        alert('Ошибка загрузки: ' + e.message);
+    }
+}
+
+async function submitEditBacklog() {
+    const itemId = document.getElementById('backlogItemId').value;
+    const title = document.getElementById('backlogTitleInput').value.trim();
+    const description = document.getElementById('backlogDescriptionInput').value.trim();
+    const priority = document.getElementById('backlogPriorityInput').value;
+    const nextSprint = document.getElementById('backlogNextSprintInput').checked;
+
+    if (!title) {
+        alert('Название обязательно');
+        return;
+    }
+
+    try {
+        await api('PUT', `/api/backlog/${itemId}`, {
+            title,
+            description,
+            priority,
+            next_sprint: nextSprint
+        });
+
+        closeModal();
+        await loadBacklog();
+        addSystemMessage(`Запись обновлена: ${title}`);
+    } catch (e) {
+        alert('Ошибка обновления: ' + e.message);
+    }
+}
+
+async function toggleBacklogNextSprint(itemId) {
+    try {
+        const item = await api('POST', `/api/backlog/${itemId}/toggle`);
+
+        // Обновляем только эту карточку (без полной перезагрузки)
+        const itemElement = document.getElementById(`backlog-item-${itemId}`);
+        if (itemElement) {
+            if (item.next_sprint) {
+                itemElement.classList.add('next-sprint');
+            } else {
+                itemElement.classList.remove('next-sprint');
+            }
+        }
+
+    } catch (e) {
+        alert('Ошибка переключения: ' + e.message);
+        // Перезагружаем на случай ошибки
+        await loadBacklog();
+    }
+}
+
+async function deleteBacklogItem(itemId) {
+    if (!confirm('Удалить эту запись из бэклога?')) {
+        return;
+    }
+
+    try {
+        await api('DELETE', `/api/backlog/${itemId}`);
+        await loadBacklog();
+        addSystemMessage('Запись удалена из бэклога');
+    } catch (e) {
+        alert('Ошибка удаления: ' + e.message);
+    }
+}
+
+// ── Refresh ────────────────────────────────────────────────────────────────
+
+async function refreshAll() {
+    await Promise.all([checkStatus(), loadEmployees(), loadAgents(), fetchRunningTasks(), loadSprints(), loadGitStatus()]);
+    updateRunningTasksIndicator();
+}
+
+async function loadSprints() {
+    try {
+        const data = await api('GET', '/api/sprints');
+        allSprints = data.sprints || [];
+    } catch {
+        allSprints = [];
+    }
+}
+
+// ── Init ───────────────────────────────────────────────────────────────────
+
+(async () => {
+    // Загружаем настройки (включая тему) сразу при старте
+    await loadSettings();
+
+    // Проверяем, есть ли открытый проект
+    try {
+        const status = await api('GET', '/api/status');
+
+        if (!status.has_project) {
+            // Нет текущего проекта — показываем project-picker
+            showProjectPicker();
+            return;
+        }
+    } catch (e) {
+        console.warn('Не удалось проверить статус проекта:', e.message);
+        // При ошибке показываем project-picker
+        showProjectPicker();
+        return;
+    }
+
+    // Есть проект — загружаем основное приложение
+    await Promise.all([checkStatus(), loadEmployees(), loadAgents(), fetchRunningTasks(), loadSprints(), loadGitStatus()]);
+    updateRunningTasksIndicator();
+    setInterval(checkStatus, 10000);
+    startGlobalRunningPoll();
+    startGitAutoRefresh();
+
+    // Пинг сервера каждые 5 секунд (для автовыключения при закрытии вкладки)
+    setInterval(() => {
+        fetch('/api/ping', { method: 'POST' }).catch(() => {});
+    }, 5000);
+})();
+</script>
+
+</body>
+</html>

@@ -1,0 +1,14 @@
+{
+  "employees": {
+    "boss": {
+      "role": "Руководитель",
+      "model": "opus",
+      "created_at": "auto"
+    },
+    "hr": {
+      "role": "HR-менеджер",
+      "model": "sonnet",
+      "created_at": "auto"
+    }
+  }
+}
