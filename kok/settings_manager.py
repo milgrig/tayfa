@@ -26,6 +26,10 @@ DEFAULT_SETTINGS = {
     "language": "ru",
     "autoOpenBrowser": True,
     "maxConcurrentTasks": 5,
+    "autoShutdown": {
+        "enabled": True,  # Включить/выключить автоматическое выключение
+        "timeout": 120,   # Таймаут в секундах (по умолчанию 120)
+    },
     "version": {
         "major": 0,
         "minor": 1,
@@ -51,6 +55,7 @@ VALIDATORS = {
     "language": lambda v: v in ("ru", "en"),
     "autoOpenBrowser": lambda v: isinstance(v, bool),
     "maxConcurrentTasks": lambda v: isinstance(v, int) and 1 <= v <= 50,
+    "autoShutdown": lambda v: isinstance(v, dict) and "enabled" in v and "timeout" in v,
 }
 
 
@@ -292,3 +297,15 @@ def save_version(version_str: str) -> dict:
     }
     save_settings(settings)
     return settings["version"]
+
+
+def get_auto_shutdown_settings() -> tuple[bool, int]:
+    """
+    Получает настройки автовыключения.
+    Возвращает (enabled: bool, timeout: int).
+    """
+    settings = load_settings()
+    auto_shutdown = settings.get("autoShutdown", DEFAULT_SETTINGS["autoShutdown"])
+    enabled = auto_shutdown.get("enabled", True)
+    timeout = auto_shutdown.get("timeout", 120)
+    return enabled, timeout
