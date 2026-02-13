@@ -41,16 +41,19 @@ from pathlib import Path
 from datetime import datetime
 
 TASKS_FILE = Path(__file__).resolve().parent / "tasks.json"
+DISCUSSIONS_DIR = Path(__file__).resolve().parent / "discussions"
 
 
 def set_tasks_file(path: str | Path) -> None:
     """Установить путь к файлу tasks.json (для работы с разными проектами)."""
-    global TASKS_FILE
+    global TASKS_FILE, DISCUSSIONS_DIR
     TASKS_FILE = Path(path)
+    # Автоматически устанавливаем путь к discussions рядом с tasks.json
+    DISCUSSIONS_DIR = TASKS_FILE.parent / "discussions"
 
 
 STATUSES = ["новая", "в_работе", "на_проверке", "выполнена", "отменена"]
-SPRINT_STATUSES = ["активный", "завершён"]
+SPRINT_STATUSES = ["активный", "завершён", "релиз"]
 
 # Какой статус ставится при «следующем шаге» и кто отвечает за текущий шаг
 STATUS_FLOW = {
@@ -87,6 +90,66 @@ def _save(data: dict) -> None:
 
 def _now() -> str:
     return datetime.now().isoformat(timespec="seconds")
+
+
+def _now_formatted() -> str:
+    """Возвращает текущее время в формате 'YYYY-MM-DD HH:MM'."""
+    return datetime.now().strftime("%Y-%m-%d %H:%M")
+
+
+def _create_discussion_file(task: dict) -> bool:
+    """
+    Создать файл обсуждения для задачи.
+
+    Путь: .tayfa/common/discussions/{task_id}.md
+    Создаёт файл с шаблоном, включающим описание задачи.
+    Если файл уже существует — не перезаписывает.
+
+    Args:
+        task: Словарь с данными задачи (id, title, description, customer)
+
+    Returns:
+        True если файл создан, False если уже существовал или ошибка
+    """
+    task_id = task.get("id", "")
+    if not task_id:
+        return False
+
+    discussion_file = DISCUSSIONS_DIR / f"{task_id}.md"
+
+    # Не перезаписываем существующий файл
+    if discussion_file.exists():
+        return False
+
+    # Убедимся, что папка discussions существует
+    DISCUSSIONS_DIR.mkdir(parents=True, exist_ok=True)
+
+    # Формируем шаблон
+    title = task.get("title", "")
+    description = task.get("description", "")
+    customer = task.get("customer", "boss")
+    date = _now_formatted()
+
+    template = f"""# Обсуждение задачи {task_id}: {title}
+
+## [{date}] {customer} (заказчик)
+
+### Описание задачи
+
+{description}
+
+### Критерии приёмки
+
+[Будут уточнены заказчиком]
+
+---
+"""
+
+    try:
+        discussion_file.write_text(template, encoding="utf-8")
+        return True
+    except OSError:
+        return False
 
 
 # ── Спринты ──────────────────────────────────────────────────────────────────
@@ -170,21 +233,56 @@ def update_sprint_status(sprint_id: str, new_status: str) -> dict:
     return {"error": f"Спринт {sprint_id} не найден"}
 
 
-def update_sprint_release(sprint_id: str, version: str) -> dict:
+def update_sprint_release(sprint_id: str, version: str, pushed: bool = True) -> dict:
     """
     Обновить спринт после успешного релиза.
-    Устанавливает статус 'завершён', записывает версию и время релиза.
+    - pushed=True → статус 'релиз' (успешный push в GitHub)
+    - pushed=False → статус 'завершён' (локальный релиз без push)
     """
     data = _load()
     for sprint in data.get("sprints", []):
         if sprint["id"] == sprint_id:
-            sprint["status"] = "завершён"
+            sprint["status"] = "релиз" if pushed else "завершён"
             sprint["version"] = version
             sprint["released_at"] = _now()
             sprint["updated_at"] = _now()
             _save(data)
             return sprint
     return {"error": f"Спринт {sprint_id} не найден"}
+
+
+def delete_sprint(sprint_id: str) -> dict:
+    """
+    Удалить спринт и связанную финализирующую задачу.
+    Используется для отката при ошибке создания git-ветки.
+
+    Возвращает:
+    - {"success": True} если спринт удалён
+    - {"error": "..."} если спринт не найден
+    """
+    data = _load()
+
+    # Найти спринт
+    sprint_index = None
+    finalize_task_id = None
+    for i, sprint in enumerate(data.get("sprints", [])):
+        if sprint["id"] == sprint_id:
+            sprint_index = i
+            finalize_task_id = sprint.get("finalize_task_id")
+            break
+
+    if sprint_index is None:
+        return {"error": f"Спринт {sprint_id} не найден"}
+
+    # Удалить спринт
+    data["sprints"].pop(sprint_index)
+
+    # Удалить финализирующую задачу
+    if finalize_task_id:
+        data["tasks"] = [t for t in data["tasks"] if t["id"] != finalize_task_id]
+
+    _save(data)
+    return {"success": True}
 
 
 def _update_finalize_depends(data: dict, sprint_id: str) -> None:
@@ -244,6 +342,10 @@ def create_task(
         _update_finalize_depends(data, sprint_id)
 
     _save(data)
+
+    # Создать файл обсуждения для задачи
+    _create_discussion_file(task)
+
     return task
 
 
