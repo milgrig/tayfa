@@ -28,6 +28,7 @@ class UnifiedRequest(BaseModel):
     system_prompt_file: Optional[str] = ""
     workdir: Optional[str] = ""
     allowed_tools: Optional[str] = ""
+    model: Optional[str] = ""  # opus, sonnet, haiku
     timeout: int = 300
     reset: bool = False
 
@@ -63,7 +64,7 @@ def _resolve_system_prompt(agent: dict) -> str:
 
 def _run_claude(prompt: str, workdir: str, allowed_tools: str,
                 system_prompt: Optional[str] = "", session_id: str = "",
-                timeout: int = 300) -> dict:
+                model: str = "", timeout: int = 300) -> dict:
     """Run claude CLI and return parsed result."""
     parts = [
         "claude", "-p",
@@ -71,6 +72,9 @@ def _run_claude(prompt: str, workdir: str, allowed_tools: str,
         "--permission-mode", "acceptEdits",
         "--allowedTools", shlex.quote(allowed_tools),
     ]
+
+    if model:
+        parts.extend(["--model", model])
 
     if session_id:
         parts.extend(["--resume", shlex.quote(session_id)])
@@ -157,6 +161,8 @@ def run(req: UnifiedRequest):
                     a["workdir"] = req.workdir
                 if req.allowed_tools:
                     a["allowed_tools"] = req.allowed_tools
+                if req.model is not None:
+                    a["model"] = req.model
                 save_agents(agents)
                 return {"status": "updated", "agent": req.name}
             else:
@@ -166,6 +172,7 @@ def run(req: UnifiedRequest):
                     "system_prompt_file": req.system_prompt_file,
                     "workdir":            req.workdir or "/mnt/c/Cursor/Tayfa",
                     "allowed_tools":      req.allowed_tools or "Read Edit Bash",
+                    "model":              req.model or "",
                     "session_id":         None,
                 }
                 save_agents(agents)
@@ -184,6 +191,7 @@ def run(req: UnifiedRequest):
         allowed_tools=agent.get("allowed_tools", "Read Edit Bash"),
         system_prompt=system_prompt,
         session_id=agent.get("session_id") or "",
+        model=agent.get("model", ""),
         timeout=req.timeout,
     )
 
@@ -198,6 +206,7 @@ def run(req: UnifiedRequest):
             workdir=agent["workdir"],
             allowed_tools=agent.get("allowed_tools", "Read Edit Bash"),
             system_prompt=system_prompt,
+            model=agent.get("model", ""),
             timeout=req.timeout,
         )
         new_sid = result.get("session_id")

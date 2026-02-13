@@ -5,10 +5,12 @@
 Упрощает онбординг — создаёт структуру папки, шаблоны, регистрирует в employees.json.
 
 Использование:
-  python create_employee.py <имя> [имя2 ...]
-  python create_employee.py developer_backend designer_ui content_manager
+  python create_employee.py <имя> [--model opus|sonnet|haiku]
+  python create_employee.py developer_backend --model sonnet
+  python create_employee.py architect --model opus
 
 Имя сотрудника: латиница, нижний регистр, подчёркивания (например developer_python, designer_ui).
+Модель: opus (сложные задачи), sonnet (по умолчанию), haiku (простые задачи).
 """
 
 import argparse
@@ -29,6 +31,10 @@ INCOME_DIR = SCRIPT_DIR / "Income"
 # Импортируем менеджер сотрудников для регистрации в едином реестре
 sys.path.insert(0, str(TAYFA_DIR / "common"))
 from employee_manager import register_employee as _register_in_registry
+
+# Допустимые модели Claude
+VALID_MODELS = ("opus", "sonnet", "haiku")
+DEFAULT_MODEL = "sonnet"
 
 
 def notify_orchestrator() -> None:
@@ -79,9 +85,10 @@ def write_file(path: Path, content: str) -> None:
     path.write_text(content, encoding="utf-8")
 
 
-def create_employee(name: str, role: str | None = None) -> bool:
+def create_employee(name: str, role: str | None = None, model: str | None = None) -> bool:
     """Создаёт папку сотрудника, файлы, регистрирует в employees.json."""
     role = role or human_role_from_name(name)
+    model = model or DEFAULT_MODEL
     emp_dir = TAYFA_DIR / name
 
     if emp_dir.exists() and any(emp_dir.iterdir()):
@@ -196,9 +203,9 @@ _Нет истории_
         write_file(emp_dir / sub / ".gitkeep", "")
 
     # Регистрация в едином реестре сотрудников (employees.json)
-    reg_result = _register_in_registry(name, role)
+    reg_result = _register_in_registry(name, role, model)
     if reg_result["status"] == "created":
-        print(f"  [OK] {name}: зарегистрирован в employees.json")
+        print(f"  [OK] {name}: зарегистрирован в employees.json (model={model})")
         # Автоматический provision агента в оркестраторе
         notify_orchestrator()
     elif reg_result["status"] == "exists":
@@ -234,6 +241,12 @@ def main():
         help="Имя сотрудника (латиница, нижний регистр, подчёркивания), например developer_backend",
     )
     parser.add_argument(
+        "--model",
+        choices=VALID_MODELS,
+        default=DEFAULT_MODEL,
+        help=f"Модель Claude: opus (сложные задачи), sonnet (по умолчанию), haiku (простые задачи)",
+    )
+    parser.add_argument(
         "--print-employees-block",
         action="store_true",
         help="Вывести блок для вставки в common/Rules/employees.md",
@@ -246,9 +259,10 @@ def main():
         sys.exit(1)
 
     print("Создание сотрудников в", TAYFA_DIR)
+    print(f"Модель: {args.model}")
     created = 0
     for name in args.names:
-        if create_employee(name):
+        if create_employee(name, model=args.model):
             created += 1
 
     print(f"\nГотово: создано {created} из {len(args.names)}.")

@@ -280,6 +280,15 @@
         .agent-runtime.cursor:hover { background: rgba(79,110,247,0.15); color: rgba(79,110,247,0.6); }
         .agent-runtime.cursor.selected:hover { background: rgba(79,110,247,0.3); color: var(--accent); }
 
+        /* Model badges */
+        .agent-model {
+            font-size: 9px; padding: 1px 5px; border-radius: 3px; margin-left: 6px;
+            text-transform: uppercase; font-weight: 600; display: inline-block;
+        }
+        .model-opus { background: rgba(255,170,0,0.15); color: #ffaa00; }
+        .model-sonnet { background: rgba(52,211,153,0.15); color: #34d399; }
+        .model-haiku { background: rgba(150,150,150,0.15); color: #999; }
+
         /* (send-target-row removed — runtime selection moved to agent sidebar badges) */
 
         /* ── Content Area ───────────────── */
@@ -1800,9 +1809,10 @@ async function loadAgents() {
             const li = document.createElement('li');
             li.className = `agent-item ${name === currentAgent ? 'active' : ''}`;
             li.onclick = () => selectAgent(name);
+            const model = config.model || 'sonnet';
             li.innerHTML = `
                 <div style="flex:1; min-width:0;">
-                    <div class="agent-name">${name}</div>
+                    <div class="agent-name">${name}<span class="agent-model model-${model}">${model}</span></div>
                     <div class="agent-role">${escapeHtml(config.role || '')}</div>
                     <div class="agent-runtimes" id="runtimes-${name}">${runtimesHtml}</div>
                 </div>
