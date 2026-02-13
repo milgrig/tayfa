@@ -44,7 +44,7 @@ def notify_orchestrator() -> None:
     """
     try:
         req = urllib.request.Request(
-            'http://localhost:8788/api/ensure-agents',
+            'http://localhost:8008/api/ensure-agents',
             method='POST',
             data=b'',
             headers={'Content-Type': 'application/json'}

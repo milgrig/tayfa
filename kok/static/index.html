@@ -150,8 +150,24 @@
         .git-dot { width: 8px; height: 8px; border-radius: 50%; margin-left: 6px; display: inline-block; }
         .git-dot.clean { background: var(--success); box-shadow: 0 0 6px var(--success); }
         .git-dot.dirty { background: var(--warning); box-shadow: 0 0 6px var(--warning); }
+        .git-dot.warning { background: var(--warning); box-shadow: 0 0 6px var(--warning); }
         .git-dot.error { background: var(--danger); box-shadow: 0 0 6px var(--danger); }
         .git-dot.loading { background: var(--text-dim); animation: pulse 1s infinite; }
+        .btn-git-init-header {
+            background: var(--warning);
+            color: var(--bg);
+            border: none;
+            padding: 2px 8px;
+            border-radius: 4px;
+            font-size: 11px;
+            margin-left: 8px;
+            cursor: pointer;
+            font-weight: 600;
+        }
+        .btn-git-init-header:hover {
+            filter: brightness(1.1);
+            transform: scale(1.05);
+        }
 
         /* ── Git Toast Notification ─────────── */
         .git-toast {
@@ -1271,6 +1287,10 @@
             <span class="git-branch-icon-header">⎇</span>
             <span id="gitBranchHeader">—</span>
             <span class="git-dot" id="gitDotHeader"></span>
+            <button class="btn-git-init-header" id="gitInitBtnHeader"
+                    onclick="initGitRepo(); event.stopPropagation();"
+                    style="display:none;"
+                    title="Инициализировать Git репозиторий">Init</button>
         </div>
         <div class="status-item" id="runningTasksIndicator" style="display:none; cursor:pointer;" onclick="showTasksBoard()">
             <span class="status-dot loading"></span>
@@ -1297,6 +1317,9 @@
             </div>
             <div class="settings-item" onclick="ensureAgents()">
                 <span>🔄</span> Перезапустить агентов
+            </div>
+            <div class="settings-item danger" onclick="killAllAgents()">
+                <span>💀</span> Убить всех агентов
             </div>
             <div class="settings-divider"></div>
             <div class="settings-item danger" onclick="stopServer()">
@@ -1567,6 +1590,7 @@ let thinkingAgents = {};  // per-agent thinking state: { agentName: true }
 let runningTasks = {};   // { taskId: { agent, role, runtime, started_at, elapsed_seconds } }
 let runningTasksTimer = null;  // таймер обновления elapsed
 let sprintAutoRunState = {};   // { sprintId: { running: bool, cancelled: bool } }
+let agentDrafts = {};  // per-agent draft text: { agentName: "draft text" }
 
 const API_BASE = (typeof location !== 'undefined' && location.origin) ? location.origin : '';
 
@@ -2167,6 +2191,17 @@ async function loadAgents() {
 }
 
 async function selectAgent(name) {
+    // Сохранить черновик предыдущего агента (если есть)
+    const input = document.getElementById('promptInput');
+    if (currentAgent && currentAgent !== name && input) {
+        const currentDraft = input.value.trim();
+        if (currentDraft) {
+            agentDrafts[currentAgent] = currentDraft;
+        } else {
+            delete agentDrafts[currentAgent];  // Удаляем пустые черновики
+        }
+    }
+
     currentAgent = name;
     hideAllScreens();
     document.getElementById('chatScreen').style.display = 'flex';
@@ -2193,6 +2228,12 @@ async function selectAgent(name) {
 
     // Показать/скрыть индикатор в зависимости от того, думает ли этот агент
     updateTypingIndicator(name);
+
+    // Загрузить черновик нового агента
+    if (input) {
+        input.value = agentDrafts[name] || '';
+        autoGrow(input);  // Скорректировать высоту поля
+    }
 
     document.getElementById('promptInput').focus();
 }
@@ -2356,6 +2397,10 @@ async function sendPrompt() {
     const text = input.value.trim();
     if (!text) return;
     input.value = ''; input.style.height = 'auto';
+
+    // Очистить черновик текущего агента после отправки
+    delete agentDrafts[currentAgent];
+
     addChatMessage(currentAgent, 'user', text);
 
     const agentForRequest = currentAgent;  // Сохраняем агента для этого запроса
@@ -3585,6 +3630,17 @@ async function ensureAgents() {
     } catch (e) { addSystemMessage('Ошибка: ' + e.message, true); }
 }
 
+async function killAllAgents() {
+    addSystemMessage('Удаление всех агентов...');
+    try {
+        const result = await api('POST', '/api/kill-agents?stop_server=false');
+        addSystemMessage('Все агенты удалены. Используйте \'Обеспечить агентов\' для восстановления.');
+        await loadAgents();
+    } catch (e) {
+        addSystemMessage('Ошибка удаления агентов: ' + e.message, true);
+    }
+}
+
 async function createCursorChats() {
     addSystemMessage('Создаю чаты Cursor...');
     try {
@@ -3636,7 +3692,17 @@ async function loadGitStatus() {
 
     try {
         const data = await api('GET', '/api/git/status');
+        console.log('git status response:', data);
         gitStatus = data;
+
+        // Проверяем initialized: false (Git не инициализирован)
+        if (data && data.initialized === false) {
+            updateGitHeaderIndicator('not_initialized', data);
+            if (container) renderGitUnavailable(data.message || 'Git не инициализирован');
+            return;
+        }
+
+        // Git инициализирован — показываем статус
         if (container) renderGitSection(data);
         updateGitHeaderIndicator('success', data);
     } catch (e) {
@@ -3651,8 +3717,12 @@ function updateGitHeaderIndicator(state, data = null, errorMsg = null) {
     const branchEl = document.getElementById('gitBranchHeader');
     const dotEl = document.getElementById('gitDotHeader');
     const indicator = document.getElementById('gitStatusIndicator');
+    const initBtn = document.getElementById('gitInitBtnHeader');
 
     if (!branchEl || !dotEl || !indicator) return;
+
+    // Скрываем кнопку Init по умолчанию
+    if (initBtn) initBtn.style.display = 'none';
 
     switch(state) {
         case 'loading':
@@ -3661,9 +3731,17 @@ function updateGitHeaderIndicator(state, data = null, errorMsg = null) {
             indicator.title = 'Загрузка git-статуса...';
             break;
 
+        case 'not_initialized':
+            branchEl.textContent = 'Нет Git';
+            dotEl.className = 'git-dot warning';
+            indicator.title = 'Git не инициализирован. Нажмите Init для инициализации.';
+            if (initBtn) initBtn.style.display = 'inline-block';
+            break;
+
         case 'success':
-            if (data && data.branch) {
-                branchEl.textContent = data.branch;
+            if (data) {
+                const branchName = data.branch || '(нет коммитов)';
+                branchEl.textContent = branchName;
                 const stagedCount = (data.staged || []).length;
                 const unstagedCount = (data.unstaged || []).length;
                 const untrackedCount = (data.untracked || []).length;
@@ -3672,7 +3750,7 @@ function updateGitHeaderIndicator(state, data = null, errorMsg = null) {
                 dotEl.className = 'git-dot ' + (hasChanges ? 'dirty' : 'clean');
 
                 // Формируем tooltip
-                let tooltip = `Ветка: ${data.branch}\n`;
+                let tooltip = `Ветка: ${branchName}\n`;
                 if (hasChanges) {
                     if (stagedCount > 0) tooltip += `Staged: ${stagedCount} файл(ов)\n`;
                     if (unstagedCount > 0) tooltip += `Изменено: ${unstagedCount} файл(ов)\n`;
@@ -3682,9 +3760,9 @@ function updateGitHeaderIndicator(state, data = null, errorMsg = null) {
                 }
                 indicator.title = tooltip.trim();
             } else {
-                branchEl.textContent = '—';
-                dotEl.className = 'git-dot';
-                indicator.title = 'Git не инициализирован';
+                // Fallback: данных нет
+                updateGitHeaderIndicator('not_initialized');
+                return;
             }
             break;
 
@@ -3722,6 +3800,8 @@ function renderGitUnavailable(message = 'Git недоступен') {
                               lowerMsg.includes('not a git') ||
                               lowerMsg.includes('not initialized') ||
                               lowerMsg.includes('"initialized"') ||
+                              lowerMsg.includes('не git') ||
+                              lowerMsg.includes('репозиторий') ||
                               lowerMsg.includes('false');
 
     if (isNotInitialized) {
@@ -3757,15 +3837,15 @@ async function initGitRepo() {
 
     try {
         const result = await api('POST', '/api/git/init', { create_gitignore: true });
+        console.log('git init result:', result);
         if (result.success) {
-            showNotification('Git репозиторий инициализирован' + (result.gitignore_created ? ' (.gitignore создан)' : ''), 'success');
-            showGitToast('Git репозиторий инициализирован', 'success');
+            showGitToast('Git репозиторий инициализирован' + (result.gitignore_created ? ' (.gitignore создан)' : ''), 'success');
             await loadGitStatus();
         } else {
             throw new Error(result.message || 'Ошибка инициализации');
         }
     } catch (e) {
-        showNotification('Ошибка: ' + e.message, 'error');
+        console.error('git init error:', e);
         showGitToast('Ошибка инициализации: ' + e.message, 'error');
         updateGitHeaderIndicator('error', null, e.message);
         renderGitUnavailable(e.message);
@@ -3776,10 +3856,14 @@ function renderGitSection(data) {
     const container = document.getElementById('gitStatusContainer');
     if (!container) return;
 
-    if (!data || !data.branch) {
+    // Если initialized=true но branch пустой — репо без коммитов
+    if (!data) {
         renderGitUnavailable('Не Git-репозиторий');
         return;
     }
+
+    // Используем branch или fallback для нового репо без коммитов
+    const branchName = data.branch || '(нет коммитов)';
 
     // Подсчёт файлов из массивов
     const stagedCount = (data.staged || []).length;
@@ -3803,7 +3887,7 @@ function renderGitSection(data) {
         <div class="git-status-card">
             <div class="git-branch-row">
                 <span class="git-branch-icon">🌿</span>
-                <span class="git-branch-name">${escapeHtml(data.branch)}</span>
+                <span class="git-branch-name">${escapeHtml(branchName)}</span>
                 <span class="git-status-dot ${statusClass}" title="${statusText}"></span>
             </div>
             ${changesHtml}
