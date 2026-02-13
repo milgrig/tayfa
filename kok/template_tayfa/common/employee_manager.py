@@ -73,20 +73,26 @@ def get_employee(name: str) -> dict | None:
     return employees.get(name)
 
 
-def register_employee(name: str, role: str) -> dict:
+def register_employee(name: str, role: str, model: str = "sonnet") -> dict:
     """
     Зарегистрировать нового сотрудника.
-    Возвращает {"status": "created"|"exists", "name": ..., "role": ...}.
+    Возвращает {"status": "created"|"exists", "name": ..., "role": ..., "model": ...}.
+
+    Args:
+        name: Имя сотрудника (латиница, нижний регистр, подчёркивания)
+        role: Роль сотрудника (например "Python-разработчик")
+        model: Модель Claude - opus, sonnet (по умолчанию), haiku
     """
     data = _load()
     if name in data["employees"]:
         return {"status": "exists", "name": name, "role": data["employees"][name]["role"]}
     data["employees"][name] = {
         "role": role,
+        "model": model,
         "created_at": date.today().isoformat(),
     }
     _save(data)
-    return {"status": "created", "name": name, "role": role}
+    return {"status": "created", "name": name, "role": role, "model": model}
 
 
 def remove_employee(name: str) -> dict:
@@ -123,7 +129,8 @@ def _cli():
         else:
             print(f"Сотрудники ({len(employees)}):")
             for name, info in employees.items():
-                print(f"  {name}: {info['role']} (с {info.get('created_at', '?')})")
+                model = info.get('model', 'sonnet')
+                print(f"  {name}: {info['role']} [{model}] (с {info.get('created_at', '?')})")
 
     elif cmd == "register":
         if len(sys.argv) < 4:

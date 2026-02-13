@@ -2,23 +2,38 @@
   "employees": {
     "boss": {
       "role": "Руководитель",
+      "model": "opus",
       "created_at": "auto"
     },
     "hr": {
       "role": "HR-менеджер",
+      "model": "sonnet",
       "created_at": "auto"
     },
     "developer_python": {
       "role": "Python-разработчик",
+      "model": "sonnet",
       "created_at": "2026-02-12"
     },
     "developer_frontend": {
       "role": "Frontend-разработчик",
+      "model": "sonnet",
       "created_at": "2026-02-12"
     },
     "qa_tester": {
       "role": "Qa Tester",
+      "model": "sonnet",
       "created_at": "2026-02-12"
+    },
+    "ai_expert": {
+      "role": "Ai Expert",
+      "model": "sonnet",
+      "created_at": "2026-02-13"
+    },
+    "process_architect": {
+      "role": "Process Architect",
+      "model": "opus",
+      "created_at": "2026-02-13"
     }
   }
 }

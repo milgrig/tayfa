@@ -1010,6 +1010,7 @@ def _agents_from_registry() -> dict:
                 "workdir": agent_workdir,
                 "runtimes": _get_agent_runtimes(emp_name),
                 "role": emp_data.get("role", ""),
+                "model": emp_data.get("model", "sonnet"),
             }
 
     return result
