@@ -8,6 +8,7 @@ Tayfa Orchestrator — веб-приложение для управления �
 import asyncio
 import io
 import json
+import logging
 import os
 import re
 import signal
@@ -15,6 +16,7 @@ import socket
 import subprocess
 import sys
 import webbrowser
+from datetime import datetime
 from pathlib import Path, PureWindowsPath, PurePosixPath
 
 # Устанавливаем UTF-8 для stdout/stderr (для корректной работы из exe)
@@ -26,10 +28,41 @@ if sys.stdout and hasattr(sys.stdout, 'reconfigure'):
         pass
 
 import httpx
-from fastapi import Body, FastAPI, HTTPException
+from fastapi import Body, FastAPI, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from contextlib import asynccontextmanager
+
+# ── Логирование ───────────────────────────────────────────────────────────────
+
+# Определяем директорию для логов (рядом с app.py)
+_APP_DIR = Path(__file__).resolve().parent
+_LOG_FILE = _APP_DIR / "tayfa_server.log"
+
+# Настройка логгера
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s [%(levelname)s] %(message)s',
+    datefmt='%Y-%m-%d %H:%M:%S',
+    handlers=[
+        logging.FileHandler(_LOG_FILE, encoding='utf-8'),
+        logging.StreamHandler(sys.stdout)
+    ]
+)
+logger = logging.getLogger("tayfa")
+
+# Перехватываем необработанные исключения
+def _exception_handler(exc_type, exc_value, exc_tb):
+    """Логирует необработанные исключения перед падением."""
+    import traceback
+    error_msg = ''.join(traceback.format_exception(exc_type, exc_value, exc_tb))
+    logger.critical(f"UNCAUGHT EXCEPTION:\n{error_msg}")
+    sys.__excepthook__(exc_type, exc_value, exc_tb)
+
+sys.excepthook = _exception_handler
+
+logger.info("=" * 60)
+logger.info(f"Tayfa Orchestrator starting at {datetime.now().isoformat()}")
 
 # ── Конфигурация ──────────────────────────────────────────────────────────────
 
@@ -301,6 +334,30 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="Tayfa Orchestrator", lifespan=lifespan)
 app.mount("/static", StaticFiles(directory=Path(__file__).parent / "static"), name="static")
 app.include_router(git_router)
+
+
+# ── Middleware для логирования ─────────────────────────────────────────────────
+
+@app.middleware("http")
+async def log_requests(request: Request, call_next):
+    """Логирует все HTTP-запросы и ошибки."""
+    import time
+    start_time = time.time()
+
+    # Логируем запрос
+    logger.info(f"→ {request.method} {request.url.path}")
+
+    try:
+        response = await call_next(request)
+        duration = time.time() - start_time
+        logger.info(f"← {request.method} {request.url.path} [{response.status_code}] {duration:.2f}s")
+        return response
+    except Exception as e:
+        duration = time.time() - start_time
+        logger.error(f"✗ {request.method} {request.url.path} EXCEPTION after {duration:.2f}s: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
+        raise
 
 
 # ── Утилиты ───────────────────────────────────────────────────────────────────
@@ -2070,6 +2127,7 @@ if __name__ == "__main__":
     port = find_free_port(DEFAULT_ORCHESTRATOR_PORT)
     ACTUAL_ORCHESTRATOR_PORT = port
 
+    logger.info(f"Starting uvicorn on port {port}")
     print(f"\n  Tayfa Orchestrator")
     print(f"  http://localhost:{port}")
     if port != DEFAULT_ORCHESTRATOR_PORT:
@@ -2079,8 +2137,12 @@ if __name__ == "__main__":
     try:
         uvicorn.run(app, host="0.0.0.0", port=port)
     except Exception as e:
-        print(f"\n  [!] ОШИБКА: {e}")
+        logger.critical(f"UVICORN CRASHED: {e}")
         import traceback
+        logger.critical(traceback.format_exc())
+        print(f"\n  [!] ОШИБКА: {e}")
         traceback.print_exc()
         input("\n  Нажмите Enter для выхода...")
         raise
+    finally:
+        logger.info("Tayfa Orchestrator shutting down")
