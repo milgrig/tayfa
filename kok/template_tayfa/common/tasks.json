@@ -1,6 +1,49 @@
 {
-  "tasks": [],
+  "tasks": [
+    {
+      "id": "T001",
+      "title": "Тестовая задача",
+      "description": "Описание тестовой задачи для проверки создания discussions",
+      "status": "новая",
+      "customer": "boss",
+      "developer": "developer",
+      "tester": "tester",
+      "result": "",
+      "sprint_id": "",
+      "depends_on": [],
+      "created_at": "2026-02-13T18:38:15",
+      "updated_at": "2026-02-13T18:38:15"
+    },
+    {
+      "id": "T002",
+      "title": "API тест",
+      "description": "Тест через template",
+      "status": "новая",
+      "customer": "boss",
+      "developer": "dev",
+      "tester": "qa",
+      "result": "",
+      "sprint_id": "",
+      "depends_on": [],
+      "created_at": "2026-02-13T18:38:47",
+      "updated_at": "2026-02-13T18:38:47"
+    },
+    {
+      "id": "T003",
+      "title": "Проверка discussions",
+      "description": "Тест создания файла обсуждения",
+      "status": "новая",
+      "customer": "boss",
+      "developer": "dev",
+      "tester": "qa",
+      "result": "",
+      "sprint_id": "",
+      "depends_on": [],
+      "created_at": "2026-02-13T18:41:03",
+      "updated_at": "2026-02-13T18:41:03"
+    }
+  ],
   "sprints": [],
-  "next_id": 1,
+  "next_id": 4,
   "next_sprint_id": 1
 }
