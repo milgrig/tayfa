@@ -163,12 +163,6 @@ from task_manager import (
     STATUSES as TASK_STATUSES, SPRINT_STATUSES,
     set_tasks_file,  # для установки пути к tasks.json текущего проекта
 )
-import backlog_manager
-from backlog_manager import (
-    get_backlog, get_backlog_item, create_backlog_item,
-    update_backlog_item, delete_backlog_item, toggle_next_sprint,
-    set_backlog_file
-)
 from chat_history_manager import (
     save_message as save_chat_message,
     get_history as get_chat_history,
@@ -232,14 +226,11 @@ def _init_files_for_current_project():
             common_path = Path(tayfa_path) / "common"
             tasks_json_path = common_path / "tasks.json"
             employees_json_path = common_path / "employees.json"
-            backlog_json_path = common_path / "backlog.json"
             set_tasks_file(tasks_json_path)
             set_employees_file(employees_json_path)
-            set_backlog_file(backlog_json_path)
             set_chat_history_tayfa_dir(tayfa_path)
             print(f"  tasks.json установлен: {tasks_json_path}")
             print(f"  employees.json установлен: {employees_json_path}")
-            print(f"  backlog.json установлен: {backlog_json_path}")
             print(f"  chat_history_dir установлен: {tayfa_path}")
 
 
@@ -849,14 +840,11 @@ async def api_open_project(data: dict):
         common_path = Path(tayfa_path) / "common"
         tasks_json_path = common_path / "tasks.json"
         employees_json_path = common_path / "employees.json"
-        backlog_json_path = common_path / "backlog.json"
         set_tasks_file(tasks_json_path)
         set_employees_file(employees_json_path)
-        set_backlog_file(backlog_json_path)
         set_chat_history_tayfa_dir(tayfa_path)
         print(f"[api_open_project] tasks.json установлен: {tasks_json_path}")
         print(f"[api_open_project] employees.json установлен: {employees_json_path}")
-        print(f"[api_open_project] backlog.json установлен: {backlog_json_path}")
         print(f"[api_open_project] chat_history_dir установлен: {tayfa_path}")
 
     # Пересоздаём агентов с новым workdir (ошибки не блокируют открытие проекта)
@@ -1934,135 +1922,6 @@ async def api_trigger_task(task_id: str, data: dict = Body(default_factory=dict)
     finally:
         # Убираем задачу из «выполняется» при любом исходе
         running_tasks.pop(task_id, None)
-
-
-# ── Бэклог ───────────────────────────────────────────────────────────────────
-
-@app.get("/api/backlog")
-async def api_get_backlog(priority: str | None = None, next_sprint: bool | None = None):
-    """
-    Получить список записей бэклога с фильтрацией.
-
-    Query params:
-        ?priority=high|medium|low — фильтр по приоритету
-        ?next_sprint=true|false — фильтр по флагу "в следующий спринт"
-
-    Response:
-        {"items": [...], "total": 5}
-    """
-    try:
-        items = get_backlog(priority=priority, next_sprint=next_sprint)
-        return {"items": items, "total": len(items)}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@app.post("/api/backlog")
-async def api_create_backlog_item(data: dict):
-    """
-    Создать новую запись в бэклоге.
-
-    Body:
-        {
-            "title": "...",              // обязательное
-            "description": "...",        // опционально
-            "priority": "high|medium|low", // опционально, default: medium
-            "next_sprint": true/false,   // опционально, default: false
-            "created_by": "boss"         // опционально, default: boss
-        }
-
-    Response:
-        Созданная запись
-    """
-    title = data.get("title", "").strip()
-    if not title:
-        raise HTTPException(status_code=400, detail="Title is required")
-
-    try:
-        item = create_backlog_item(
-            title=title,
-            description=data.get("description", ""),
-            priority=data.get("priority", "medium"),
-            next_sprint=data.get("next_sprint", False),
-            created_by=data.get("created_by", "boss")
-        )
-        return item
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@app.get("/api/backlog/{item_id}")
-async def api_get_backlog_item(item_id: str):
-    """Получить конкретную запись бэклога по ID."""
-    item = get_backlog_item(item_id)
-    if not item:
-        raise HTTPException(status_code=404, detail=f"Backlog item {item_id} not found")
-    return item
-
-
-@app.put("/api/backlog/{item_id}")
-async def api_update_backlog_item(item_id: str, data: dict):
-    """
-    Обновить запись в бэклоге.
-
-    Body:
-        Поля для обновления: title, description, priority, next_sprint
-
-    Response:
-        Обновлённая запись
-    """
-    try:
-        result = update_backlog_item(item_id, **data)
-        if "error" in result:
-            if "not found" in result["error"]:
-                raise HTTPException(status_code=404, detail=result["error"])
-            else:
-                raise HTTPException(status_code=400, detail=result["error"])
-        return result
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@app.delete("/api/backlog/{item_id}")
-async def api_delete_backlog_item(item_id: str):
-    """
-    Удалить запись из бэклога.
-
-    Response:
-        {"status": "deleted", "id": "B001"}
-    """
-    try:
-        result = delete_backlog_item(item_id)
-        if "error" in result:
-            raise HTTPException(status_code=404, detail=result["error"])
-        return result
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@app.post("/api/backlog/{item_id}/toggle")
-async def api_toggle_next_sprint(item_id: str):
-    """
-    Переключить флаг "в следующий спринт" для записи бэклога.
-
-    Response:
-        Обновлённая запись
-    """
-    try:
-        result = toggle_next_sprint(item_id)
-        if "error" in result:
-            raise HTTPException(status_code=404, detail=result["error"])
-        return result
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
 
 
 # ── Запуск ────────────────────────────────────────────────────────────────────
