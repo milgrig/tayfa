@@ -79,20 +79,28 @@ def main():
         # CREATE_NO_WINDOW для полного скрытия
         CREATE_NO_WINDOW = 0x08000000
 
-        # Логируем stderr в файл для отладки
+        # Открываем лог-файл в режиме APPEND (не перезаписываем!)
+        # Файл остаётся открытым пока процесс работает
         stderr_log = base_dir / 'tayfa_app.log'
-        with open(stderr_log, 'w', encoding='utf-8') as err_file:
-            subprocess.Popen(
-                [python_exe, str(app_py)],
-                creationflags=CREATE_NO_WINDOW,
-                cwd=str(base_dir),
-                env=env,
-                stdout=err_file,
-                stderr=err_file,
-            )
+        err_file = open(stderr_log, 'a', encoding='utf-8')  # 'a' вместо 'w'!
+        err_file.write(f"\n{'='*60}\n")
+        err_file.write(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] === Tayfa starting ===\n")
+        err_file.flush()
+
+        subprocess.Popen(
+            [python_exe, str(app_py)],
+            creationflags=CREATE_NO_WINDOW,
+            cwd=str(base_dir),
+            env=env,
+            stdout=err_file,
+            stderr=err_file,
+        )
+        # НЕ закрываем err_file — он будет закрыт при завершении launcher
         log(f"app.py started, logs in tayfa_app.log", log_file)
     except Exception as e:
         log(f"ERROR: {e}", log_file)
+        import traceback
+        log(f"TRACEBACK: {traceback.format_exc()}", log_file)
         return 1
 
     # Ждём завершения анимации (сервер уже запущен и работает параллельно)
