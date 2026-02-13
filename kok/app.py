@@ -1033,6 +1033,7 @@ async def list_agents():
                 cfg = dict(config) if isinstance(config, dict) else {}
                 cfg["runtimes"] = _get_agent_runtimes(name)
                 cfg["role"] = employees[name].get("role", "")
+                cfg["model"] = employees[name].get("model", "sonnet")
                 result[name] = cfg
     except HTTPException:
         for name in result:
@@ -1279,10 +1280,14 @@ async def ensure_agents():
             existing = agents[emp_name]
             if isinstance(existing, dict) and existing.get("workdir") != agent_workdir:
                 # Workdir отличается — обновляем (исправляем битый путь)
+                # Также обновляем model из employees.json
+                emp_data = employees.get(emp_name, {})
+                model = emp_data.get("model", "sonnet")
                 try:
                     await call_claude_api("POST", "/run", json_data={
                         "name": emp_name,
                         "workdir": agent_workdir,
+                        "model": model,
                     })
                     results.append({"agent": emp_name, "status": "workdir_fixed",
                                     "old_workdir": existing.get("workdir"), "new_workdir": agent_workdir})
@@ -1305,10 +1310,15 @@ async def ensure_agents():
         # Собираем системный промпт и создаём агента
         try:
             composed = compose_system_prompt(emp_name)
+            # Получаем model из данных сотрудника (по умолчанию sonnet)
+            emp_data = employees.get(emp_name, {})
+            model = emp_data.get("model", "sonnet")
+
             payload = {
                 "name": emp_name,
                 "workdir": agent_workdir,
                 "allowed_tools": "Read Edit Bash",
+                "model": model,
             }
             if composed is not None:
                 payload["system_prompt"] = composed

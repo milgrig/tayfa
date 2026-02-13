@@ -54,5 +54,19 @@
     "task_id": "T051",
     "role": "разработчик",
     "num_turns": 19
+  },
+  {
+    "id": "msg_005",
+    "timestamp": "2026-02-13T12:18:34",
+    "direction": "to_agent",
+    "prompt": "Задача T054: Исправить отображение модели в UI\nОписание: Баг: после создания агентов все отображаются как Sonnet, хотя должны показывать реальную модель (Opus/Sonnet/Haiku). Нужно: 1) Проверить что бейдж модели берётся из актуальных данных. 2) Исправить если модель читается не из того места.\nТвоя роль: разработчик\nТекущий статус: в_работе\nПредыдущий результат: ## Баг: Модель агента всегда отображается как Sonnet\n\n### Корневая причина\nФайл: kok/app.py, функция list_agents() (строки 1019-1043)\n\nКогда Claude API доступен, данные из API полностью перезаписывают локальные данные:\n- Строка 1036: result[name] = cfg (cfg = данные из Claude API)\n- В cfg добавляются только runtimes и role, но НЕ добавляется model из employees.json\n- В результате model теряется\n\n### Источник истины\nФайл: .tayfa/common/employees.json\nТам правильно хранятся model: opus, sonnet, haiku\n\n### Где отображается\nФайл: kok/static/index.html, строки 1812-1815\nconst model = config.model || 'sonnet' — fallback на sonnet, если model отсутствует\n\n### Решение\nВ kok/app.py, строка 1035-1036, ДОБАВИТЬ сохранение model из employees.json:\n  cfg['role'] = employees[name].get('role', '')\n  cfg['model'] = employees[name].get('model', 'sonnet')  # <-- ДОБАВИТЬ ЭТУ СТРОКУ\n  result[name] = cfg\n\n### Как проверить\n1. После исправления перезапустить приложение\n2. Открыть UI, посмотреть список агентов\n3. boss и process_architect должны показывать бейдж 'opus'\n4. Остальные — 'sonnet'\n\nТы — разработчик. Выполни задачу согласно описанию. Когда закончишь, вызови:\n  python common/task_manager.py result T054 \"<описание что сделано>\"\n  python common/task_manager.py status T054 на_проверке",
+    "result": "## Задача T054 выполнена ✅\n\n### Что было сделано:\n\n**Проблема:** После создания агентов все отображались как \"Sonnet\", хотя в `employees.json` указаны разные модели (opus/sonnet/haiku).\n\n**Корневая причина:** В функции `list_agents()` файла `kok/app.py` при получении данных из Claude API, локальные данные полностью перезаписывались данными из API. При этом поле `model` из `employees.json` не сохранялось.\n\n**Исправление:** Добавлена строка в `kok/app.py` (после строки 1035):\n```python\ncfg[\"model\"] = employees[name].get(\"model\", \"sonnet\")\n```\n\nТеперь при формировании ответа API сохраняется модель из `employees.json`, и UI корректно отображает:\n- **opus** — для `boss` и `process_architect`\n- **sonnet** — для остальных агентов\n\nЗадача передана на проверку тестировщику.",
+    "runtime": "claude",
+    "success": true,
+    "cost_usd": 0,
+    "duration_sec": 45.1,
+    "task_id": "T054",
+    "role": "разработчик",
+    "num_turns": 11
   }
 ]
