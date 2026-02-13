@@ -1,5 +1,9 @@
 # Tayfa — мультиагентная система на Claude Code
 
+![Tests](https://github.com/milgrig/tayfa/workflows/Tests/badge.svg)
+![Python](https://img.shields.io/badge/python-3.11%20%7C%203.12-blue)
+![License](https://img.shields.io/badge/license-MIT-green)
+
 ## Обзор
 
 Tayfa — система AI-агентов, где каждый агент — это «сотрудник» со своей ролью, памятью и рабочей папкой. Агенты общаются через файлы и управляются через единый HTTP API.
