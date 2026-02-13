@@ -124,11 +124,9 @@ def run_git_command(args: list[str], cwd: Path | None = None, use_config: bool =
 
     try:
         env = _get_git_env() if use_config else None
-        # Конвертируем Windows путь в WSL путь для корректной работы subprocess
-        cwd_str = _to_wsl_path(cwd)
         result = subprocess.run(
             ["git"] + args,
-            cwd=cwd_str,
+            cwd=str(cwd),
             capture_output=True,
             text=True,
             timeout=30,
@@ -729,15 +727,24 @@ async def api_git_status():
     """
     Статус репозитория.
     Возвращает: initialized, branch, staged, unstaged, untracked.
+    При отсутствии .git возвращает initialized=false (не выбрасывает ошибку).
     """
     project_dir = get_project_dir()
     if project_dir is None:
-        raise HTTPException(status_code=400, detail="Проект не выбран. Откройте проект через /api/projects/open")
+        return {
+            "initialized": False,
+            "error": "no_project",
+            "message": "Проект не выбран"
+        }
 
     # Проверяем инициализацию git
     git_dir = project_dir / ".git"
     if not git_dir.exists():
-        raise HTTPException(status_code=400, detail="Git not initialized")
+        return {
+            "initialized": False,
+            "error": "not_initialized",
+            "message": "Git не инициализирован"
+        }
 
     result = {
         "initialized": True,
@@ -749,6 +756,7 @@ async def api_git_status():
 
     # Текущая ветка
     branch_res = run_git_command(["branch", "--show-current"])
+    print(f"[DEBUG] git branch --show-current: {branch_res}")
     if branch_res["success"]:
         result["branch"] = branch_res["stdout"]
 

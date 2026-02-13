@@ -11,7 +11,7 @@
   отменена     — задача отменена
 
 Роли в задаче:
-  customer   (заказчик)    — детализирует требования
+  customer   (постановщик)    — детализирует требования
   developer  (разработчик) — выполняет задачу
   tester     (тестировщик) — проверяет результат
 
@@ -132,7 +132,7 @@ def _create_discussion_file(task: dict) -> bool:
 
     template = f"""# Обсуждение задачи {task_id}: {title}
 
-## [{date}] {customer} (заказчик)
+## [{date}] {customer} (постановщик)
 
 ### Описание задачи
 
@@ -140,7 +140,7 @@ def _create_discussion_file(task: dict) -> bool:
 
 ### Критерии приёмки
 
-[Будут уточнены заказчиком]
+[Будут уточнены постановщиком]
 
 ---
 """
@@ -530,7 +530,7 @@ def _cli():
                 sprint_info = f" [{t.get('sprint_id', '')}]" if t.get('sprint_id') else ""
                 deps = f" зависит от: {', '.join(t.get('depends_on', []))}" if t.get('depends_on') else ""
                 print(f"  [{t['id']}]{sprint_info} {t['status']:14s} | {t['title']}{deps}")
-                print(f"         заказчик: {t['customer']}, разработчик: {t['developer']}, тестировщик: {t['tester']}")
+                print(f"         постановщик: {t['customer']}, разработчик: {t['developer']}, тестировщик: {t['tester']}")
 
     elif args.command == "get":
         task = get_task(args.task_id)

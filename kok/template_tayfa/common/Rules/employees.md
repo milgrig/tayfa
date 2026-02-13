@@ -38,7 +38,7 @@
 
 ## Система задач
 
-Каждая задача имеет **3 исполнителей**: заказчик, разработчик, тестировщик. Задачи создаёт boss через `.tayfa/common/task_manager.py`. Подробнее — `.tayfa/common/Rules/teamwork.md`.
+Каждая задача имеет **3 исполнителей**: постановщик, разработчик, тестировщик. Задачи создаёт boss через `.tayfa/common/task_manager.py`. Подробнее — `.tayfa/common/Rules/teamwork.md`.
 
 ```bash
 python .tayfa/common/task_manager.py list              # все задачи

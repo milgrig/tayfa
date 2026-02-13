@@ -1282,7 +1282,7 @@ async def delete_agent(name: str):
     return await call_claude_api("DELETE", f"/agents/{name}")
 
 
-@app.post("/api/kill-all-agents")
+@app.post("/api/kill-agents")
 async def kill_all_agents(stop_server: bool = True):
     """Удалить всех агентов в Claude API и опционально остановить сервер."""
     deleted = []
@@ -1894,7 +1894,7 @@ async def api_trigger_task(task_id: str, data: dict = Body(default_factory=dict)
         )
 
     agent_name = next_info["agent"]
-    role_label = {"customer": "заказчик", "developer": "разработчик", "tester": "тестировщик"}.get(
+    role_label = {"customer": "постановщик", "developer": "разработчик", "tester": "тестировщик"}.get(
         next_info["role"], next_info["role"]
     )
     task = next_info["task"]
@@ -1926,7 +1926,7 @@ async def api_trigger_task(task_id: str, data: dict = Body(default_factory=dict)
     prompt_parts.append("")
     if next_info["role"] == "customer":
         prompt_parts.append(
-            "Ты — заказчик. Детализируй требования задачи. "
+            "Ты — постановщик. Детализируй требования задачи. "
             "Когда закончишь, вызови:\n"
             f"  python common/task_manager.py result {task['id']} \"<подробное описание>\"\n"
             f"  python common/task_manager.py status {task['id']} в_работе"
