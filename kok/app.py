@@ -193,6 +193,7 @@ from task_manager import (
     set_task_result, get_tasks, get_task, get_next_agent,
     create_sprint, get_sprints, get_sprint, update_sprint_status,
     update_sprint_release,  # для обновления спринта после релиза
+    delete_sprint,  # для отката при ошибке создания git-ветки
     STATUSES as TASK_STATUSES, SPRINT_STATUSES,
     set_tasks_file,  # для установки пути к tasks.json текущего проекта
 )
@@ -1450,6 +1451,15 @@ async def api_register_employee(data: dict):
     if not name:
         raise HTTPException(status_code=400, detail="Нужно поле name")
     result = register_employee(name, role)
+
+    # Автоматически создаём агента для нового сотрудника
+    if result.get("status") == "created":
+        try:
+            await ensure_agents()
+            logger.info(f"Агент для '{name}' создан автоматически")
+        except Exception as e:
+            logger.warning(f"Не удалось автоматически создать агента для '{name}': {e}")
+
     return result
 
 
@@ -1565,11 +1575,19 @@ async def api_create_sprint(data: dict):
         if branch_result["git_warning"]:
             sprint["git_warning"] = branch_result["git_warning"]
     else:
-        # Ошибка создания ветки — возвращаем ошибку (спринт уже создан, но без ветки)
-        # TODO: возможно, стоит удалять спринт при ошибке git
+        # Ошибка создания ветки — откатываем спринт
+        delete_result = delete_sprint(sprint_id)
+        if delete_result.get("error"):
+            # Не удалось откатить спринт (маловероятно)
+            raise HTTPException(
+                status_code=500,
+                detail=f"Не удалось создать git-ветку: {branch_result['error']}. "
+                       f"При попытке отката спринта произошла ошибка: {delete_result['error']}"
+            )
+        # Откат успешен — возвращаем ошибку без создания спринта
         raise HTTPException(
             status_code=400,
-            detail=f"Спринт {sprint_id} создан, но не удалось создать git-ветку: {branch_result['error']}"
+            detail=f"Не удалось создать git-ветку: {branch_result['error']}"
         )
 
     return sprint

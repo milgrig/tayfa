@@ -611,6 +611,7 @@
         }
         .sprint-badge.active { background: rgba(79,110,247,0.15); color: var(--accent); }
         .sprint-badge.done { background: rgba(52,211,153,0.15); color: var(--success); }
+        .sprint-badge.released { background: rgba(52,211,153,0.25); color: var(--success); border: 1px solid var(--success); }
         .sprint-progress { font-size: 11px; color: var(--text-dim); }
         .sprint-body { display: none; padding: 0 18px 18px; }
         .sprint-body.open { display: block; }
@@ -1155,6 +1156,70 @@
             transform: scale(1.1) rotate(5deg);
         }
 
+        /* Карточка + для добавления */
+        .backlog-card.add-new {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            border: 2px dashed var(--border);
+            background: transparent;
+        }
+        .backlog-card.add-new:hover {
+            border-color: var(--accent);
+            background: rgba(79,110,247,0.05);
+        }
+        .add-new-content {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 8px;
+        }
+        .add-new-icon {
+            font-size: 48px;
+            color: var(--text-dim);
+            line-height: 1;
+            font-weight: 300;
+        }
+        .backlog-card.add-new:hover .add-new-icon {
+            color: var(--accent);
+        }
+        .add-new-text {
+            font-size: 14px;
+            color: var(--text-dim);
+        }
+
+        /* Inline-редактирование */
+        .backlog-card.editing {
+            padding: 12px;
+            cursor: default;
+        }
+        .backlog-card.editing:hover {
+            transform: none;
+        }
+        .backlog-card.editing textarea {
+            width: 100%;
+            min-height: 120px;
+            background: var(--bg-input);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            padding: 10px;
+            color: var(--text);
+            font-family: var(--font);
+            font-size: 14px;
+            resize: vertical;
+            line-height: 1.5;
+        }
+        .backlog-card.editing textarea:focus {
+            border-color: var(--accent);
+            outline: none;
+        }
+        .backlog-edit-actions {
+            display: flex;
+            gap: 8px;
+            margin-top: 12px;
+        }
+
     </style>
 </head>
 <body>
@@ -1354,7 +1419,6 @@
                         <input type="checkbox" id="backlogFilterNextSprint" onchange="refreshBacklog()" style="accent-color:var(--accent);">
                         <span style="font-size:13px; color:var(--text);">Только «В следующий спринт»</span>
                     </label>
-                    <button class="btn sm primary" onclick="showCreateBacklogItemModal()">+ Добавить</button>
                     <button class="btn sm" onclick="refreshBacklog()">Обновить</button>
                 </div>
             </div>
@@ -2156,9 +2220,10 @@ async function resetCurrentAgent() {
     if (!currentAgent || !confirm(`Сбросить память агента "${currentAgent}"?`)) return;
     try {
         await api('POST', '/api/reset-agent', { name: currentAgent });
-        addSystemMessage(`Память ${currentAgent} сброшена`);
-        chatHistories[currentAgent] = [];
-        renderChat();
+        // История переписки сохраняется — добавляем только визуальный разделитель
+        addSystemMessage(`─── Память ${currentAgent} сброшена ───`);
+        // НЕ очищаем chatHistories[currentAgent] — история остаётся в UI
+        // НЕ вызываем renderChat() — чат не перерисовывается
     } catch (e) { addSystemMessage('Ошибка: ' + e.message, true); }
 }
 
@@ -2496,12 +2561,20 @@ async function refreshTasksBoardNew() {
             // Считаем задачи (включая финальную)
             const doneCount = sprintTasks.filter(t => t.status === 'выполнена').length;
             const totalCount = sprintTasks.length;
-            // Спринт завершён, если финальная задача выполнена
+            // Определение статуса спринта
             const finalizeTask = sprintTasks.find(t => t.is_finalize);
-            const isSprintDone = sprint.status === 'завершён' || (finalizeTask && finalizeTask.status === 'выполнена');
-            const statusBadge = isSprintDone
-                ? '<span class="sprint-badge done">завершён</span>'
-                : '<span class="sprint-badge active">активный</span>';
+            let statusClass, statusText;
+            if (sprint.status === 'релиз') {
+                statusClass = 'released';
+                statusText = '🚀 релиз ' + (sprint.version || '');
+            } else if (sprint.status === 'завершён' || (finalizeTask && finalizeTask.status === 'выполнена')) {
+                statusClass = 'done';
+                statusText = 'завершён';
+            } else {
+                statusClass = 'active';
+                statusText = 'активный';
+            }
+            const statusBadge = `<span class="sprint-badge ${statusClass}">${statusText}</span>`;
 
             html += `<div class="sprint-section">
                 <div class="sprint-header" onclick="toggleSprint('${sprint.id}')">
@@ -3144,11 +3217,6 @@ async function refreshBacklog() {
         const data = await api('GET', `/api/backlog?${params.toString()}`);
         allBacklogItems = data.items || [];
 
-        if (allBacklogItems.length === 0) {
-            container.innerHTML = '<div class="empty-state">📋 Бэклог пуст</div>';
-            return;
-        }
-
         // Сортировка: priority (high -> medium -> low), затем по дате (новые первые)
         const priorityOrder = { high: 0, medium: 1, low: 2 };
         allBacklogItems.sort((a, b) => {
@@ -3157,7 +3225,9 @@ async function refreshBacklog() {
             return new Date(b.created_at) - new Date(a.created_at);
         });
 
-        container.innerHTML = allBacklogItems.map(item => renderBacklogCard(item)).join('');
+        // Всегда показываем карточку + первой, затем остальные карточки
+        const cards = [renderAddNewCard(), ...allBacklogItems.map(item => renderBacklogCard(item))];
+        container.innerHTML = cards.join('');
     } catch (e) {
         container.innerHTML = `<div class="empty-state">⚠️ Ошибка загрузки: ${escapeHtml(e.message)}</div>`;
     }
@@ -3166,16 +3236,10 @@ async function refreshBacklog() {
 function renderBacklogCard(item) {
     const priorityClass = item.priority || 'medium';
     const nextSprintClass = item.next_sprint ? 'next-sprint' : '';
-    const priorityLabel = { high: 'Высокий', medium: 'Средний', low: 'Низкий' }[priorityClass] || 'Средний';
 
     return `
-        <div class="backlog-card priority-${priorityClass} ${nextSprintClass}">
-            <div class="backlog-card-header">
-                <span class="backlog-card-id">${escapeHtml(item.id)}</span>
-                <span class="backlog-card-priority ${priorityClass}">${priorityLabel}</span>
-            </div>
-            <div class="backlog-card-title">${escapeHtml(item.title)}</div>
-            ${item.description ? `<div class="backlog-card-description">${escapeHtml(item.description)}</div>` : ''}
+        <div class="backlog-card priority-${priorityClass} ${nextSprintClass}" onclick="startEditBacklogItem('${item.id}')">
+            <div class="backlog-card-description">${escapeHtml(item.description || item.title || '')}</div>
             <div class="backlog-card-footer">
                 <div class="backlog-card-meta">
                     ${item.created_by ? `${escapeHtml(item.created_by)} • ` : ''}${formatDate(item.created_at)}
@@ -3186,9 +3250,19 @@ function renderBacklogCard(item) {
                         <input type="checkbox" ${item.next_sprint ? 'checked' : ''} onclick="event.stopPropagation()">
                         🚀
                     </label>
-                    <button class="btn icon" onclick="showEditBacklogItemModal('${item.id}')" title="Редактировать">✏️</button>
-                    <button class="btn icon danger" onclick="deleteBacklogItem('${item.id}')" title="Удалить">🗑️</button>
+                    <button class="btn icon danger" onclick="deleteBacklogItem('${item.id}'); event.stopPropagation()" title="Удалить">🗑️</button>
                 </div>
+            </div>
+        </div>
+    `;
+}
+
+function renderAddNewCard() {
+    return `
+        <div class="backlog-card add-new" onclick="startCreateBacklogItem()">
+            <div class="add-new-content">
+                <div class="add-new-icon">+</div>
+                <div class="add-new-text">Добавить запись</div>
             </div>
         </div>
     `;
@@ -3303,6 +3377,153 @@ async function updateBacklogItem(itemId) {
     } catch (e) {
         alert('Ошибка: ' + e.message);
     }
+}
+
+// Inline-редактирование
+function startEditBacklogItem(itemId) {
+    const item = allBacklogItems.find(i => i.id === itemId);
+    if (!item) return;
+
+    const card = event.currentTarget;
+    const originalHTML = card.innerHTML;
+
+    card.classList.add('editing');
+    card.onclick = null;
+
+    card.innerHTML = `
+        <textarea id="editInlineDescription" rows="6">${escapeHtml(item.description || item.title || '')}</textarea>
+        <div class="backlog-edit-actions">
+            <button class="btn primary" onclick="saveInlineEdit('${itemId}')">Сохранить</button>
+            <button class="btn" onclick="cancelInlineEdit('${itemId}')">Отмена</button>
+            <button class="btn icon danger" onclick="deleteBacklogItem('${itemId}')" title="Удалить">🗑️</button>
+        </div>
+    `;
+
+    const textarea = card.querySelector('textarea');
+    textarea.focus();
+    textarea.setSelectionRange(textarea.value.length, textarea.value.length);
+
+    // Сохранить оригинальный HTML для отмены
+    card.dataset.originalHtml = originalHTML;
+    card.dataset.itemId = itemId;
+
+    // Ctrl+Enter для сохранения, Esc для отмены
+    textarea.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape') {
+            cancelInlineEdit(itemId);
+        } else if (e.ctrlKey && e.key === 'Enter') {
+            saveInlineEdit(itemId);
+        }
+    });
+}
+
+async function saveInlineEdit(itemId) {
+    const card = document.querySelector(`[data-item-id="${itemId}"]`);
+    if (!card) return;
+
+    const textarea = card.querySelector('textarea');
+    const description = textarea.value.trim();
+
+    if (!description) {
+        alert('Введите описание');
+        return;
+    }
+
+    const item = allBacklogItems.find(i => i.id === itemId);
+
+    try {
+        await api('PUT', `/api/backlog/${itemId}`, {
+            title: item.title || description.substring(0, 50),
+            description: description,
+            priority: item.priority,
+            next_sprint: item.next_sprint
+        });
+        await refreshBacklog();
+        addSystemMessage(`Обновлена запись ${itemId}`);
+    } catch (e) {
+        alert('Ошибка: ' + e.message);
+        cancelInlineEdit(itemId);
+    }
+}
+
+function cancelInlineEdit(itemId) {
+    const card = document.querySelector(`[data-item-id="${itemId}"]`);
+    if (!card) return;
+
+    card.classList.remove('editing');
+    card.innerHTML = card.dataset.originalHtml;
+    delete card.dataset.originalHtml;
+    delete card.dataset.itemId;
+
+    // Восстановить обработчик клика
+    card.onclick = () => startEditBacklogItem(itemId);
+}
+
+// Inline-создание
+function startCreateBacklogItem() {
+    const addCard = document.querySelector('.backlog-card.add-new');
+    if (!addCard) return;
+
+    addCard.classList.add('editing');
+    addCard.onclick = null;
+
+    addCard.innerHTML = `
+        <textarea id="createInlineDescription" rows="6" placeholder="Описание задачи..."></textarea>
+        <div class="backlog-edit-actions">
+            <button class="btn primary" onclick="saveInlineCreate()">Создать</button>
+            <button class="btn" onclick="cancelInlineCreate()">Отмена</button>
+        </div>
+    `;
+
+    const textarea = addCard.querySelector('textarea');
+    textarea.focus();
+
+    // Ctrl+Enter для создания, Esc для отмены
+    textarea.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape') {
+            cancelInlineCreate();
+        } else if (e.ctrlKey && e.key === 'Enter') {
+            saveInlineCreate();
+        }
+    });
+}
+
+async function saveInlineCreate() {
+    const textarea = document.getElementById('createInlineDescription');
+    const description = textarea.value.trim();
+
+    if (!description) {
+        alert('Введите описание');
+        return;
+    }
+
+    try {
+        await api('POST', '/api/backlog', {
+            title: description.substring(0, 50),
+            description: description,
+            priority: 'medium',
+            next_sprint: false
+        });
+        await refreshBacklog();
+        addSystemMessage('Добавлена новая запись в бэклог');
+    } catch (e) {
+        alert('Ошибка: ' + e.message);
+        cancelInlineCreate();
+    }
+}
+
+function cancelInlineCreate() {
+    const addCard = document.querySelector('.backlog-card.add-new');
+    if (!addCard) return;
+
+    addCard.classList.remove('editing');
+    addCard.innerHTML = `
+        <div class="add-new-content">
+            <div class="add-new-icon">+</div>
+            <div class="add-new-text">Добавить запись</div>
+        </div>
+    `;
+    addCard.onclick = startCreateBacklogItem;
 }
 
 async function deleteBacklogItem(itemId) {

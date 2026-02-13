@@ -33,6 +33,29 @@ router = APIRouter(prefix="/api/git", tags=["git"])
 
 # ── Helper Functions ──────────────────────────────────────────────────────────
 
+def _to_wsl_path(path: Path | str) -> str:
+    """
+    Конвертирует Windows путь в WSL путь для работы с subprocess.
+
+    C:\\Users\\... -> /mnt/c/Users/...
+    /mnt/c/Users/... -> /mnt/c/Users/... (без изменений)
+    """
+    path_str = str(path).strip()
+
+    # Уже WSL-путь
+    if path_str.startswith("/mnt/"):
+        return path_str
+
+    # Windows-путь: C:\Users\... или C:/Users/...
+    if len(path_str) >= 2 and path_str[1] == ':':
+        drive = path_str[0].lower()
+        rest = path_str[2:].replace("\\", "/")
+        return f"/mnt/{drive}{rest}"
+
+    # Другие пути (относительные, Unix) — оставляем как есть
+    return path_str
+
+
 def _get_git_env() -> dict:
     """
     Возвращает переменные окружения для Git с user.name и user.email из настроек.
@@ -101,9 +124,11 @@ def run_git_command(args: list[str], cwd: Path | None = None, use_config: bool =
 
     try:
         env = _get_git_env() if use_config else None
+        # Конвертируем Windows путь в WSL путь для корректной работы subprocess
+        cwd_str = _to_wsl_path(cwd)
         result = subprocess.run(
             ["git"] + args,
-            cwd=str(cwd),
+            cwd=cwd_str,
             capture_output=True,
             text=True,
             timeout=30,
@@ -487,7 +512,7 @@ def release_sprint(sprint_id: str, version: str | None = None, skip_checks: bool
         save_version(version)
 
         # 9. Обновляем спринт (только при успешном push)
-        update_sprint_release(sprint_id, version)
+        update_sprint_release(sprint_id, version, pushed=result["pushed"])
 
         # 10. Возвращаемся на source_branch
         run_git_command(["checkout", source_branch])
@@ -1331,7 +1356,7 @@ async def api_git_release(data: dict):
 
         # 8. Обновляем спринт (если указан) — используем публичный API
         if sprint_id:
-            update_sprint_release(sprint_id, version)
+            update_sprint_release(sprint_id, version, pushed=pushed)
 
         # 9. Возвращаемся на source_branch
         run_git_command(["checkout", source_branch])
