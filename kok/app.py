@@ -169,9 +169,15 @@ from chat_history_manager import (
     clear_history as clear_chat_history,
     set_tayfa_dir as set_chat_history_tayfa_dir,
 )
+from backlog_manager import (
+    get_backlog, get_backlog_item, create_backlog_item,
+    update_backlog_item, delete_backlog_item, toggle_next_sprint,
+    set_backlog_file,
+)
 from settings_manager import (
     load_settings, update_settings, get_orchestrator_port,
     get_current_version, get_next_version, save_version,
+    get_auto_shutdown_settings,
 )
 from project_manager import (
     list_projects, get_project, add_project, remove_project,
@@ -204,7 +210,7 @@ running_tasks: dict[str, dict] = {}
 
 # Автовыключение при закрытии вкладки браузера
 last_ping_time: float = _time.time()
-SHUTDOWN_TIMEOUT = 15.0  # секунд без пинга до выключения
+SHUTDOWN_TIMEOUT = 120.0  # секунд без пинга до выключения (увеличено с 15 до 120)
 
 
 # ── Lifespan ──────────────────────────────────────────────────────────────────
@@ -218,7 +224,7 @@ async def _auto_open_browser():
 
 
 def _init_files_for_current_project():
-    """Инициализировать пути к tasks.json, employees.json и chat_history для текущего проекта (при запуске)."""
+    """Инициализировать пути к tasks.json, employees.json, backlog.json и chat_history для текущего проекта (при запуске)."""
     project = get_current_project()
     if project:
         tayfa_path = get_tayfa_dir(project["path"])
@@ -226,11 +232,14 @@ def _init_files_for_current_project():
             common_path = Path(tayfa_path) / "common"
             tasks_json_path = common_path / "tasks.json"
             employees_json_path = common_path / "employees.json"
+            backlog_json_path = common_path / "backlog.json"
             set_tasks_file(tasks_json_path)
             set_employees_file(employees_json_path)
+            set_backlog_file(backlog_json_path)
             set_chat_history_tayfa_dir(tayfa_path)
             print(f"  tasks.json установлен: {tasks_json_path}")
             print(f"  employees.json установлен: {employees_json_path}")
+            print(f"  backlog.json установлен: {backlog_json_path}")
             print(f"  chat_history_dir установлен: {tayfa_path}")
 
 
@@ -239,9 +248,19 @@ async def _shutdown_check_loop():
     global last_ping_time
     while True:
         await asyncio.sleep(5)
+        # Получаем настройки auto_shutdown
+        auto_shutdown_enabled, shutdown_timeout = get_auto_shutdown_settings()
+
+        # Если автовыключение отключено — пропускаем проверку
+        if not auto_shutdown_enabled:
+            continue
+
         elapsed = _time.time() - last_ping_time
-        if elapsed > SHUTDOWN_TIMEOUT:
-            print(f"\n  Нет активных клиентов {elapsed:.0f} сек. Выключаю сервер...")
+        # Warning когда elapsed > 50% от timeout
+        if elapsed > shutdown_timeout * 0.5 and elapsed < shutdown_timeout * 0.6:
+            print(f"  [WARNING] Нет ping от клиента {elapsed:.0f} сек (таймаут через {shutdown_timeout - elapsed:.0f} сек)")
+        if elapsed > shutdown_timeout:
+            print(f"\n  [SHUTDOWN] Нет активных клиентов {elapsed:.0f} сек (таймаут {shutdown_timeout} сек). Выключаю сервер...")
             stop_claude_api()
             os._exit(0)
 
@@ -727,8 +746,13 @@ async def root():
 async def ping():
     """Пинг от клиента. Сбрасывает таймер автовыключения."""
     global last_ping_time
-    last_ping_time = _time.time()
-    return {"status": "ok"}
+    current_time = _time.time()
+    elapsed_since_last = current_time - last_ping_time
+    last_ping_time = current_time
+    # Логируем каждый ping с timestamp (только если прошло > 10 сек с последнего)
+    if elapsed_since_last > 10:
+        print(f"  [PING] Получен ping от клиента (прошло {elapsed_since_last:.0f} сек с последнего)")
+    return {"status": "ok", "server_time": current_time}
 
 
 @app.post("/api/shutdown")
@@ -834,14 +858,16 @@ async def api_open_project(data: dict):
             detail=result.get("error", "Ошибка открытия проекта")
         )
 
-    # Устанавливаем пути к tasks.json, employees.json и chat_history для текущего проекта
+    # Устанавливаем пути к tasks.json, employees.json, backlog.json и chat_history для текущего проекта
     tayfa_path = result.get("tayfa_path")
     if tayfa_path:
         common_path = Path(tayfa_path) / "common"
         tasks_json_path = common_path / "tasks.json"
         employees_json_path = common_path / "employees.json"
+        backlog_json_path = common_path / "backlog.json"
         set_tasks_file(tasks_json_path)
         set_employees_file(employees_json_path)
+        set_backlog_file(backlog_json_path)
         set_chat_history_tayfa_dir(tayfa_path)
         print(f"[api_open_project] tasks.json установлен: {tasks_json_path}")
         print(f"[api_open_project] employees.json установлен: {employees_json_path}")
@@ -1922,6 +1948,117 @@ async def api_trigger_task(task_id: str, data: dict = Body(default_factory=dict)
     finally:
         # Убираем задачу из «выполняется» при любом исходе
         running_tasks.pop(task_id, None)
+
+
+# ── Бэклог (backlog.json) ────────────────────────────────────────────────────
+
+
+@app.get("/api/backlog")
+async def api_get_backlog(priority: str | None = None, next_sprint: bool | None = None):
+    """
+    Получить список записей бэклога с фильтрацией.
+
+    Query params:
+        ?priority=high/medium/low
+        ?next_sprint=true/false
+    """
+    try:
+        items = get_backlog(priority=priority, next_sprint=next_sprint)
+        return {"items": items, "count": len(items)}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/backlog/{item_id}")
+async def api_get_backlog_item(item_id: str):
+    """Получить одну запись бэклога по ID."""
+    item = get_backlog_item(item_id)
+    if not item:
+        raise HTTPException(status_code=404, detail=f"Запись бэклога {item_id} не найдена")
+    return item
+
+
+@app.post("/api/backlog")
+async def api_create_backlog_item(data: dict):
+    """
+    Создать новую запись в бэклоге.
+
+    Body: {
+        "title": "...",
+        "description": "...",
+        "priority": "high/medium/low",
+        "next_sprint": true/false,
+        "created_by": "boss"
+    }
+    """
+    title = data.get("title")
+    if not title:
+        raise HTTPException(status_code=400, detail="Нужно поле title")
+
+    try:
+        item = create_backlog_item(
+            title=title,
+            description=data.get("description", ""),
+            priority=data.get("priority", "medium"),
+            next_sprint=data.get("next_sprint", False),
+            created_by=data.get("created_by", "boss"),
+        )
+        return item
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.put("/api/backlog/{item_id}")
+async def api_update_backlog_item(item_id: str, data: dict):
+    """
+    Обновить запись бэклога.
+
+    Body: {
+        "title": "...",
+        "description": "...",
+        "priority": "high/medium/low",
+        "next_sprint": true/false
+    }
+    """
+    try:
+        result = update_backlog_item(item_id, **data)
+        if "error" in result:
+            raise HTTPException(status_code=400, detail=result["error"])
+        return result
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.delete("/api/backlog/{item_id}")
+async def api_delete_backlog_item(item_id: str):
+    """Удалить запись из бэклога."""
+    try:
+        result = delete_backlog_item(item_id)
+        if "error" in result:
+            raise HTTPException(status_code=404, detail=result["error"])
+        return result
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/backlog/{item_id}/toggle")
+async def api_toggle_next_sprint(item_id: str):
+    """Переключить флаг 'в следующий спринт'."""
+    try:
+        result = toggle_next_sprint(item_id)
+        if "error" in result:
+            raise HTTPException(status_code=404, detail=result["error"])
+        return result
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 # ── Запуск ────────────────────────────────────────────────────────────────────

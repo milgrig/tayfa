@@ -782,7 +782,7 @@ async def api_git_branches():
 async def api_git_init(data: dict = {}):
     """
     Инициализация git-репозитория.
-    Body (опционально): {"create_gitignore": true}
+    Body (опционально): {"create_initial_commit": true}
     """
     project_dir = get_project_dir()
     if project_dir is None:
@@ -799,12 +799,14 @@ async def api_git_init(data: dict = {}):
 
     response = {"success": True, "message": "Git repository initialized", "initialized": True}
 
-    # Создаём .gitignore если запрошено
-    create_gitignore = data.get("create_gitignore", False) if data else False
-    if create_gitignore:
-        gitignore_path = project_dir / ".gitignore"
-        if not gitignore_path.exists():
-            gitignore_content = """# Dependencies
+    # Устанавливаем default branch из настроек
+    default_branch = _get_git_settings().get("defaultBranch", "main")
+    run_git_command(["config", "init.defaultBranch", default_branch], use_config=False)
+
+    # Создаём .gitignore (всегда, если не существует)
+    gitignore_path = project_dir / ".gitignore"
+    if not gitignore_path.exists():
+        gitignore_content = """# Dependencies
 node_modules/
 __pycache__/
 *.pyc
@@ -834,11 +836,38 @@ Thumbs.db
 # Tayfa internal
 .tayfa/*/notes.md
 """
-            try:
-                gitignore_path.write_text(gitignore_content, encoding="utf-8")
-                response["gitignore_created"] = True
-            except Exception as e:
-                response["gitignore_error"] = str(e)
+        try:
+            gitignore_path.write_text(gitignore_content, encoding="utf-8")
+            response["gitignore_created"] = True
+        except Exception as e:
+            response["gitignore_error"] = str(e)
+            response["gitignore_created"] = False
+    else:
+        response["gitignore_created"] = False  # Уже существует
+
+    # Создаём initial commit (по умолчанию true)
+    create_initial_commit = data.get("create_initial_commit", True) if data else True
+    if create_initial_commit:
+        # Добавляем .gitignore в staging
+        add_result = run_git_command(["add", ".gitignore"], use_config=True)
+        if add_result["success"]:
+            # Создаём initial commit
+            commit_result = run_git_command(["commit", "-m", "Initial commit"], use_config=True)
+            if commit_result["success"]:
+                response["initial_commit"] = True
+                # Получаем hash последнего коммита
+                hash_result = run_git_command(["rev-parse", "HEAD"], use_config=False)
+                if hash_result["success"]:
+                    response["commit_hash"] = hash_result["stdout"]
+            else:
+                # Не ошибка, но предупреждение
+                response["initial_commit"] = False
+                response["commit_warning"] = commit_result["stderr"] or "Не удалось создать initial commit"
+        else:
+            response["initial_commit"] = False
+            response["commit_warning"] = f"Не удалось добавить .gitignore: {add_result['stderr']}"
+    else:
+        response["initial_commit"] = False
 
     # Настраиваем remote из настроек (если указан)
     remote_result = _setup_git_remote()
@@ -846,10 +875,6 @@ Thumbs.db
         response["remote_configured"] = True
     elif _get_git_settings().get("remoteUrl"):
         response["remote_error"] = remote_result["message"]
-
-    # Устанавливаем default branch из настроек
-    default_branch = _get_git_settings().get("defaultBranch", "main")
-    run_git_command(["config", "init.defaultBranch", default_branch], use_config=False)
 
     return response
 
