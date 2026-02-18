@@ -1,4 +1,19 @@
-.tayfa/
+# Tayfa: track config (prompts, rules, scripts), ignore runtime data
+.tayfa/common/tasks.json
+.tayfa/common/backlog.json
+.tayfa/common/employees.json
+.tayfa/common/agent_failures.json
+.tayfa/common/discussions/
+.tayfa/common/sprint_reports/
+.tayfa/common/tests/
+.tayfa/common/archive/
+.tayfa/common/.pytest_cache/
+.tayfa/**/chat_history.json
+.tayfa/**/notes.md
+.tayfa/**/tasks.md
+.tayfa/**/source.md
+.tayfa/config.json
+.tayfa/analic.md
 # Cursor CLI
 .cursor_cli_prompt.txt
 .cursor_chats.json
@@ -26,6 +41,7 @@ _task_*.txt
 
 # Windows artifacts
 *.lnk
+nul
 
 # Secrets
 .env
