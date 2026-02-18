@@ -287,10 +287,18 @@
             text-transform: uppercase; cursor: pointer; transition: all 0.15s ease;
             user-select: none; border: 1px solid transparent;
         }
-        .agent-runtime.claude { background: rgba(52,211,153,0.08); color: rgba(52,211,153,0.35); }
-        .agent-runtime.claude.selected { background: rgba(52,211,153,0.25); color: var(--success); border-color: var(--success); box-shadow: 0 0 6px rgba(52,211,153,0.3); }
-        .agent-runtime.claude:hover { background: rgba(52,211,153,0.15); color: rgba(52,211,153,0.6); }
-        .agent-runtime.claude.selected:hover { background: rgba(52,211,153,0.3); color: var(--success); }
+        .agent-runtime.opus { background: rgba(168,85,247,0.08); color: rgba(168,85,247,0.35); }
+        .agent-runtime.opus.selected { background: rgba(168,85,247,0.25); color: rgb(168,85,247); border-color: rgb(168,85,247); box-shadow: 0 0 6px rgba(168,85,247,0.3); }
+        .agent-runtime.opus:hover { background: rgba(168,85,247,0.15); color: rgba(168,85,247,0.6); }
+        .agent-runtime.opus.selected:hover { background: rgba(168,85,247,0.3); color: rgb(168,85,247); }
+        .agent-runtime.sonnet { background: rgba(52,211,153,0.08); color: rgba(52,211,153,0.35); }
+        .agent-runtime.sonnet.selected { background: rgba(52,211,153,0.25); color: var(--success); border-color: var(--success); box-shadow: 0 0 6px rgba(52,211,153,0.3); }
+        .agent-runtime.sonnet:hover { background: rgba(52,211,153,0.15); color: rgba(52,211,153,0.6); }
+        .agent-runtime.sonnet.selected:hover { background: rgba(52,211,153,0.3); color: var(--success); }
+        .agent-runtime.haiku { background: rgba(251,191,36,0.08); color: rgba(251,191,36,0.35); }
+        .agent-runtime.haiku.selected { background: rgba(251,191,36,0.25); color: rgb(251,191,36); border-color: rgb(251,191,36); box-shadow: 0 0 6px rgba(251,191,36,0.3); }
+        .agent-runtime.haiku:hover { background: rgba(251,191,36,0.15); color: rgba(251,191,36,0.6); }
+        .agent-runtime.haiku.selected:hover { background: rgba(251,191,36,0.3); color: rgb(251,191,36); }
         .agent-runtime.cursor { background: rgba(79,110,247,0.08); color: rgba(79,110,247,0.35); }
         .agent-runtime.cursor.selected { background: rgba(79,110,247,0.25); color: var(--accent); border-color: var(--accent); box-shadow: 0 0 6px rgba(79,110,247,0.3); }
         .agent-runtime.cursor:hover { background: rgba(79,110,247,0.15); color: rgba(79,110,247,0.6); }
@@ -1602,7 +1610,7 @@ let currentAgent = null;
 let agents = {};
 let employees = {};
 let chatHistories = {};
-let agentRuntimes = {};  // per-agent runtime: { agentName: 'claude' | 'cursor' }
+let agentRuntimes = {};  // per-agent runtime: { agentName: 'opus' | 'sonnet' | 'haiku' | 'cursor' }
 let thinkingAgents = {};  // per-agent thinking state: { agentName: true }
 let runningTasks = {};   // { taskId: { agent, role, runtime, started_at, elapsed_seconds } }
 let runningTasksTimer = null;  // elapsed update timer
@@ -2251,10 +2259,10 @@ async function loadAgents() {
         }
         list.innerHTML = '';
         for (const [name, config] of Object.entries(agents)) {
-            const runtimes = config.runtimes || ['claude', 'cursor'];
-            // Initialize default runtime selection (claude by default)
+            const runtimes = config.runtimes || ['opus', 'sonnet', 'haiku', 'cursor'];
+            // Initialize default runtime selection from agent config
             if (!agentRuntimes[name]) {
-                agentRuntimes[name] = runtimes.includes('claude') ? 'claude' : runtimes[0];
+                agentRuntimes[name] = config.default_runtime || runtimes[0];
             }
             const selected = agentRuntimes[name];
             const runtimesHtml = runtimes.map(r =>
@@ -2293,8 +2301,8 @@ async function selectAgent(name) {
     // Ensure runtime is initialized
     if (!agentRuntimes[name]) {
         const config = agents[name] || {};
-        const runtimes = config.runtimes || ['claude', 'cursor'];
-        agentRuntimes[name] = runtimes.includes('claude') ? 'claude' : runtimes[0];
+        const runtimes = config.runtimes || ['opus', 'sonnet', 'haiku', 'cursor'];
+        agentRuntimes[name] = config.default_runtime || runtimes[0];
     }
 
     document.querySelectorAll('.agent-item').forEach(el => el.classList.remove('active'));
@@ -2338,7 +2346,7 @@ function toggleAgentRuntime(agentName, runtime) {
 }
 
 function getAgentRuntime(agentName) {
-    return agentRuntimes[agentName] || 'claude';
+    return agentRuntimes[agentName] || 'sonnet';
 }
 
 async function resetCurrentAgent() {

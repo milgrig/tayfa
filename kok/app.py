@@ -287,6 +287,7 @@ from git_manager import (
 CURSOR_CLI_PROMPT_FILE = TAYFA_ROOT_WIN / ".cursor_cli_prompt.txt"  # temporary file for prompt
 CURSOR_CHATS_FILE = TAYFA_ROOT_WIN / ".cursor_chats.json"  # agent_name -> chat_id (for --resume)
 CURSOR_CLI_TIMEOUT = 600.0  # Cursor CLI call timeout (seconds)
+CURSOR_CLI_MODEL = "Composer 1.5"  # default model for Cursor CLI (agent --model)
 CURSOR_CREATE_CHAT_TIMEOUT = 30.0  # create-chat timeout (seconds)
 
 # ── Global state ──────────────────────────────────────────────────────
@@ -813,11 +814,21 @@ async def ensure_cursor_chat(agent_name: str) -> tuple[str | None, str]:
     return chat_id, ""
 
 
-async def run_cursor_cli(agent_name: str, user_prompt: str, use_chat: bool = True) -> dict:
+def _cursor_cli_model_flag(model: str | None) -> str:
+    """Returns '' or ' --model <id> ' for Cursor CLI. Safe for bash."""
+    m = (model or CURSOR_CLI_MODEL).strip() if model else CURSOR_CLI_MODEL
+    if not m:
+        return ""
+    safe = str(m).replace("'", "'\"'\"'")
+    return f" --model '{safe}'"
+
+
+async def run_cursor_cli(agent_name: str, user_prompt: str, use_chat: bool = True, model: str | None = None) -> dict:
     """
     Runs Cursor CLI in WSL in headless mode.
     If use_chat=True, ensures a chat exists for the agent (create-chat if needed)
     and sends a message with --resume <chat_id>. Otherwise — a one-time call without --resume.
+    model: Cursor CLI model (default CURSOR_CLI_MODEL = "Composer 1.5").
     Returns { "success": bool, "result": str, "stderr": str }.
     """
     full_prompt = _build_cursor_cli_prompt(agent_name, user_prompt)
@@ -842,11 +853,12 @@ async def run_cursor_cli(agent_name: str, user_prompt: str, use_chat: bool = Tru
     base = _cursor_cli_base_script()
     safe_id = (chat_id or "").replace("'", "'\"'\"'")
     resume_part = f" --resume '{safe_id}'" if chat_id else ""
+    model_part = _cursor_cli_model_flag(model)
     # Read prompt into variable with " escaping for bash, so quotes in text don't break the command
     wsl_script = (
         f"{base} && "
         "content=$(cat .cursor_cli_prompt.txt | sed 's/\"/\\\\\"/g') && "
-        f"agent -p --force{resume_part} --output-format json \"$content\""
+        f"agent -p --force{resume_part}{model_part} --output-format json \"$content\""
     )
 
     try:
@@ -1313,9 +1325,12 @@ async def stop_server():
     return stop_claude_api()
 
 
+_MODEL_RUNTIMES = ["opus", "sonnet", "haiku"]
+
+
 def _get_agent_runtimes(agent_name: str) -> list[str]:
-    """Returns runtimes for the agent. Default is ['claude', 'cursor']."""
-    return ["claude", "cursor"]
+    """Returns runtimes for the agent: model-specific + cursor."""
+    return _MODEL_RUNTIMES + ["cursor"]
 
 
 def _agents_from_registry() -> dict:
@@ -1334,6 +1349,7 @@ def _agents_from_registry() -> dict:
                 "runtimes": _get_agent_runtimes(emp_name),
                 "role": emp_data.get("role", ""),
                 "model": emp_data.get("model", "sonnet"),
+                "default_runtime": emp_data.get("model", "sonnet"),
             }
 
     return result
@@ -1358,13 +1374,16 @@ async def list_agents():
                 cfg["runtimes"] = _get_agent_runtimes(name)
                 cfg["role"] = employees[name].get("role", "")
                 cfg["model"] = employees[name].get("model", "sonnet")
+                cfg["default_runtime"] = employees[name].get("model", "sonnet")
                 result[name] = cfg
     except HTTPException:
         for name in result:
             result[name]["runtimes"] = _get_agent_runtimes(name)
+            result[name].setdefault("default_runtime", result[name].get("model", "sonnet"))
     except Exception:
         for name in result:
             result[name]["runtimes"] = _get_agent_runtimes(name)
+            result[name].setdefault("default_runtime", result[name].get("model", "sonnet"))
     return result
 
 
@@ -1395,6 +1414,7 @@ async def send_prompt(data: dict):
     agent_name = data.get("name") or data.get("agent")
     prompt_text = data.get("prompt", "")
     task_id = data.get("task_id")
+    runtime = data.get("runtime", "claude")  # Use runtime from request, fallback to "claude" for backward compat
 
     # Inject project_path for scoping if not already present
     if "project_path" not in data:
@@ -1410,7 +1430,7 @@ async def send_prompt(data: dict):
             agent_name=agent_name,
             prompt=prompt_text,
             result=api_result.get("result", ""),
-            runtime="claude",
+            runtime=runtime,  # Use resolved runtime instead of hardcoded "claude"
             cost_usd=api_result.get("cost_usd"),
             duration_sec=duration_sec,
             task_id=task_id,
@@ -1426,7 +1446,7 @@ async def send_prompt_cursor(data: dict):
     """
     Send a prompt to Cursor CLI via WSL. Saves history to chat_history.json.
     Agent chat: from .cursor_chats.json (see GET /api/cursor-chats) or created via create-chat on first send.
-    Command in WSL: agent -p --force [--resume <chat_id>] --output-format json "<prompt from file>".
+    Model: from employees.json for this agent, or override via data.model. CLI: agent -p --force [--model <id>] [--resume <chat_id>] ...
     """
     name = data.get("name") or data.get("agent")
     prompt_text = data.get("prompt") or ""
@@ -1436,9 +1456,11 @@ async def send_prompt_cursor(data: dict):
         raise HTTPException(status_code=400, detail="name and prompt are required")
 
     use_chat = data.get("use_chat", True)
+    # Model: explicit body override, else CURSOR_CLI_MODEL (Composer 1.5)
+    model = data.get("model") or None
 
     start_time = _time.time()
-    result = await run_cursor_cli(name, prompt_text, use_chat=use_chat)
+    result = await run_cursor_cli(name, prompt_text, use_chat=use_chat, model=model)
     duration_sec = _time.time() - start_time
 
     # Save to chat history
@@ -2272,7 +2294,7 @@ async def api_trigger_task(task_id: str, data: dict = Body(default_factory=dict)
     """
     Trigger the next agent for a task.
     Determines who should work based on current status and sends them a prompt.
-    Supports runtime: data.get("runtime", "claude") — "claude" or "cursor".
+    Supports runtime: data.get("runtime", "claude") — "opus", "sonnet", "haiku", "cursor", or legacy "claude".
 
     Error recovery:
     - Classifies errors (timeout/unavailable/internal/context_overflow/budget/config)
@@ -2396,6 +2418,14 @@ async def api_trigger_task(task_id: str, data: dict = Body(default_factory=dict)
 
     runtime = data.get("runtime", "claude")
 
+    # ── Resolve model name from runtime ─────────────────────────────
+    # Model-specific runtimes (opus/sonnet/haiku) → use directly as model name.
+    # Legacy 'claude' runtime → fall back to model from employees.json.
+    if runtime in _MODEL_RUNTIMES:
+        resolved_model = runtime
+    else:
+        resolved_model = emp.get("model", "sonnet")
+
     # Register task as 'running'
     running_tasks[task_id] = {
         "agent": agent_name,
@@ -2410,7 +2440,7 @@ async def api_trigger_task(task_id: str, data: dict = Body(default_factory=dict)
             start_time = _time.time()
             try:
                 if runtime == "cursor":
-                    result = await run_cursor_cli(agent_name, full_prompt)
+                    result = await run_cursor_cli(agent_name, full_prompt, model=CURSOR_CLI_MODEL)
                     duration_sec = _time.time() - start_time
 
                     # Fix cursor timeout silent-success bug: check success flag
@@ -2442,20 +2472,21 @@ async def api_trigger_task(task_id: str, data: dict = Body(default_factory=dict)
                         "stderr": result.get("stderr", ""),
                     }
                 else:
-                    # Claude API
+                    # Claude API — pass resolved model
                     api_result = await call_claude_api("POST", "/run", json_data={
                         "name": agent_name,
                         "prompt": full_prompt,
                         "project_path": get_project_path_for_scoping(),
+                        "model": resolved_model,
                     }, timeout=get_agent_timeout())
                     duration_sec = _time.time() - start_time
 
-                    # Save to chat history
+                    # Save to chat history (actual model, not generic 'claude')
                     save_chat_message(
                         agent_name=agent_name,
                         prompt=full_prompt,
                         result=api_result.get("result", ""),
-                        runtime="claude",
+                        runtime=resolved_model,
                         cost_usd=api_result.get("cost_usd"),
                         duration_sec=duration_sec,
                         task_id=task_id,
@@ -2470,7 +2501,7 @@ async def api_trigger_task(task_id: str, data: dict = Body(default_factory=dict)
                         "task_id": task_id,
                         "agent": agent_name,
                         "role": role_label,
-                        "runtime": "claude",
+                        "runtime": resolved_model,
                         "success": True,
                         "result": api_result.get("result", ""),
                         "cost_usd": api_result.get("cost_usd"),

@@ -425,7 +425,7 @@ class TestCursorSilentSuccessBug:
     async def test_cursor_failure_detected(self, mock_task_env, tmp_failures, monkeypatch):
         import app
         from fastapi import HTTPException
-        async def mock_cursor(agent, prompt):
+        async def mock_cursor(agent, prompt, use_chat=True, model=None):
             return {"success": False, "stderr": "Cursor timed out", "result": ""}
         monkeypatch.setattr(app, "run_cursor_cli", mock_cursor)
         monkeypatch.setattr(app, "_RETRY_DELAY_SEC", 0)
@@ -438,7 +438,7 @@ class TestCursorSilentSuccessBug:
 
     async def test_cursor_success_passes(self, mock_task_env, tmp_failures, monkeypatch):
         import app
-        async def mock_cursor(agent, prompt):
+        async def mock_cursor(agent, prompt, use_chat=True, model=None):
             return {"success": True, "result": "All done", "stderr": ""}
         monkeypatch.setattr(app, "run_cursor_cli", mock_cursor)
         from app import api_trigger_task
