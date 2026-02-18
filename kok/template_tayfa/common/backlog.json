@@ -1,0 +1,15 @@
+{
+  "items": [
+    {
+      "id": "B003",
+      "title": "Optimize the database",
+      "description": "Add indexes and optimize queries",
+      "priority": "low",
+      "next_sprint": false,
+      "created_by": "boss",
+      "created_at": "2026-02-13T10:10:00",
+      "updated_at": "2026-02-13T10:10:00"
+    }
+  ],
+  "next_id": 4
+}

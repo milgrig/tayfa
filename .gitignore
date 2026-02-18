@@ -16,25 +16,25 @@ venv/
 Thumbs.db
 .DS_Store
 
-# Логи
+# Logs
 logs/
 *.jsonl
 *.log
 
-# Временные файлы оркестратора
+# Orchestrator temporary files
 _task_*.txt
 
-# Windows-артефакты
+# Windows artifacts
 *.lnk
 
-# Секреты
+# Secrets
 .env
 *.key
 *.pem
 credentials.*
 
-# Секретные настройки (токены, API ключи)
+# Secret settings (tokens, API keys)
 kok/secret_settings.json
 
-# Локальный список проектов
+# Local project list
 kok/projects.json

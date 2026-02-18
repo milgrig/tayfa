@@ -1,0 +1,22 @@
+{
+  "employees": {
+    "boss": {
+      "role": "Manager",
+      "model": "opus",
+      "fallback_model": "sonnet",
+      "max_budget_usd": 0,
+      "permission_mode": "bypassPermissions",
+      "allowed_tools": "Read Edit Write Bash Glob Grep Task",
+      "created_at": "auto"
+    },
+    "hr": {
+      "role": "HR Manager",
+      "model": "sonnet",
+      "fallback_model": "haiku",
+      "max_budget_usd": 0,
+      "permission_mode": "bypassPermissions",
+      "allowed_tools": "Read Edit Bash",
+      "created_at": "auto"
+    }
+  }
+}

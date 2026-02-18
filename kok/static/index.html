@@ -1,0 +1,4559 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Tayfa — Orchestrator</title>
+    <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
+    <link rel="icon" type="image/png" href="/static/tayfa-icon.png">
+    <style>
+        :root, [data-theme="dark"] {
+            --bg: #0f1117;
+            --bg-card: #1a1d27;
+            --bg-card-hover: #22263a;
+            --bg-input: #12141c;
+            --border: #2a2e3e;
+            --border-active: #4f6ef7;
+            --text: #e1e4ed;
+            --text-dim: #7a7f92;
+            --text-bright: #ffffff;
+            --accent: #4f6ef7;
+            --accent-hover: #6b84ff;
+            --success: #34d399;
+            --warning: #fbbf24;
+            --danger: #f87171;
+            --purple: #a78bfa;
+            --font: 'Segoe UI', -apple-system, BlinkMacSystemFont, sans-serif;
+            --mono: 'Cascadia Code', 'Fira Code', 'Consolas', monospace;
+            --radius: 10px;
+            --shadow: 0 4px 24px rgba(0,0,0,0.3);
+        }
+
+        [data-theme="light"] {
+            --bg: #f0f2f5;
+            --bg-card: #ffffff;
+            --bg-card-hover: #e8eaed;
+            --bg-input: #ffffff;
+            --border: #c9cdd4;
+            --border-active: #4f6ef7;
+            --text: #24292e;
+            --text-dim: #525960;
+            --text-bright: #1b1f23;
+            --accent: #4f6ef7;
+            --accent-hover: #3a5bd9;
+            --success: #22c55e;
+            --warning: #f59e0b;
+            --danger: #ef4444;
+            --purple: #8b5cf6;
+            --shadow: 0 2px 8px rgba(0,0,0,0.08);
+        }
+
+        [data-theme="blue"] {
+            --bg: #0a192f;
+            --bg-card: #112240;
+            --bg-card-hover: #1d3557;
+            --bg-input: #0a192f;
+            --border: #233554;
+            --border-active: #64ffda;
+            --text: #8892b0;
+            --text-dim: #495670;
+            --text-bright: #ccd6f6;
+            --accent: #64ffda;
+            --accent-hover: #4fd1c5;
+            --success: #64ffda;
+            --warning: #ffd166;
+            --danger: #ff6b6b;
+            --purple: #bd93f9;
+        }
+
+        [data-theme="girly"] {
+            --bg: #1a1218;
+            --bg-card: #251a22;
+            --bg-card-hover: #2f2329;
+            --bg-input: #1a1218;
+            --border: #3d2d38;
+            --border-active: #e879a9;
+            --text: #e8d5e0;
+            --text-dim: #9a8492;
+            --text-bright: #fff0f5;
+            --accent: #e879a9;
+            --accent-hover: #f4a0c4;
+            --success: #7dd3a8;
+            --warning: #f9c784;
+            --danger: #f87171;
+            --purple: #c4a7e7;
+            --shadow: 0 4px 24px rgba(232,121,169,0.15);
+        }
+
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            font-family: var(--font);
+            background: var(--bg);
+            color: var(--text);
+            min-height: 100vh;
+            overflow-x: hidden;
+        }
+
+        /* ── Header ─────────────────────── */
+        .header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 16px 28px;
+            border-bottom: 1px solid var(--border);
+            background: var(--bg-card);
+        }
+        .header h1 { font-size: 20px; font-weight: 700; color: var(--text-bright); letter-spacing: -0.3px; }
+        .header h1 span { color: var(--accent); }
+
+        .header-left { display: flex; align-items: center; gap: 16px; }
+
+        .current-project {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 6px 12px;
+            background: var(--bg-input);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            cursor: pointer;
+            transition: all 0.15s ease;
+        }
+        .current-project:hover {
+            background: var(--bg-card-hover);
+            border-color: var(--border-active);
+        }
+        .current-project .project-icon { font-size: 14px; }
+        .current-project .project-name {
+            font-size: 13px;
+            font-weight: 500;
+            color: var(--text);
+            max-width: 200px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        .status-bar { display: flex; gap: 16px; align-items: center; position: relative; }
+        .status-dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; margin-right: 6px; }
+        .status-dot.on { background: var(--success); box-shadow: 0 0 8px var(--success); }
+        .status-dot.off { background: var(--danger); box-shadow: 0 0 8px var(--danger); }
+        .status-dot.loading { background: var(--warning); animation: pulse 1s infinite; }
+        @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.3; } }
+        .status-item { font-size: 13px; color: var(--text-dim); display: flex; align-items: center; }
+
+        /* ── Git Status Indicator ─────────── */
+        .git-status-indicator { cursor: pointer; }
+        .git-status-indicator:hover { color: var(--text-bright); }
+        .git-branch-icon-header { font-family: monospace; margin-right: 4px; font-size: 14px; }
+        .git-dot { width: 8px; height: 8px; border-radius: 50%; margin-left: 6px; display: inline-block; }
+        .git-dot.clean { background: var(--success); box-shadow: 0 0 6px var(--success); }
+        .git-dot.dirty { background: var(--warning); box-shadow: 0 0 6px var(--warning); }
+        .git-dot.warning { background: var(--warning); box-shadow: 0 0 6px var(--warning); }
+        .git-dot.error { background: var(--danger); box-shadow: 0 0 6px var(--danger); }
+        .git-dot.loading { background: var(--text-dim); animation: pulse 1s infinite; }
+        .btn-git-init-header {
+            background: var(--warning);
+            color: var(--bg);
+            border: none;
+            padding: 2px 8px;
+            border-radius: 4px;
+            font-size: 11px;
+            margin-left: 8px;
+            cursor: pointer;
+            font-weight: 600;
+        }
+        .btn-git-init-header:hover {
+            filter: brightness(1.1);
+            transform: scale(1.05);
+        }
+
+        /* ── Git Toast Notification ─────────── */
+        .git-toast {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            padding: 12px 20px;
+            border-radius: 8px;
+            font-size: 14px;
+            z-index: 10000;
+            animation: slideIn 0.3s ease, fadeOut 0.5s ease 4.5s forwards;
+            max-width: 400px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+        }
+        .git-toast.error { background: var(--danger); color: white; }
+        .git-toast.success { background: var(--success); color: white; }
+        .git-toast.warning { background: var(--warning); color: #333; }
+        @keyframes slideIn { from { transform: translateX(100%); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
+        @keyframes fadeOut { from { opacity: 1; } to { opacity: 0; visibility: hidden; } }
+
+        /* ── Settings Dropdown ─────────── */
+        .settings-btn {
+            padding: 6px 10px;
+            font-size: 16px;
+            background: transparent;
+            border: 1px solid transparent;
+            border-radius: 6px;
+            cursor: pointer;
+            color: var(--text-dim);
+            transition: all 0.15s;
+        }
+        .settings-btn:hover {
+            color: var(--text-bright);
+            background: var(--bg-card-hover);
+            border-color: var(--border);
+        }
+
+        .settings-dropdown {
+            position: absolute;
+            top: 100%;
+            right: 0;
+            margin-top: 8px;
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            box-shadow: var(--shadow);
+            min-width: 220px;
+            z-index: 100;
+            display: none;
+        }
+        .settings-dropdown.show { display: block; }
+
+        .settings-item {
+            padding: 12px 16px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            cursor: pointer;
+            font-size: 14px;
+            color: var(--text);
+            transition: background 0.12s;
+        }
+        .settings-item:first-child { border-radius: var(--radius) var(--radius) 0 0; }
+        .settings-item:last-child { border-radius: 0 0 var(--radius) var(--radius); }
+        .settings-item:hover { background: var(--bg-card-hover); }
+        .settings-item.danger { color: var(--danger); }
+        .settings-item span { font-size: 16px; width: 20px; text-align: center; }
+
+        .settings-divider {
+            height: 1px;
+            background: var(--border);
+            margin: 4px 0;
+        }
+
+        /* ── Buttons ────────────────────── */
+        .btn {
+            padding: 8px 16px; border: 1px solid var(--border); border-radius: 6px;
+            background: var(--bg-card); color: var(--text); font-size: 13px;
+            cursor: pointer; transition: all 0.15s ease; font-family: var(--font);
+        }
+        .btn:hover { background: var(--bg-card-hover); border-color: var(--border-active); }
+        .btn:disabled { opacity: 0.4; cursor: not-allowed; }
+        .btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
+        .btn.primary:hover { background: var(--accent-hover); }
+        .btn.danger { border-color: var(--danger); color: var(--danger); }
+        .btn.danger:hover { background: rgba(248,113,113,0.1); }
+        .btn.success { background: var(--success); border-color: var(--success); color: #fff; font-weight: 600; }
+        .btn.success:hover { background: #059669; }
+        .btn.sm { padding: 5px 10px; font-size: 12px; }
+        .btn.warning { border-color: var(--warning); color: var(--warning); }
+        .btn.warning:hover { background: rgba(251,191,36,0.1); }
+
+        /* ── Layout ─────────────────────── */
+        .main { display: grid; grid-template-columns: 320px 1fr; height: calc(100vh - 57px); }
+
+        /* ── Sidebar ────────────────────── */
+        .sidebar { border-right: 1px solid var(--border); overflow-y: auto; background: var(--bg-card); }
+        .sidebar-section { padding: 16px; border-bottom: 1px solid var(--border); }
+        .sidebar-section h3 {
+            font-size: 11px; text-transform: uppercase; letter-spacing: 1px;
+            color: var(--text-dim); margin-bottom: 12px;
+        }
+
+        .agent-list { list-style: none; }
+        .agent-item {
+            display: flex; align-items: center; justify-content: space-between;
+            padding: 10px 12px; border-radius: 8px; cursor: pointer;
+            transition: background 0.12s; margin-bottom: 2px;
+        }
+        .agent-item:hover { background: var(--bg-card-hover); }
+        .agent-item.active { background: rgba(79,110,247,0.12); border-left: 3px solid var(--accent); }
+        .agent-name { font-size: 14px; font-weight: 600; color: var(--text-bright); }
+        .agent-role { font-size: 11px; color: var(--text-dim); }
+        .agent-runtimes { display: flex; gap: 4px; flex-wrap: wrap; margin-top: 4px; }
+        .agent-runtime {
+            font-size: 9px; padding: 2px 6px; border-radius: 4px; font-weight: 600;
+            text-transform: uppercase; cursor: pointer; transition: all 0.15s ease;
+            user-select: none; border: 1px solid transparent;
+        }
+        .agent-runtime.claude { background: rgba(52,211,153,0.08); color: rgba(52,211,153,0.35); }
+        .agent-runtime.claude.selected { background: rgba(52,211,153,0.25); color: var(--success); border-color: var(--success); box-shadow: 0 0 6px rgba(52,211,153,0.3); }
+        .agent-runtime.claude:hover { background: rgba(52,211,153,0.15); color: rgba(52,211,153,0.6); }
+        .agent-runtime.claude.selected:hover { background: rgba(52,211,153,0.3); color: var(--success); }
+        .agent-runtime.cursor { background: rgba(79,110,247,0.08); color: rgba(79,110,247,0.35); }
+        .agent-runtime.cursor.selected { background: rgba(79,110,247,0.25); color: var(--accent); border-color: var(--accent); box-shadow: 0 0 6px rgba(79,110,247,0.3); }
+        .agent-runtime.cursor:hover { background: rgba(79,110,247,0.15); color: rgba(79,110,247,0.6); }
+        .agent-runtime.cursor.selected:hover { background: rgba(79,110,247,0.3); color: var(--accent); }
+
+        /* Model badges */
+        .agent-model {
+            font-size: 9px; padding: 1px 5px; border-radius: 3px; margin-left: 6px;
+            text-transform: uppercase; font-weight: 600; display: inline-block;
+        }
+        .model-opus { background: rgba(255,170,0,0.15); color: #ffaa00; }
+        .model-sonnet { background: rgba(52,211,153,0.15); color: #34d399; }
+        .model-haiku { background: rgba(150,150,150,0.15); color: #999; }
+
+        /* (send-target-row removed — runtime selection moved to agent sidebar badges) */
+
+        /* ── Content Area ───────────────── */
+        .content { display: flex; flex-direction: column; height: 100%; overflow: hidden; }
+        .content-header {
+            padding: 16px 24px; border-bottom: 1px solid var(--border);
+            display: flex; align-items: center; justify-content: space-between; min-height: 60px;
+        }
+        .content-header h2 { font-size: 16px; font-weight: 600; color: var(--text-bright); }
+
+        .chat-area {
+            flex: 1; overflow-y: auto; padding: 20px 24px;
+            display: flex; flex-direction: column; gap: 16px;
+        }
+
+        .message {
+            max-width: 90%; padding: 14px 18px; border-radius: var(--radius);
+            font-size: 14px; line-height: 1.6; white-space: pre-wrap; word-wrap: break-word;
+        }
+        .message.user { align-self: flex-end; background: var(--accent); color: #fff; border-bottom-right-radius: 2px; }
+        .message.agent { align-self: flex-start; background: var(--bg-card); color: var(--text); border: 1px solid var(--border); border-bottom-left-radius: 2px; }
+        .message.system { align-self: center; background: rgba(79,110,247,0.08); color: var(--text-dim); font-size: 13px; padding: 8px 16px; border-radius: 20px; }
+        .message.error { align-self: center; background: rgba(248,113,113,0.1); color: var(--danger); font-size: 13px; padding: 8px 16px; border-radius: 20px; }
+        .message .meta { font-size: 11px; color: var(--text-dim); margin-top: 8px; display: flex; gap: 12px; flex-wrap: wrap; }
+        .message.agent .meta { color: var(--text-dim); }
+        .message.user .meta { color: rgba(255,255,255,0.7); justify-content: flex-end; }
+
+        /* Chat history loading indicator */
+        .chat-loading {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            padding: 40px;
+            color: var(--text-dim);
+            gap: 12px;
+        }
+        .chat-loading-spinner {
+            width: 32px;
+            height: 32px;
+            border: 3px solid var(--border);
+            border-top-color: var(--accent);
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+        .chat-empty {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            padding: 40px;
+            color: var(--text-dim);
+            text-align: center;
+        }
+
+        .typing-indicator { display: none; align-self: flex-start; padding: 12px 18px; background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius); gap: 4px; }
+        .typing-indicator.show { display: flex; }
+        .typing-indicator span { width: 6px; height: 6px; background: var(--text-dim); border-radius: 50%; animation: bounce 1.4s infinite; }
+        .typing-indicator span:nth-child(2) { animation-delay: 0.2s; }
+        .typing-indicator span:nth-child(3) { animation-delay: 0.4s; }
+        @keyframes bounce { 0%,60%,100% { transform: translateY(0); } 30% { transform: translateY(-6px); } }
+
+        /* ── Input Area ─────────────────── */
+        .input-area { padding: 16px 24px; border-top: 1px solid var(--border); display: flex; gap: 10px; align-items: flex-end; }
+        .input-area textarea {
+            flex: 1; background: var(--bg-input); border: 1px solid var(--border);
+            border-radius: 8px; padding: 12px 14px; color: var(--text);
+            font-family: var(--font); font-size: 14px; resize: none;
+            min-height: 44px; max-height: 200px; outline: none; transition: border-color 0.15s;
+        }
+        .input-area textarea:focus { border-color: var(--accent); }
+        .input-area textarea::placeholder { color: var(--text-dim); }
+
+        /* ── Welcome ────────────────────── */
+        .welcome { display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%; gap: 16px; color: var(--text-dim); }
+        .welcome h2 { font-size: 22px; color: var(--text-bright); }
+        .welcome p { font-size: 14px; max-width: 500px; text-align: center; line-height: 1.6; }
+        .welcome .actions { display: flex; gap: 10px; margin-top: 10px; }
+
+        .empty-state { font-size: 13px; color: var(--text-dim); text-align: center; padding: 16px; }
+
+        /* ── Modal ──────────────────────── */
+        .modal-overlay {
+            position: fixed; inset: 0; background: rgba(0,0,0,0.5);
+            backdrop-filter: blur(4px); display: none; align-items: center;
+            justify-content: center; z-index: 1100;  /* Above project-picker (1000) */
+        }
+        .modal-overlay.show { display: flex; }
+        .modal {
+            background: var(--bg-card); border: 1px solid var(--border);
+            border-radius: 12px; padding: 24px; width: 600px; max-height: 80vh;
+            overflow-y: auto; box-shadow: var(--shadow);
+        }
+        .modal h3 { font-size: 16px; margin-bottom: 16px; color: var(--text-bright); }
+        .modal pre {
+            background: var(--bg-input); border: 1px solid var(--border);
+            border-radius: 6px; padding: 12px; font-family: var(--mono);
+            font-size: 12px; overflow-x: auto; margin-bottom: 16px; color: var(--text);
+        }
+        .modal .btn-group { display: flex; gap: 8px; justify-content: flex-end; }
+        .modal label { display: block; font-size: 13px; color: var(--text-dim); margin-bottom: 4px; margin-top: 12px; }
+        .modal input, .modal textarea, .modal select {
+            width: 100%; background: var(--bg-input); border: 1px solid var(--border);
+            border-radius: 6px; padding: 8px 12px; color: var(--text);
+            font-family: var(--font); font-size: 13px; outline: none;
+        }
+        .modal input:focus, .modal textarea:focus, .modal select:focus { border-color: var(--accent); }
+
+        /* ── Scrollbar ──────────────────── */
+        ::-webkit-scrollbar { width: 6px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+        ::-webkit-scrollbar-thumb:hover { background: var(--text-dim); }
+
+        /* ── Theme Selector ────────────── */
+        .theme-select {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            color: var(--text);
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 12px;
+            cursor: pointer;
+            transition: border-color 0.15s;
+        }
+        .theme-select:hover { border-color: var(--border-active); }
+        .theme-select:focus { outline: none; border-color: var(--accent); }
+
+        /* ── Project Picker ────────────── */
+        .project-picker {
+            position: fixed;
+            inset: 0;
+            background: var(--bg);
+            display: none;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            z-index: 1000;
+        }
+        .project-picker.show { display: flex; }
+
+        .project-picker-card {
+            position: relative;
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            padding: 32px;
+            width: 100%;
+            max-width: 480px;
+            box-shadow: var(--shadow);
+        }
+
+        .project-picker-logo {
+            text-align: center;
+            margin-bottom: 8px;
+        }
+        .project-picker-logo h1 {
+            font-size: 28px;
+            color: var(--text-bright);
+        }
+        .project-picker-logo h1 span { color: var(--accent); }
+
+        .project-picker h2 {
+            text-align: center;
+            font-size: 14px;
+            color: var(--text-dim);
+            margin-bottom: 24px;
+            font-weight: 400;
+        }
+
+        .project-list {
+            max-height: 400px;
+            overflow-y: auto;
+            margin-bottom: 16px;
+        }
+
+        .project-item {
+            padding: 16px;
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            margin-bottom: 8px;
+            cursor: pointer;
+            transition: all 0.15s ease;
+            display: flex;
+            align-items: flex-start;
+            gap: 12px;
+        }
+        .project-item:hover {
+            background: var(--bg-card-hover);
+            border-color: var(--border-active);
+        }
+        .project-item:last-child { margin-bottom: 0; }
+
+        .project-item-icon {
+            font-size: 24px;
+            flex-shrink: 0;
+            margin-top: 2px;
+        }
+
+        .project-item-info { flex: 1; min-width: 0; }
+
+        .project-item-name {
+            font-size: 16px;
+            font-weight: 600;
+            color: var(--text-bright);
+            margin-bottom: 4px;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .project-item-path {
+            font-size: 12px;
+            color: var(--text-dim);
+            font-family: var(--mono);
+            margin-bottom: 4px;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .project-item-time {
+            font-size: 11px;
+            color: var(--text-dim);
+        }
+
+        .project-item-remove {
+            opacity: 0;
+            color: var(--danger);
+            font-size: 18px;
+            cursor: pointer;
+            padding: 4px;
+            transition: opacity 0.15s;
+        }
+        .project-item:hover .project-item-remove { opacity: 0.6; }
+        .project-item-remove:hover { opacity: 1 !important; }
+
+        .project-empty {
+            text-align: center;
+            padding: 32px;
+            color: var(--text-dim);
+        }
+        .project-empty-icon { font-size: 48px; margin-bottom: 12px; opacity: 0.5; }
+        .project-empty.welcome-message h3 {
+            color: var(--text-primary);
+            margin: 0 0 0.5rem;
+            font-size: 1.25rem;
+        }
+        .project-empty.welcome-message .project-empty-icon {
+            opacity: 1;
+        }
+
+        .project-picker-actions {
+            display: flex;
+            gap: 8px;
+        }
+        .project-picker-actions .btn { flex: 1; justify-content: center; }
+
+        /* Close button for project-picker */
+        .project-picker-close {
+            position: absolute;
+            top: 16px;
+            right: 16px;
+            background: transparent;
+            border: none;
+            font-size: 24px;
+            color: var(--text-dim);
+            cursor: pointer;
+            width: 32px;
+            height: 32px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 4px;
+            transition: all 0.15s ease;
+        }
+        .project-picker-close:hover {
+            color: var(--text);
+            background: var(--bg-card-hover);
+        }
+        .project-picker-close:disabled {
+            opacity: 0.3;
+            cursor: not-allowed;
+        }
+        .project-picker-close:disabled:hover {
+            color: var(--text-dim);
+            background: transparent;
+        }
+
+        @media (max-width: 768px) { .main { grid-template-columns: 1fr; } .sidebar { display: none; } }
+
+        /* ── Tasks Board ───────────────── */
+        .tasks-board-wrap { flex: 1; overflow-y: auto; padding: 20px 24px; }
+
+        /* Sprint sections */
+        .sprint-section {
+            margin-bottom: 16px; border: 1px solid var(--border);
+            border-radius: 12px; overflow: hidden; background: var(--bg-card);
+        }
+        .sprint-header {
+            display: flex; align-items: center; justify-content: space-between;
+            padding: 14px 18px; cursor: pointer; user-select: none;
+            transition: background 0.15s; gap: 12px;
+        }
+        .sprint-header:hover { background: var(--bg-card-hover); }
+        .sprint-header-left { display: flex; align-items: center; gap: 10px; flex: 1; min-width: 0; }
+        .sprint-toggle {
+            font-size: 12px; color: var(--text-dim); transition: transform 0.2s;
+            width: 20px; text-align: center; flex-shrink: 0;
+        }
+        .sprint-toggle.open { transform: rotate(90deg); }
+        .sprint-id { font-size: 11px; color: var(--accent); font-family: var(--mono); font-weight: 600; flex-shrink: 0; }
+        .sprint-title { font-size: 14px; font-weight: 600; color: var(--text-bright); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .sprint-meta { display: flex; gap: 8px; align-items: center; flex-shrink: 0; }
+        .sprint-badge {
+            font-size: 10px; padding: 2px 8px; border-radius: 10px; font-weight: 600;
+        }
+        .sprint-badge.active { background: rgba(79,110,247,0.15); color: var(--accent); }
+        .sprint-badge.done { background: rgba(52,211,153,0.15); color: var(--success); }
+        .sprint-badge.released { background: rgba(52,211,153,0.25); color: var(--success); border: 1px solid var(--success); }
+        .sprint-progress { font-size: 11px; color: var(--text-dim); }
+        .sprint-body { display: none; padding: 0 18px 18px; }
+        .sprint-body.open { display: block; }
+        .sprint-desc { font-size: 12px; color: var(--text-dim); margin-bottom: 12px; line-height: 1.5; }
+
+        .tasks-columns {
+            display: grid; grid-template-columns: repeat(5, 1fr); gap: 12px; min-height: 120px;
+        }
+        .tasks-column { background: var(--bg-input); border-radius: 10px; padding: 12px; min-width: 0; }
+        .tasks-column-title {
+            font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px;
+            margin-bottom: 10px; padding-bottom: 8px; border-bottom: 2px solid var(--border);
+            display: flex; align-items: center; gap: 8px;
+        }
+        .tasks-column-title .count {
+            font-size: 10px; padding: 1px 7px; border-radius: 10px;
+            background: rgba(79,110,247,0.15); color: var(--accent);
+        }
+        .col-pending .tasks-column-title { border-bottom-color: var(--text-dim); color: var(--text-dim); }
+        .col-in_progress .tasks-column-title { border-bottom-color: var(--accent); color: var(--accent); }
+        .col-in_review .tasks-column-title { border-bottom-color: var(--warning); color: var(--warning); }
+        .col-done .tasks-column-title { border-bottom-color: var(--success); color: var(--success); }
+        .col-cancelled .tasks-column-title { border-bottom-color: var(--danger); color: var(--danger); }
+
+        .task-card {
+            background: var(--bg-card); border: 1px solid var(--border); border-radius: 8px;
+            padding: 12px; margin-bottom: 8px; transition: border-color 0.15s;
+        }
+        .task-card:hover { border-color: var(--border-active); }
+        .task-card-id { font-size: 11px; color: var(--text-dim); font-family: var(--mono); }
+        .task-card-title { font-size: 13px; font-weight: 600; color: var(--text-bright); margin: 4px 0 8px; }
+        .task-card-roles { font-size: 11px; color: var(--text-dim); line-height: 1.6; }
+        .task-card-roles strong { color: var(--text); }
+        .task-card-actions { margin-top: 10px; display: flex; gap: 6px; flex-wrap: wrap; }
+        .task-card-result { margin-top: 8px; font-size: 11px; color: var(--text-dim); background: var(--bg-input); padding: 6px 8px; border-radius: 4px; max-height: 60px; overflow-y: auto; }
+        .task-card-deps { margin-top: 6px; font-size: 11px; color: var(--purple); }
+        .task-card-deps .dep-tag {
+            display: inline-block; padding: 1px 6px; border-radius: 4px;
+            background: rgba(167,139,250,0.1); margin-right: 4px; font-family: var(--mono);
+        }
+        .task-card-finalize { border-left: 3px solid var(--purple); }
+
+        /* ── Sprint Toolbar ─────────── */
+        .sprint-toolbar {
+            display: flex; gap: 10px; align-items: center; margin-bottom: 14px;
+            padding: 10px 14px; background: var(--bg-input); border-radius: 8px;
+            border: 1px solid var(--border);
+        }
+        .sprint-toolbar .btn.auto-run {
+            background: rgba(52,211,153,0.12); border-color: var(--success); color: var(--success);
+            font-weight: 600; gap: 6px; display: inline-flex; align-items: center;
+        }
+        .sprint-toolbar .btn.auto-run:hover { background: rgba(52,211,153,0.22); }
+        .sprint-toolbar .btn.auto-stop {
+            background: rgba(248,113,113,0.12); border-color: var(--danger); color: var(--danger);
+            font-weight: 600; gap: 6px; display: inline-flex; align-items: center;
+        }
+        .sprint-toolbar .btn.auto-stop:hover { background: rgba(248,113,113,0.22); }
+        .auto-run-progress {
+            display: inline-flex; align-items: center; gap: 8px; font-size: 12px;
+            color: var(--accent); padding: 4px 12px; background: rgba(79,110,247,0.08);
+            border-radius: 16px;
+        }
+        .auto-run-progress .spinner {
+            width: 14px; height: 14px; border: 2px solid rgba(79,110,247,0.3);
+            border-top-color: var(--accent); border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+        }
+        .max-concurrent-inline {
+            display: flex; align-items: center; gap: 6px; margin-left: auto;
+        }
+        .max-concurrent-inline label {
+            font-size: 11px; color: var(--text-dim); white-space: nowrap;
+        }
+        .max-concurrent-inline input {
+            width: 48px; padding: 4px 6px; background: var(--bg-card); border: 1px solid var(--border);
+            border-radius: 4px; color: var(--text); font-size: 13px; text-align: center;
+            font-family: var(--mono);
+        }
+        .max-concurrent-inline input:focus { border-color: var(--accent); outline: none; }
+
+        /* ── Running task animation ──── */
+        .task-card.running {
+            border-color: var(--accent);
+            box-shadow: 0 0 12px rgba(79,110,247,0.2);
+            animation: taskRunningGlow 2s ease-in-out infinite;
+            position: relative;
+            overflow: hidden;
+        }
+        .task-card.running::before {
+            content: '';
+            position: absolute;
+            top: 0; left: -100%;
+            width: 100%; height: 2px;
+            background: linear-gradient(90deg, transparent, var(--accent), transparent);
+            animation: taskRunningBar 2s linear infinite;
+        }
+        @keyframes taskRunningGlow {
+            0%, 100% { box-shadow: 0 0 8px rgba(79,110,247,0.15); }
+            50% { box-shadow: 0 0 20px rgba(79,110,247,0.35); }
+        }
+        @keyframes taskRunningBar {
+            0% { left: -100%; }
+            100% { left: 100%; }
+        }
+
+        .task-running-badge {
+            display: inline-flex; align-items: center; gap: 6px;
+            font-size: 11px; font-weight: 600; color: var(--accent);
+            background: rgba(79,110,247,0.1); padding: 4px 10px;
+            border-radius: 20px; margin-top: 8px;
+        }
+        .task-running-badge .spinner {
+            width: 12px; height: 12px; border: 2px solid rgba(79,110,247,0.3);
+            border-top-color: var(--accent); border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        .task-running-badge .elapsed {
+            color: var(--text-dim); font-weight: 400;
+        }
+
+        .btn.running {
+            background: rgba(79,110,247,0.15) !important;
+            border-color: var(--accent) !important;
+            color: var(--accent) !important;
+            cursor: wait !important;
+            position: relative;
+            padding-left: 28px;
+        }
+        .btn.running::before {
+            content: '';
+            position: absolute; left: 10px; top: 50%;
+            width: 12px; height: 12px;
+            margin-top: -6px;
+            border: 2px solid rgba(79,110,247,0.3);
+            border-top-color: var(--accent);
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+        }
+
+        /* ── Git Section ───────────────── */
+        .git-status-card {
+            background: var(--bg-input);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 12px;
+            margin-bottom: 10px;
+        }
+        .git-branch-row {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-bottom: 8px;
+        }
+        .git-branch-icon { font-size: 16px; }
+        .git-branch-name {
+            font-family: var(--mono);
+            font-size: 13px;
+            font-weight: 600;
+            color: var(--text-bright);
+        }
+        .git-status-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            flex-shrink: 0;
+        }
+        .git-status-dot.clean { background: var(--success); box-shadow: 0 0 6px var(--success); }
+        .git-status-dot.dirty { background: var(--warning); box-shadow: 0 0 6px var(--warning); }
+        .git-changes {
+            font-size: 11px;
+            color: var(--text-dim);
+            font-family: var(--mono);
+        }
+        .git-changes .staged { color: var(--success); }
+        .git-changes .unstaged { color: var(--warning); }
+        .git-changes .untracked { color: var(--text-dim); }
+        .git-sync-status {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 11px;
+            color: var(--text-dim);
+            margin-top: 6px;
+        }
+        .git-sync-status.synced { color: var(--success); }
+        .git-sync-status.ahead { color: var(--accent); }
+        .git-sync-status.behind { color: var(--warning); }
+        .git-sync-status.diverged { color: var(--danger); }
+
+        .git-actions {
+            display: flex;
+            gap: 6px;
+            flex-wrap: wrap;
+        }
+        .git-actions .btn {
+            flex: 1;
+            min-width: 70px;
+            justify-content: center;
+            text-align: center;
+        }
+
+        .git-history {
+            margin-top: 10px;
+        }
+        .git-history-toggle {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 12px;
+            color: var(--text-dim);
+            cursor: pointer;
+            padding: 6px 0;
+            user-select: none;
+        }
+        .git-history-toggle:hover { color: var(--text); }
+        .git-history-toggle .arrow {
+            font-size: 10px;
+            transition: transform 0.2s;
+        }
+        .git-history-toggle .arrow.open { transform: rotate(90deg); }
+        .git-history-list {
+            display: none;
+            margin-top: 6px;
+            max-height: 300px;
+            overflow-y: auto;
+        }
+        .git-history-list.open { display: block; }
+        .git-commit-item {
+            display: flex;
+            gap: 8px;
+            align-items: flex-start;
+            padding: 6px 0;
+            border-bottom: 1px solid var(--border);
+            font-size: 11px;
+        }
+        .git-commit-item:last-child { border-bottom: none; }
+        .git-commit-hash {
+            font-family: var(--mono);
+            color: var(--accent);
+            flex-shrink: 0;
+        }
+        .git-commit-msg {
+            color: var(--text);
+            flex: 1;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+        .git-commit-time {
+            color: var(--text-dim);
+            flex-shrink: 0;
+        }
+
+        .git-unavailable {
+            text-align: center;
+            padding: 16px;
+            color: var(--text-dim);
+            font-size: 12px;
+        }
+        .git-unavailable .icon { font-size: 24px; margin-bottom: 8px; opacity: 0.5; }
+
+        /* Modal file list for commit */
+        .commit-files-list {
+            max-height: 200px;
+            overflow-y: auto;
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            margin-top: 8px;
+        }
+        .commit-file-item {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 8px 12px;
+            border-bottom: 1px solid var(--border);
+            font-size: 12px;
+        }
+        .commit-file-item:last-child { border-bottom: none; }
+        .commit-file-item:hover { background: var(--bg-card-hover); }
+        .commit-file-item input[type="checkbox"] {
+            accent-color: var(--accent);
+        }
+        .commit-file-path {
+            flex: 1;
+            font-family: var(--mono);
+            color: var(--text);
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+        .commit-file-stats {
+            font-family: var(--mono);
+            font-size: 10px;
+        }
+        .commit-file-stats .add { color: var(--success); }
+        .commit-file-stats .del { color: var(--danger); }
+
+        /* Commit type selector */
+        .commit-type-row {
+            display: flex;
+            gap: 8px;
+            margin-bottom: 12px;
+        }
+        .commit-type-row select,
+        .commit-type-row input {
+            flex: 1;
+        }
+
+        /* ── Backlog ──────────────────── */
+        .backlog-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(380px, 1fr));
+            gap: 18px;
+            padding: 4px;
+        }
+
+        .backlog-card {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            padding: 18px;
+            transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+            position: relative;
+            display: flex;
+            flex-direction: column;
+            min-height: 200px;
+            overflow: hidden;
+        }
+        .backlog-card:hover {
+            border-color: var(--border-active);
+            box-shadow: 0 8px 24px rgba(0,0,0,0.15);
+            transform: translateY(-2px);
+        }
+
+        /* Priorities - left colored stripe */
+        .backlog-card.priority-high {
+            border-left: 5px solid var(--danger);
+        }
+        .backlog-card.priority-medium {
+            border-left: 5px solid var(--warning);
+        }
+        .backlog-card.priority-low {
+            border-left: 5px solid var(--text-dim);
+        }
+
+        /* Next Sprint highlight - improved */
+        .backlog-card.next-sprint {
+            background: linear-gradient(135deg, rgba(52,211,153,0.12) 0%, var(--bg-card) 60%);
+            border: 2px solid rgba(52,211,153,0.5);
+            box-shadow: 0 0 20px rgba(52,211,153,0.2), 0 4px 16px rgba(0,0,0,0.12);
+        }
+        .backlog-card.next-sprint:hover {
+            border-color: rgba(52,211,153,0.7);
+            box-shadow: 0 0 28px rgba(52,211,153,0.3), 0 8px 24px rgba(0,0,0,0.18);
+        }
+        .backlog-card.next-sprint::before {
+            content: '🚀';
+            position: absolute;
+            top: 16px;
+            right: 16px;
+            font-size: 24px;
+            opacity: 0.7;
+            animation: rocketPulse 2.5s ease-in-out infinite;
+            z-index: 1;
+        }
+        .backlog-card.next-sprint::after {
+            content: '';
+            position: absolute;
+            top: 0;
+            right: 0;
+            width: 100px;
+            height: 100px;
+            background: radial-gradient(circle, rgba(52,211,153,0.15) 0%, transparent 70%);
+            border-radius: 50%;
+            z-index: 0;
+        }
+        @keyframes rocketPulse {
+            0%, 100% { opacity: 0.6; transform: scale(1) rotate(0deg); }
+            50% { opacity: 0.9; transform: scale(1.15) rotate(5deg); }
+        }
+
+        .backlog-card-header {
+            display: flex;
+            align-items: flex-start;
+            justify-content: space-between;
+            margin-bottom: 14px;
+            gap: 12px;
+            position: relative;
+            z-index: 2;
+        }
+
+        .backlog-card-id {
+            font-size: 11px;
+            color: var(--text-dim);
+            font-family: var(--mono);
+            background: var(--bg-input);
+            padding: 4px 10px;
+            border-radius: 5px;
+            font-weight: 600;
+            letter-spacing: 0.3px;
+            border: 1px solid var(--border);
+        }
+
+        .backlog-card-priority {
+            padding: 4px 12px;
+            border-radius: 14px;
+            font-size: 10px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.6px;
+            white-space: nowrap;
+        }
+        .backlog-card-priority.high {
+            background: rgba(248,113,113,0.2);
+            color: #F87171;
+            border: 1px solid rgba(248,113,113,0.3);
+            box-shadow: 0 0 10px rgba(248,113,113,0.25);
+        }
+        .backlog-card-priority.medium {
+            background: rgba(251,191,36,0.2);
+            color: #FBBF24;
+            border: 1px solid rgba(251,191,36,0.3);
+            box-shadow: 0 0 10px rgba(251,191,36,0.25);
+        }
+        .backlog-card-priority.low {
+            background: rgba(122,127,146,0.15);
+            color: var(--text-dim);
+            border: 1px solid var(--border);
+        }
+
+        .backlog-card-title {
+            font-size: 16px;
+            font-weight: 700;
+            color: var(--text-bright);
+            margin-bottom: 12px;
+            line-height: 1.5;
+            word-break: break-word;
+            position: relative;
+            z-index: 2;
+        }
+
+        .backlog-card-description {
+            font-size: 13px;
+            color: var(--text-dim);
+            line-height: 1.65;
+            margin-bottom: 14px;
+            flex: 1;
+            max-height: 140px;
+            overflow-y: auto;
+            word-break: break-word;
+            scrollbar-width: thin;
+            scrollbar-color: var(--border-active) transparent;
+            position: relative;
+            z-index: 2;
+        }
+        .backlog-card-description::-webkit-scrollbar {
+            width: 5px;
+        }
+        .backlog-card-description::-webkit-scrollbar-thumb {
+            background: var(--border-active);
+            border-radius: 3px;
+        }
+        .backlog-card-description::-webkit-scrollbar-thumb:hover {
+            background: var(--accent);
+        }
+
+        .backlog-card-footer {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+            margin-top: auto;
+            padding-top: 12px;
+            border-top: 1px solid var(--border);
+            position: relative;
+            z-index: 2;
+        }
+
+        .backlog-card-meta {
+            font-size: 11px;
+            color: var(--text-dim);
+            font-weight: 500;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .backlog-card-actions {
+            display: flex;
+            gap: 7px;
+            flex-wrap: wrap;
+            align-items: center;
+        }
+
+        .backlog-next-sprint-toggle {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 34px;
+            height: 34px;
+            border: 1.5px solid var(--border);
+            border-radius: 7px;
+            font-size: 16px;
+            background: var(--bg-input);
+            cursor: pointer;
+            transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+            user-select: none;
+        }
+        .backlog-next-sprint-toggle:hover {
+            background: var(--bg-card-hover);
+            border-color: var(--success);
+            transform: scale(1.1);
+        }
+        .backlog-next-sprint-toggle.active {
+            background: rgba(52,211,153,0.25);
+            border-color: var(--success);
+            box-shadow: 0 0 12px rgba(52,211,153,0.4);
+            animation: nextSprintGlow 2s ease-in-out infinite;
+        }
+        .backlog-next-sprint-toggle input[type="checkbox"] {
+            display: none;
+        }
+        @keyframes nextSprintGlow {
+            0%, 100% { box-shadow: 0 0 12px rgba(52,211,153,0.4); }
+            50% { box-shadow: 0 0 18px rgba(52,211,153,0.6); }
+        }
+
+        .backlog-card .btn.icon {
+            width: 34px;
+            height: 34px;
+            padding: 0;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 15px;
+            border-radius: 7px;
+            transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+        .backlog-card .btn.icon:hover {
+            transform: scale(1.1) rotate(5deg);
+        }
+
+        /* Card + for adding new items */
+        .backlog-card.add-new {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            border: 2px dashed var(--border);
+            background: transparent;
+        }
+        .backlog-card.add-new:hover {
+            border-color: var(--accent);
+            background: rgba(79,110,247,0.05);
+        }
+        .add-new-content {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 8px;
+        }
+        .add-new-icon {
+            font-size: 48px;
+            color: var(--text-dim);
+            line-height: 1;
+            font-weight: 300;
+        }
+        .backlog-card.add-new:hover .add-new-icon {
+            color: var(--accent);
+        }
+        .add-new-text {
+            font-size: 14px;
+            color: var(--text-dim);
+        }
+
+        /* Inline editing */
+        .backlog-card.editing {
+            padding: 12px;
+            cursor: default;
+        }
+        .backlog-card.editing:hover {
+            transform: none;
+        }
+        .backlog-card.editing textarea {
+            width: 100%;
+            min-height: 120px;
+            background: var(--bg-input);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            padding: 10px;
+            color: var(--text);
+            font-family: var(--font);
+            font-size: 14px;
+            resize: vertical;
+            line-height: 1.5;
+        }
+        .backlog-card.editing textarea:focus {
+            border-color: var(--accent);
+            outline: none;
+        }
+        .backlog-edit-actions {
+            display: flex;
+            gap: 8px;
+            margin-top: 12px;
+        }
+
+    </style>
+</head>
+<body>
+
+<!-- Project Picker -->
+<div class="project-picker" id="projectPicker">
+    <div class="project-picker-card">
+        <button class="project-picker-close" id="projectPickerClose" onclick="tryCloseProjectPicker()" title="Close">×</button>
+        <div class="project-picker-logo">
+            <h1><span>Tayfa</span></h1>
+        </div>
+        <h2>Select project</h2>
+        <div class="project-list" id="projectList">
+            <div class="project-empty">
+                <div class="project-empty-icon">📂</div>
+                <p>Loading...</p>
+            </div>
+        </div>
+        <div class="project-picker-actions">
+            <button class="btn primary" onclick="openFolderDialog()">📁 Open folder</button>
+            <button class="btn" onclick="openFolderManual()">✏️ Enter path</button>
+            <button class="btn" id="projectPickerCancel" onclick="tryCloseProjectPicker()">Cancel</button>
+        </div>
+    </div>
+</div>
+
+<!-- Main App Container -->
+<div id="mainApp">
+
+<!-- Header -->
+<div class="header">
+    <div class="header-left">
+        <h1><span>Tayfa</span></h1>
+        <div class="current-project" id="currentProjectBadge" onclick="switchProject()" title="Switch project">
+            <span class="project-icon">📁</span>
+            <span class="project-name" id="currentProjectName">—</span>
+        </div>
+    </div>
+    <div class="status-bar">
+        <div class="status-item">
+            <span class="status-dot off" id="wslDot"></span>
+            WSL: <span id="wslStatus">off</span>
+        </div>
+        <div class="status-item">
+            <span class="status-dot off" id="apiDot"></span>
+            API: <span id="apiStatus">off</span>
+        </div>
+        <div class="status-item git-status-indicator" id="gitStatusIndicator" title="Git status">
+            <span class="git-branch-icon-header">⎇</span>
+            <span id="gitBranchHeader">—</span>
+            <span class="git-dot" id="gitDotHeader"></span>
+            <button class="btn-git-init-header" id="gitInitBtnHeader"
+                    onclick="initGitRepo(); event.stopPropagation();"
+                    style="display:none;"
+                    title="Initialize Git repository">Init</button>
+        </div>
+        <div class="status-item" id="runningTasksIndicator" style="display:none; cursor:pointer;" onclick="showTasksBoard()">
+            <span class="status-dot loading"></span>
+            <span id="runningTasksCount">0</span> tasks running
+        </div>
+        <select id="themeSelect" onchange="changeTheme(this.value)" class="theme-select">
+            <option value="dark">🌙 Dark</option>
+            <option value="light">☀️ Light</option>
+            <option value="blue">🌊 Blue</option>
+            <option value="girly">💖 Girly</option>
+        </select>
+        <button class="btn success btn-start-server" id="btnStartServer" onclick="startServer()">Start server</button>
+        <button class="btn danger" id="btnStopServer" onclick="stopServer()" style="display:none;">Stop</button>
+        <button class="btn primary" onclick="ensureAgents()">Ensure agents</button>
+        <button class="btn" onclick="refreshAll()">Refresh</button>
+        <button class="settings-btn" onclick="toggleSettingsDropdown(event)" title="Settings">⚙️</button>
+        <!-- Settings Dropdown -->
+        <div class="settings-dropdown" id="settingsDropdown">
+            <div class="settings-item" onclick="switchProject()">
+                <span>📁</span> Switch project
+            </div>
+            <div class="settings-item" onclick="showSettingsScreen()">
+                <span>🎨</span> Appearance
+            </div>
+            <div class="settings-item" onclick="ensureAgents()">
+                <span>🔄</span> Restart agents
+            </div>
+            <div class="settings-item danger" onclick="killAllAgents()">
+                <span>💀</span> Kill all agents
+            </div>
+            <div class="settings-divider"></div>
+            <div class="settings-item danger" onclick="stopServer()">
+                <span>❌</span> Stop server
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Main -->
+<div class="main">
+    <!-- Sidebar -->
+    <div class="sidebar">
+        <!-- Agents (Employees) -->
+        <div class="sidebar-section">
+            <h3>Employees</h3>
+            <ul class="agent-list" id="agentList">
+                <li class="empty-state">Loading...</li>
+            </ul>
+        </div>
+
+        <!-- Navigation -->
+        <div class="sidebar-section">
+            <h3>Navigation</h3>
+            <div style="display: flex; flex-direction: column; gap: 6px;">
+                <button class="btn primary" onclick="showTasksBoard()">Task board</button>
+                <button class="btn" onclick="showBacklogScreen()">📋 Backlog</button>
+                <button class="btn" onclick="showOldTasksBoard()">Tasks (tasks.md)</button>
+                <button class="btn" onclick="showSettingsScreen()">⚙️ Settings</button>
+            </div>
+        </div>
+
+        <!-- Git Section -->
+        <div class="sidebar-section" id="gitSection">
+            <h3>Git</h3>
+            <div id="gitStatusContainer">
+                <div class="git-unavailable">
+                    <div class="icon">⏳</div>
+                    <p>Loading...</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Content -->
+    <div class="content" id="contentArea">
+        <!-- Welcome Screen -->
+        <div class="welcome" id="welcomeScreen">
+            <h2>Tayfa Orchestrator</h2>
+            <p>Multi-agent system on Claude Code.<br>Start the server, check agents and begin working.</p>
+            <div class="actions">
+                <button class="btn primary" onclick="showTasksBoard()">Task board</button>
+                <button class="btn" onclick="startServer()">Start server</button>
+                <button class="btn" onclick="ensureAgents()">Ensure agents</button>
+            </div>
+        </div>
+
+        <!-- Tasks Board Screen (NEW — kanban) -->
+        <div id="tasksBoardScreen" style="display:none; flex-direction:column; height:100%; overflow:hidden;">
+            <div class="content-header">
+                <h2>Task board</h2>
+                <div style="display:flex; gap:8px; align-items:center;">
+                    <div class="max-concurrent-inline">
+                        <label>Max tasks in progress:</label>
+                        <input type="number" id="maxConcurrentInput" value="5" min="1" max="50">
+                    </div>
+                    <button class="btn sm primary" onclick="showCreateSprintModal()">+ Sprint</button>
+                    <button class="btn sm" onclick="showCreateTaskModal()">+ Task</button>
+                    <button class="btn sm" onclick="showCreateBacklogModal()">+ Backlog</button>
+                    <button class="btn sm" onclick="refreshTasksBoardNew()">Refresh</button>
+                </div>
+            </div>
+            <div class="tasks-board-wrap" id="tasksBoardWrap">
+                <div class="empty-state">Loading...</div>
+            </div>
+        </div>
+
+        <!-- Old Tasks Board Screen (tasks.md) -->
+        <div id="tasksScreen" style="display:none; flex-direction:column; height:100%; overflow:hidden;">
+            <div class="content-header">
+                <h2>Tasks (tasks.md)</h2>
+                <button class="btn sm" onclick="refreshOldTasksBoard()">Refresh</button>
+            </div>
+            <div style="flex:1; overflow-y:auto; padding:20px 24px;">
+                <pre id="oldTasksBoardContent" style="white-space:pre-wrap; word-wrap:break-word; font-family:var(--mono); font-size:13px; color:var(--text); margin:0;"></pre>
+            </div>
+        </div>
+
+        <!-- Chat Screen -->
+        <div id="chatScreen" style="display:none; flex-direction:column; height:100%;">
+            <div class="content-header">
+                <div><h2 id="chatAgentName">—</h2></div>
+                <div style="display:flex; gap:8px;">
+                    <button class="btn sm" onclick="clearChatHistory()">Clear history</button>
+                    <button class="btn sm" onclick="resetCurrentAgent()">Reset memory</button>
+                    <button class="btn sm danger" onclick="deleteCurrentAgent()">Delete</button>
+                </div>
+            </div>
+            <div class="chat-area" id="chatArea"></div>
+            <div class="typing-indicator" id="typingIndicator"><span></span><span></span><span></span></div>
+            <div class="input-area">
+                <textarea id="promptInput" placeholder="Enter message for agent..." rows="1"
+                    onkeydown="handleKeyDown(event)" oninput="autoGrow(this)"></textarea>
+                <button class="btn primary" id="btnSend" onclick="sendPrompt()">Send</button>
+            </div>
+        </div>
+
+        <!-- Backlog Screen -->
+        <div id="backlogScreen" style="display:none; flex-direction:column; height:100%; overflow:hidden;">
+            <div class="content-header">
+                <h2>📋 Backlog</h2>
+                <div style="display:flex; gap:8px; align-items:center;">
+                    <select id="backlogFilterPriority" onchange="refreshBacklog()" style="padding:6px 10px; background:var(--bg-input); border:1px solid var(--border); border-radius:6px; color:var(--text); font-size:13px;">
+                        <option value="">All priorities</option>
+                        <option value="high">High</option>
+                        <option value="medium">Medium</option>
+                        <option value="low">Low</option>
+                    </select>
+                    <label style="display:flex; align-items:center; gap:6px; cursor:pointer;">
+                        <input type="checkbox" id="backlogFilterNextSprint" onchange="refreshBacklog()" style="accent-color:var(--accent);">
+                        <span style="font-size:13px; color:var(--text);">Only "Add to next sprint"</span>
+                    </label>
+                    <button class="btn sm" onclick="refreshBacklog()">Refresh</button>
+                </div>
+            </div>
+            <div style="flex:1; overflow-y:auto; padding:20px 24px;">
+                <div id="backlogContainer" class="backlog-grid">
+                    <div class="empty-state">Loading...</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Settings Screen -->
+        <div id="settingsScreen" style="display:none; flex-direction:column; height:100%;">
+            <div class="content-header">
+                <h2>⚙️ Settings</h2>
+            </div>
+            <div style="flex:1; overflow-y:auto; padding:24px;">
+                <div style="max-width:600px;">
+                    <!-- Theme -->
+                    <div style="background:var(--bg-card); border:1px solid var(--border); border-radius:var(--radius); padding:20px; margin-bottom:16px;">
+                        <h3 style="font-size:14px; color:var(--text-bright); margin-bottom:12px;">🎨 Theme</h3>
+                        <div style="display:flex; gap:12px; flex-wrap:wrap;">
+                            <label style="display:flex; align-items:center; gap:8px; cursor:pointer; padding:10px 16px; background:var(--bg-input); border:1px solid var(--border); border-radius:8px; transition:all 0.15s;" class="theme-option" data-theme="dark">
+                                <input type="radio" name="settingsTheme" value="dark" style="accent-color:var(--accent);">
+                                <span>🌙 Dark</span>
+                            </label>
+                            <label style="display:flex; align-items:center; gap:8px; cursor:pointer; padding:10px 16px; background:var(--bg-input); border:1px solid var(--border); border-radius:8px; transition:all 0.15s;" class="theme-option" data-theme="light">
+                                <input type="radio" name="settingsTheme" value="light" style="accent-color:var(--accent);">
+                                <span>☀️ Light</span>
+                            </label>
+                            <label style="display:flex; align-items:center; gap:8px; cursor:pointer; padding:10px 16px; background:var(--bg-input); border:1px solid var(--border); border-radius:8px; transition:all 0.15s;" class="theme-option" data-theme="blue">
+                                <input type="radio" name="settingsTheme" value="blue" style="accent-color:var(--accent);">
+                                <span>🌊 Blue</span>
+                            </label>
+                            <label style="display:flex; align-items:center; gap:8px; cursor:pointer; padding:10px 16px; background:var(--bg-input); border:1px solid var(--border); border-radius:8px; transition:all 0.15s;" class="theme-option" data-theme="girly">
+                                <input type="radio" name="settingsTheme" value="girly" style="accent-color:var(--accent);">
+                                <span>💖 Pink</span>
+                            </label>
+                        </div>
+                    </div>
+
+                    <!-- Server information -->
+                    <div style="background:var(--bg-card); border:1px solid var(--border); border-radius:var(--radius); padding:20px; margin-bottom:16px;">
+                        <h3 style="font-size:14px; color:var(--text-bright); margin-bottom:12px;">🖥️ Server</h3>
+                        <div style="display:flex; flex-direction:column; gap:10px;">
+                            <div style="display:flex; justify-content:space-between; align-items:center;">
+                                <span style="color:var(--text-dim); font-size:13px;">Orchestrator port</span>
+                                <span id="settingsPort" style="font-family:var(--mono); color:var(--text); font-size:13px;">—</span>
+                            </div>
+                            <div style="display:flex; justify-content:space-between; align-items:center;">
+                                <span style="color:var(--text-dim); font-size:13px;">Interface language</span>
+                                <span id="settingsLanguage" style="color:var(--text); font-size:13px;">—</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Auto-start -->
+                    <div style="background:var(--bg-card); border:1px solid var(--border); border-radius:var(--radius); padding:20px; margin-bottom:16px;">
+                        <h3 style="font-size:14px; color:var(--text-bright); margin-bottom:12px;">🚀 Automation</h3>
+                        <label style="display:flex; align-items:center; gap:10px; cursor:pointer;">
+                            <input type="checkbox" id="settingsAutoOpen" style="accent-color:var(--accent); width:18px; height:18px;" onchange="saveSettingAutoOpen(this.checked)">
+                            <div>
+                                <div style="font-size:13px; color:var(--text);">Open browser on startup</div>
+                                <div style="font-size:11px; color:var(--text-dim);">Automatically open web interface on server startup</div>
+                            </div>
+                        </label>
+                        <label style="display:flex; align-items:center; gap:10px; cursor:pointer; margin-top:12px;">
+                            <input type="checkbox" id="settingsAutoLaunch" style="accent-color:var(--accent); width:18px; height:18px;" onchange="saveSettingAutoLaunch(this.checked)">
+                            <div>
+                                <div style="font-size:13px; color:var(--text);">Auto-launch sprints</div>
+                                <div style="font-size:11px; color:var(--text-dim);">Automatically execute all tasks in sprints marked as "Ready to execute"</div>
+                            </div>
+                        </label>
+                    </div>
+
+                    <!-- Tasks -->
+                    <div style="background:var(--bg-card); border:1px solid var(--border); border-radius:var(--radius); padding:20px; margin-bottom:16px;">
+                        <h3 style="font-size:14px; color:var(--text-bright); margin-bottom:12px;">📋 Tasks</h3>
+                        <div style="display:flex; align-items:center; gap:10px;">
+                            <span style="color:var(--text-dim); font-size:13px;">Max concurrent tasks:</span>
+                            <input type="number" id="settingsMaxTasks" min="1" max="50" value="5"
+                                style="width:60px; padding:6px 10px; background:var(--bg-input); border:1px solid var(--border); border-radius:6px; color:var(--text); font-family:var(--mono); font-size:13px; text-align:center;"
+                                onchange="saveSettingMaxTasks(this.value)">
+                        </div>
+                    </div>
+
+                    <!-- Git / GitHub -->
+                    <div style="background:var(--bg-card); border:1px solid var(--border); border-radius:var(--radius); padding:20px;">
+                        <h3 style="font-size:14px; color:var(--text-bright); margin-bottom:12px;">🔧 Git / GitHub</h3>
+                        <div style="display:flex; flex-direction:column; gap:12px;">
+                            <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px;">
+                                <div>
+                                    <label style="display:block; color:var(--text-dim); font-size:12px; margin-bottom:4px;">Name (user.name)</label>
+                                    <input type="text" id="settingsGitUserName" placeholder="Your Name"
+                                        style="width:100%; padding:8px 12px; background:var(--bg-input); border:1px solid var(--border); border-radius:6px; color:var(--text); font-size:13px;"
+                                        onchange="saveSettingGit()">
+                                </div>
+                                <div>
+                                    <label style="display:block; color:var(--text-dim); font-size:12px; margin-bottom:4px;">Email (user.email)</label>
+                                    <input type="email" id="settingsGitUserEmail" placeholder="you@example.com"
+                                        style="width:100%; padding:8px 12px; background:var(--bg-input); border:1px solid var(--border); border-radius:6px; color:var(--text); font-size:13px;"
+                                        onchange="saveSettingGit()">
+                                </div>
+                            </div>
+                            <div>
+                                <label style="display:block; color:var(--text-dim); font-size:12px; margin-bottom:4px;">Default branch</label>
+                                <input type="text" id="settingsGitDefaultBranch" placeholder="main"
+                                    style="width:100%; padding:8px 12px; background:var(--bg-input); border:1px solid var(--border); border-radius:6px; color:var(--text); font-size:13px;"
+                                    onchange="saveSettingGit()">
+                            </div>
+                            <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px;">
+                                <div>
+                                    <label style="display:block; color:var(--text-dim); font-size:12px; margin-bottom:4px;">GitHub Owner (username or org)</label>
+                                    <input type="text" id="settingsGitHubOwner" placeholder="username"
+                                        style="width:100%; padding:8px 12px; background:var(--bg-input); border:1px solid var(--border); border-radius:6px; color:var(--text); font-family:var(--mono); font-size:12px;"
+                                        onchange="saveSettingGit()">
+                                </div>
+                                <div>
+                                    <label style="display:block; color:var(--text-dim); font-size:12px; margin-bottom:4px;">Repo Name (this project)</label>
+                                    <input type="text" id="settingsGitRepoName" placeholder="my-project"
+                                        style="width:100%; padding:8px 12px; background:var(--bg-input); border:1px solid var(--border); border-radius:6px; color:var(--text); font-family:var(--mono); font-size:12px;"
+                                        onchange="saveSettingRepoName()">
+                                </div>
+                            </div>
+                            <div>
+                                <label style="display:block; color:var(--text-dim); font-size:12px; margin-bottom:4px;">GitHub Token (Personal Access Token)</label>
+                                <input type="password" id="settingsGitHubToken" placeholder="ghp_xxxxxxxxxxxx"
+                                    style="width:100%; padding:8px 12px; background:var(--bg-input); border:1px solid var(--border); border-radius:6px; color:var(--text); font-family:var(--mono); font-size:12px;"
+                                    onchange="saveSettingGit()">
+                                <div style="font-size:10px; color:var(--text-dim); margin-top:4px;">
+                                    Token is needed for push/PR/auto repo creation. Create at <a href="https://github.com/settings/tokens" target="_blank" style="color:var(--accent);">github.com/settings/tokens</a>
+                                </div>
+                            </div>
+                            <div id="settingsComputedUrl" style="font-size:11px; color:var(--text-dim); padding:4px 0;">
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+</div><!-- /mainApp -->
+
+<!-- Modal -->
+<div class="modal-overlay" id="modalOverlay">
+    <div class="modal" id="modalContent" onclick="event.stopPropagation()">
+        <h3 id="modalTitle">—</h3>
+        <div id="modalBody"></div>
+        <div class="btn-group" id="modalActions" style="margin-top: 16px;"></div>
+    </div>
+</div>
+
+<script>
+// ── State ──────────────────────────────────────────────────────────────────
+
+let currentAgent = null;
+let agents = {};
+let employees = {};
+let chatHistories = {};
+let agentRuntimes = {};  // per-agent runtime: { agentName: 'claude' | 'cursor' }
+let thinkingAgents = {};  // per-agent thinking state: { agentName: true }
+let runningTasks = {};   // { taskId: { agent, role, runtime, started_at, elapsed_seconds } }
+let runningTasksTimer = null;  // elapsed update timer
+let sprintAutoRunState = {};   // { sprintId: { running: bool, cancelled: bool } }
+let _taskCompletionResolvers = [];  // resolvers notified when any task completes
+let agentDrafts = {};  // per-agent draft text: { agentName: "draft text" }
+
+const API_BASE = (typeof location !== 'undefined' && location.origin) ? location.origin : '';
+
+// ── Theme Functions ────────────────────────────────────────────────────────
+
+function applyTheme(themeName) {
+    document.documentElement.setAttribute('data-theme', themeName);
+}
+
+async function changeTheme(newTheme) {
+    try {
+        const response = await api('POST', '/api/settings', { theme: newTheme });
+        if (response.status === 'updated') {
+            applyTheme(newTheme);
+        }
+    } catch (error) {
+        alert('Error saving theme: ' + error.message);
+        // Revert selector to previous value
+        const currentTheme = document.documentElement.getAttribute('data-theme') || 'dark';
+        document.getElementById('themeSelect').value = currentTheme;
+    }
+}
+
+async function loadSettings() {
+    try {
+        const settings = await api('GET', '/api/settings');
+
+        // Apply theme
+        const theme = settings.theme || 'dark';
+        applyTheme(theme);
+
+        // Set value in header selector
+        const themeSelect = document.getElementById('themeSelect');
+        if (themeSelect) themeSelect.value = theme;
+
+        // Set maxConcurrentTasks if available
+        const maxInput = document.getElementById('maxConcurrentInput');
+        if (maxInput && settings.maxConcurrentTasks) {
+            maxInput.value = settings.maxConcurrentTasks;
+        }
+
+        // Update settings screen if it exists
+        updateSettingsScreen(settings);
+
+        return settings;
+    } catch (error) {
+        console.warn('Failed to load settings:', error.message);
+        // Apply default theme
+        applyTheme('dark');
+        return null;
+    }
+}
+
+function updateSettingsScreen(settings) {
+    if (!settings) return;
+
+    // Theme — radio buttons
+    const themeRadios = document.querySelectorAll('input[name="settingsTheme"]');
+    themeRadios.forEach(radio => {
+        radio.checked = radio.value === settings.theme;
+        // Highlight selected option
+        const label = radio.closest('.theme-option') || radio.parentElement;
+        if (label) {
+            label.style.borderColor = radio.checked ? 'var(--accent)' : 'var(--border)';
+            label.style.background = radio.checked ? 'rgba(79,110,247,0.1)' : 'var(--bg-input)';
+        }
+    });
+
+    // Port
+    const portEl = document.getElementById('settingsPort');
+    if (portEl) portEl.textContent = settings.port || '8008';
+
+    // Language
+    const langEl = document.getElementById('settingsLanguage');
+    if (langEl) langEl.textContent = settings.language === 'ru' ? 'Russian' : 'English';
+
+    // Auto-open browser
+    const autoOpenEl = document.getElementById('settingsAutoOpen');
+    if (autoOpenEl) autoOpenEl.checked = settings.autoOpenBrowser !== false;
+
+    // Auto-launch sprints
+    const autoLaunchEl = document.getElementById('settingsAutoLaunch');
+    if (autoLaunchEl) autoLaunchEl.checked = settings.autoLaunchSprints === true;
+
+    // Max tasks
+    const maxTasksEl = document.getElementById('settingsMaxTasks');
+    if (maxTasksEl) maxTasksEl.value = settings.maxConcurrentTasks || 5;
+
+    // Git settings
+    const gitSettings = settings.git || {};
+    const gitUserNameEl = document.getElementById('settingsGitUserName');
+    if (gitUserNameEl) gitUserNameEl.value = gitSettings.userName || '';
+    const gitUserEmailEl = document.getElementById('settingsGitUserEmail');
+    if (gitUserEmailEl) gitUserEmailEl.value = gitSettings.userEmail || '';
+    const gitDefaultBranchEl = document.getElementById('settingsGitDefaultBranch');
+    if (gitDefaultBranchEl) gitDefaultBranchEl.value = gitSettings.defaultBranch || 'main';
+    const gitHubOwnerEl = document.getElementById('settingsGitHubOwner');
+    if (gitHubOwnerEl) gitHubOwnerEl.value = gitSettings.githubOwner || '';
+    const gitHubTokenEl = document.getElementById('settingsGitHubToken');
+    if (gitHubTokenEl) gitHubTokenEl.value = gitSettings.githubToken || '';
+    // Load per-project repoName
+    loadProjectRepoName();
+    updateComputedUrlDisplay();
+}
+
+async function showSettingsScreen() {
+    hideAllScreens();
+    document.getElementById('settingsScreen').style.display = 'flex';
+
+    // Load and display current settings
+    const settings = await loadSettings();
+    updateSettingsScreen(settings);
+
+    // Add handlers for theme radio buttons
+    document.querySelectorAll('input[name="settingsTheme"]').forEach(radio => {
+        radio.onchange = async function() {
+            await changeTheme(this.value);
+            updateSettingsScreen(await api('GET', '/api/settings'));
+        };
+    });
+}
+
+async function saveSettingAutoOpen(value) {
+    try {
+        await api('POST', '/api/settings', { autoOpenBrowser: value });
+    } catch (error) {
+        alert('Error saving: ' + error.message);
+        document.getElementById('settingsAutoOpen').checked = !value;
+    }
+}
+
+async function saveSettingAutoLaunch(value) {
+    try {
+        await api('POST', '/api/settings', { autoLaunchSprints: value });
+        if (value) {
+            startAutoLaunchLoop();
+        } else {
+            stopAutoLaunchLoop();
+        }
+    } catch (error) {
+        alert('Error saving: ' + error.message);
+        document.getElementById('settingsAutoLaunch').checked = !value;
+    }
+}
+
+async function saveSettingGit() {
+    const userName = document.getElementById('settingsGitUserName').value.trim();
+    const userEmail = document.getElementById('settingsGitUserEmail').value.trim();
+    const defaultBranch = document.getElementById('settingsGitDefaultBranch').value.trim() || 'main';
+    const githubOwner = document.getElementById('settingsGitHubOwner').value.trim();
+    const githubToken = document.getElementById('settingsGitHubToken').value.trim();
+    try {
+        await api('POST', '/api/settings', {
+            git: { userName, userEmail, defaultBranch, githubOwner, githubToken }
+        });
+        updateComputedUrlDisplay();
+    } catch (error) {
+        alert('Error saving Git settings: ' + error.message);
+    }
+}
+
+async function saveSettingRepoName() {
+    const repoName = document.getElementById('settingsGitRepoName').value.trim();
+    try {
+        await api('POST', '/api/projects/repo-name', { repoName });
+        updateComputedUrlDisplay();
+    } catch (error) {
+        alert('Error saving repo name: ' + error.message);
+    }
+}
+
+async function loadProjectRepoName() {
+    try {
+        const data = await api('GET', '/api/current-project');
+        const el = document.getElementById('settingsGitRepoName');
+        if (el && data && data.project) {
+            el.value = data.project.repoName || '';
+        }
+    } catch { }
+}
+
+function updateComputedUrlDisplay() {
+    const owner = (document.getElementById('settingsGitHubOwner')?.value || '').trim();
+    const repo = (document.getElementById('settingsGitRepoName')?.value || '').trim();
+    const el = document.getElementById('settingsComputedUrl');
+    if (el) {
+        if (owner && repo) {
+            el.textContent = `Remote: https://github.com/${owner}/${repo}.git`;
+        } else {
+            el.textContent = owner ? 'Set Repo Name to configure remote' : 'Set GitHub Owner to configure remote';
+        }
+    }
+}
+
+async function saveSettingMaxTasks(value) {
+    const numValue = parseInt(value);
+    if (isNaN(numValue) || numValue < 1 || numValue > 50) {
+        alert('Value must be between 1 and 50');
+        document.getElementById('settingsMaxTasks').value = 5;
+        return;
+    }
+    try {
+        await api('POST', '/api/settings', { maxConcurrentTasks: numValue });
+        // Sync with input on task board
+        const boardInput = document.getElementById('maxConcurrentInput');
+        if (boardInput) boardInput.value = numValue;
+    } catch (error) {
+        alert('Error saving: ' + error.message);
+    }
+}
+
+// ── Settings Dropdown Functions ────────────────────────────────────────────
+
+function toggleSettingsDropdown(event) {
+    event.stopPropagation();
+    const dropdown = document.getElementById('settingsDropdown');
+    dropdown.classList.toggle('show');
+}
+
+function closeSettingsDropdown() {
+    const dropdown = document.getElementById('settingsDropdown');
+    if (dropdown) dropdown.classList.remove('show');
+}
+
+// Close when clicking outside menu
+document.addEventListener('click', (e) => {
+    const dropdown = document.getElementById('settingsDropdown');
+    const btn = document.querySelector('.settings-btn');
+    if (dropdown && btn && !dropdown.contains(e.target) && !btn.contains(e.target)) {
+        dropdown.classList.remove('show');
+    }
+});
+
+// ── Current Project Badge ──────────────────────────────────────────────────
+
+function updateCurrentProjectBadge(project) {
+    const nameEl = document.getElementById('currentProjectName');
+    if (!nameEl) return;
+
+    if (project && project.name) {
+        nameEl.textContent = project.name;
+    } else {
+        nameEl.textContent = '—';
+    }
+}
+
+// ── Project Picker Functions ───────────────────────────────────────────────
+
+let projectsList = [];
+let hasCurrentProject = false; // Flag: is there an open project
+
+async function showProjectPicker() {
+    // Check if there is a current project
+    try {
+        const status = await api('GET', '/api/status');
+        hasCurrentProject = !!status.has_project;
+    } catch {
+        hasCurrentProject = false;
+    }
+
+    // Show/hide close buttons depending on whether a project exists
+    const closeBtn = document.getElementById('projectPickerClose');
+    const cancelBtn = document.getElementById('projectPickerCancel');
+
+    if (closeBtn) {
+        closeBtn.style.display = hasCurrentProject ? '' : 'none';
+    }
+    if (cancelBtn) {
+        cancelBtn.style.display = hasCurrentProject ? '' : 'none';
+    }
+
+    document.getElementById('projectPicker').classList.add('show');
+    document.getElementById('mainApp').style.display = 'none';
+    loadProjectsList();
+}
+
+function hideProjectPicker() {
+    document.getElementById('projectPicker').classList.remove('show');
+    document.getElementById('mainApp').style.display = '';
+}
+
+// Try to close project-picker (only if there is an open project)
+function tryCloseProjectPicker() {
+    if (hasCurrentProject) {
+        hideProjectPicker();
+    }
+}
+
+// Click handler on overlay (background) of project-picker
+document.getElementById('projectPicker').addEventListener('click', function(e) {
+    // Close only if click was on the overlay itself (not on card) and there is an open project
+    if (e.target === this && hasCurrentProject) {
+        hideProjectPicker();
+    }
+});
+
+let isNewUser = false;
+
+async function loadProjectsList() {
+    const container = document.getElementById('projectList');
+    container.innerHTML = '<div class="project-empty"><div class="project-empty-icon">⏳</div><p>Loading...</p></div>';
+
+    try {
+        const data = await api('GET', '/api/projects');
+        console.log('[loadProjectsList] API response:', data);
+        projectsList = data.projects || [];
+        isNewUser = data.is_new_user || false;
+        renderProjectsList();
+    } catch (error) {
+        console.error('[loadProjectsList] Error:', error);
+        container.innerHTML = `<div class="project-empty"><div class="project-empty-icon">❌</div><p>Loading error: ${escapeHtml(error.message)}</p></div>`;
+    }
+}
+
+function renderProjectsList() {
+    const container = document.getElementById('projectList');
+
+    if (projectsList.length === 0) {
+        if (isNewUser) {
+            // Welcome message for new users
+            container.innerHTML = `
+                <div class="project-empty welcome-message">
+                    <div class="project-empty-icon">👋</div>
+                    <h3>Welcome to Tayfa!</h3>
+                    <p style="color: var(--text-secondary); margin: 0.5rem 0 1rem; line-height: 1.5;">
+                        Tayfa is a multi-agent system for development.<br>
+                        AI agents work as a team: boss assigns tasks,<br>
+                        developers write code, testers verify.
+                    </p>
+                    <p style="color: var(--accent); font-weight: 500;">
+                        Open a project folder to get started
+                    </p>
+                </div>`;
+        } else {
+            container.innerHTML = `
+                <div class="project-empty">
+                    <div class="project-empty-icon">📂</div>
+                    <p>No projects. Open a project folder.</p>
+                </div>`;
+        }
+        return;
+    }
+
+    const html = projectsList.map(project => `
+        <div class="project-item" onclick="openProject('${escapeHtml(project.path.replace(/\\/g, '\\\\').replace(/'/g, "\\'"))}')">
+            <div class="project-item-icon">📁</div>
+            <div class="project-item-info">
+                <div class="project-item-name">${escapeHtml(project.name)}</div>
+                <div class="project-item-path">${escapeHtml(project.path)}</div>
+                <div class="project-item-time">Opened: ${formatLastOpened(project.last_opened)}</div>
+            </div>
+            <div class="project-item-remove" onclick="event.stopPropagation(); removeProject('${escapeHtml(project.path.replace(/\\/g, '\\\\').replace(/'/g, "\\'"))}')" title="Remove from list">×</div>
+        </div>
+    `).join('');
+
+    container.innerHTML = html;
+}
+
+function formatLastOpened(isoDate) {
+    if (!isoDate) return 'unknown';
+
+    const date = new Date(isoDate);
+    const now = new Date();
+    const diffMs = now - date;
+    const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+
+    if (diffDays === 0) {
+        const diffHours = Math.floor(diffMs / (1000 * 60 * 60));
+        if (diffHours === 0) {
+            const diffMins = Math.floor(diffMs / (1000 * 60));
+            if (diffMins < 1) return 'just now';
+            return diffMins + ' min ago';
+        }
+        return 'today at ' + date.toLocaleTimeString('en', { hour: '2-digit', minute: '2-digit' });
+    } else if (diffDays === 1) {
+        return 'yesterday';
+    } else if (diffDays < 7) {
+        return diffDays + ' days ago';
+    } else {
+        return date.toLocaleDateString('en');
+    }
+}
+
+async function openProject(path) {
+    const container = document.getElementById('projectList');
+    const originalContent = container.innerHTML;
+    container.innerHTML = '<div class="project-empty"><div class="project-empty-icon">⏳</div><p>Opening project...</p></div>';
+
+    console.log('[openProject] Opening project:', path);
+
+    try {
+        const result = await api('POST', '/api/projects/open', { path });
+        console.log('[openProject] API response:', result);
+
+        if (result.status === 'opened' || result.status === 'initialized') {
+            console.log('[openProject] Success! Hiding picker...');
+            hasCurrentProject = true; // Now there is an open project
+            hideProjectPicker();
+
+            // Reload agents and status (errors should not block opening)
+            try {
+                await Promise.all([loadAgents(), checkStatus(), loadEmployees()]);
+            } catch (loadError) {
+                console.warn('[openProject] Data loading error (non-critical):', loadError);
+            }
+
+            // Update project name in header
+            updateCurrentProjectBadge(result.project);
+
+            // Project name in result.project.name or fallback to path
+            const projectName = result.project?.name || path.split(/[\\\/]/).pop() || path;
+            addSystemMessage(`Project "${projectName}" opened`);
+            console.log('[openProject] Done!');
+        } else {
+            console.error('[openProject] Unexpected status:', result.status);
+            throw new Error(result.error || 'Unknown error');
+        }
+    } catch (error) {
+        console.error('[openProject] Error:', error);
+        container.innerHTML = originalContent;
+        alert('Error opening project: ' + error.message);
+    }
+}
+
+async function removeProject(path) {
+    if (!confirm('Remove project from recent list?\n\nThe project folder will not be deleted.')) return;
+
+    try {
+        await api('POST', '/api/projects/remove', { path });
+        await loadProjectsList();
+    } catch (error) {
+        alert('Error: ' + error.message);
+    }
+}
+
+async function openFolderDialog() {
+    // Call server API to open system dialog
+    try {
+        const container = document.getElementById('projectList');
+        const originalContent = container.innerHTML;
+        container.innerHTML = '<div class="project-empty"><div class="project-empty-icon">📂</div><p>Opening folder picker dialog...</p></div>';
+
+        const result = await api('GET', '/api/browse-folder');
+
+        if (result.error) {
+            container.innerHTML = originalContent;
+            alert('Error: ' + result.error);
+            return;
+        }
+
+        if (result.cancelled || !result.path) {
+            container.innerHTML = originalContent;
+            return; // User cancelled selection
+        }
+
+        // Open selected project
+        await openProject(result.path);
+
+    } catch (error) {
+        console.error('[openFolderDialog] Error:', error);
+        // Fallback to manual input
+        openFolderManual();
+    }
+}
+
+function openFolderManual(suggestedName = '') {
+    const placeholder = suggestedName
+        ? `Example: C:\\Projects\\${suggestedName}`
+        : 'Example: C:\\Projects\\MyApp or /home/user/projects/app';
+
+    const body = `
+        <p style="font-size:13px; color:var(--text-dim); margin-bottom:12px;">
+            Enter the full path to the project folder:
+        </p>
+        <input type="text" id="manualPathInput" placeholder="${placeholder}"
+               style="width:100%; margin-bottom:8px;" autofocus>
+        <p style="font-size:11px; color:var(--text-dim);">
+            Browser does not allow automatic folder path retrieval.
+            Enter path manually or copy from file explorer.
+        </p>
+    `;
+
+    openModal('Open project folder', body,
+        `<button class="btn" onclick="closeModal()">Cancel</button>
+         <button class="btn primary" onclick="submitManualPath()">Open</button>`);
+
+    // Focus on input
+    setTimeout(() => {
+        const input = document.getElementById('manualPathInput');
+        if (input) input.focus();
+    }, 100);
+}
+
+async function submitManualPath() {
+    const input = document.getElementById('manualPathInput');
+    const path = input.value.trim();
+
+    if (!path) {
+        alert('Enter the folder path');
+        return;
+    }
+
+    console.log('[submitManualPath] Path:', path);
+    closeModal();
+    await openProject(path);
+}
+
+// Function to show project-picker from settings or header
+function switchProject() {
+    closeSettingsDropdown();
+    showProjectPicker();
+}
+
+// ── API Calls ──────────────────────────────────────────────────────────────
+
+async function api(method, path, body = null) {
+    const url = API_BASE ? (API_BASE + path) : path;
+    const opts = { method, headers: { 'Content-Type': 'application/json' } };
+    if (body) opts.body = JSON.stringify(body);
+    const resp = await fetch(url, opts);
+    if (!resp.ok) {
+        const err = await resp.json().catch(() => ({ detail: resp.statusText }));
+        let msg = err.detail || resp.statusText || 'API Error';
+        throw new Error(typeof msg === 'string' ? msg : JSON.stringify(msg));
+    }
+    return resp.json();
+}
+
+function escapeHtml(s) {
+    const div = document.createElement('div');
+    div.textContent = s;
+    return div.innerHTML;
+}
+
+function formatDate(dateStr) {
+    if (!dateStr) return '—';
+    const date = new Date(dateStr);
+    const now = new Date();
+    const diffMs = now - date;
+    const diffMins = Math.floor(diffMs / 60000);
+    const diffHours = Math.floor(diffMs / 3600000);
+    const diffDays = Math.floor(diffMs / 86400000);
+
+    if (diffMins < 1) return 'just now';
+    if (diffMins < 60) return `${diffMins} min ago`;
+    if (diffHours < 24) return `${diffHours} h ago`;
+    if (diffDays < 7) return `${diffDays} d ago`;
+
+    return date.toLocaleDateString('en-US', { day: '2-digit', month: '2-digit', year: 'numeric' });
+}
+
+// ── Screens ────────────────────────────────────────────────────────────────
+
+function hideAllScreens() {
+    ['welcomeScreen','tasksBoardScreen','tasksScreen','chatScreen','settingsScreen','backlogScreen'].forEach(id => {
+        document.getElementById(id).style.display = 'none';
+    });
+    stopBoardAutoRefresh();
+    stopRunningTasksTimer();
+}
+
+// ── Status ─────────────────────────────────────────────────────────────────
+
+async function checkStatus() {
+    try {
+        const s = await api('GET', '/api/status');
+        updateStatusUI(s);
+        return s;
+    } catch {
+        updateStatusUI({ wsl_running: false, api_running: false });
+        return null;
+    }
+}
+
+function updateStatusUI(s) {
+    document.getElementById('wslDot').className = `status-dot ${s.wsl_running ? 'on' : 'off'}`;
+    document.getElementById('apiDot').className = `status-dot ${s.api_running ? 'on' : 'off'}`;
+    document.getElementById('wslStatus').textContent = s.wsl_running ? 'running' : 'off';
+    document.getElementById('apiStatus').textContent = s.api_running ? 'running' : 'off';
+    document.getElementById('btnStartServer').style.display = s.api_running ? 'none' : '';
+    document.getElementById('btnStopServer').style.display = s.api_running ? '' : 'none';
+
+    // Update current project badge
+    if (s.current_project) {
+        updateCurrentProjectBadge(s.current_project);
+    }
+}
+
+async function startServer() {
+    const btn = document.getElementById('btnStartServer');
+    btn.disabled = true; btn.textContent = 'Starting...';
+    document.getElementById('wslDot').className = 'status-dot loading';
+    try {
+        await api('POST', '/api/start-server');
+        await checkStatus(); await loadAgents();
+    } catch (e) { addSystemMessage('Start error: ' + e.message, true); }
+    finally { btn.disabled = false; btn.textContent = 'Start server'; }
+}
+
+async function stopServer() {
+    try { await api('POST', '/api/stop-server'); await checkStatus(); }
+    catch (e) { addSystemMessage('Error: ' + e.message, true); }
+}
+
+// ── Employees (data for task creation modal) ──────────────────────────
+
+async function loadEmployees() {
+    try {
+        const data = await api('GET', '/api/employees');
+        employees = data.employees || {};
+    } catch {
+        employees = {};
+    }
+}
+
+// ── Agents ─────────────────────────────────────────────────────────────────
+
+async function loadAgents() {
+    const list = document.getElementById('agentList');
+    try {
+        agents = await api('GET', '/api/agents');
+        if (!agents || typeof agents !== 'object' || Object.keys(agents).length === 0) {
+            list.innerHTML = '<li class="empty-state">No agents</li>';
+            return;
+        }
+        list.innerHTML = '';
+        for (const [name, config] of Object.entries(agents)) {
+            const runtimes = config.runtimes || ['claude', 'cursor'];
+            // Initialize default runtime selection (claude by default)
+            if (!agentRuntimes[name]) {
+                agentRuntimes[name] = runtimes.includes('claude') ? 'claude' : runtimes[0];
+            }
+            const selected = agentRuntimes[name];
+            const runtimesHtml = runtimes.map(r =>
+                `<span class="agent-runtime ${r} ${r === selected ? 'selected' : ''}" onclick="event.stopPropagation(); toggleAgentRuntime('${name}', '${r}')">${r}</span>`
+            ).join('');
+            const li = document.createElement('li');
+            li.className = `agent-item ${name === currentAgent ? 'active' : ''}`;
+            li.onclick = () => selectAgent(name);
+            const model = config.model || 'sonnet';
+            li.innerHTML = `
+                <div style="flex:1; min-width:0;">
+                    <div class="agent-name">${name}<span class="agent-model model-${model}">${model}</span></div>
+                    <div class="agent-role">${escapeHtml(config.role || '')}</div>
+                    <div class="agent-runtimes" id="runtimes-${name}">${runtimesHtml}</div>
+                </div>
+            `;
+            list.appendChild(li);
+        }
+    } catch {
+        list.innerHTML = '<li class="empty-state">API unavailable</li>';
+    }
+}
+
+async function selectAgent(name) {
+    // Save draft of previous agent (if any)
+    const input = document.getElementById('promptInput');
+    if (currentAgent && currentAgent !== name && input) {
+        const currentDraft = input.value.trim();
+        if (currentDraft) {
+            agentDrafts[currentAgent] = currentDraft;
+        } else {
+            delete agentDrafts[currentAgent];  // Remove empty drafts
+        }
+    }
+
+    currentAgent = name;
+    hideAllScreens();
+    document.getElementById('chatScreen').style.display = 'flex';
+    document.getElementById('chatAgentName').textContent = name;
+
+    // Ensure runtime is initialized
+    if (!agentRuntimes[name]) {
+        const config = agents[name] || {};
+        const runtimes = config.runtimes || ['claude', 'cursor'];
+        agentRuntimes[name] = runtimes.includes('claude') ? 'claude' : runtimes[0];
+    }
+
+    document.querySelectorAll('.agent-item').forEach(el => el.classList.remove('active'));
+    document.querySelectorAll('.agent-item').forEach(el => {
+        if (el.querySelector('.agent-name')?.textContent === name) el.classList.add('active');
+    });
+
+    // Load history from API if not yet in memory
+    if (!chatHistories[name] || chatHistories[name].length === 0) {
+        await loadChatHistory(name);
+    } else {
+        renderChat();
+    }
+
+    // Show/hide indicator depending on whether this agent is thinking
+    updateTypingIndicator(name);
+
+    // Load draft of new agent
+    if (input) {
+        input.value = agentDrafts[name] || '';
+        autoGrow(input);  // Adjust field height
+    }
+
+    document.getElementById('promptInput').focus();
+}
+
+function toggleAgentRuntime(agentName, runtime) {
+    agentRuntimes[agentName] = runtime;
+    // Update the runtime badges UI for this agent
+    const container = document.getElementById('runtimes-' + agentName);
+    if (container) {
+        container.querySelectorAll('.agent-runtime').forEach(el => {
+            el.classList.toggle('selected', el.textContent.trim() === runtime);
+        });
+    }
+    // Also refresh task board if it's visible, to update tooltips
+    if (document.getElementById('tasksBoardScreen').style.display !== 'none') {
+        refreshTasksBoardNew();
+    }
+}
+
+function getAgentRuntime(agentName) {
+    return agentRuntimes[agentName] || 'claude';
+}
+
+async function resetCurrentAgent() {
+    if (!currentAgent || !confirm(`Reset memory of agent "${currentAgent}"?`)) return;
+    try {
+        await api('POST', '/api/reset-agent', { name: currentAgent });
+        // Chat history is preserved — only add a visual separator
+        addSystemMessage(`─── Memory of ${currentAgent} reset ───`);
+        // DO NOT clear chatHistories[currentAgent] — history stays in UI
+        // DO NOT call renderChat() — chat is not re-rendered
+    } catch (e) { addSystemMessage('Error: ' + e.message, true); }
+}
+
+async function deleteCurrentAgent() {
+    if (!currentAgent || !confirm(`Delete agent "${currentAgent}"?`)) return;
+    try {
+        await api('DELETE', `/api/agents/${currentAgent}`);
+        addSystemMessage(`Agent ${currentAgent} deleted`);
+        currentAgent = null;
+        hideAllScreens();
+        document.getElementById('welcomeScreen').style.display = 'flex';
+        await loadAgents();
+    } catch (e) { addSystemMessage('Error: ' + e.message, true); }
+}
+
+// ── Chat ───────────────────────────────────────────────────────────────────
+
+// Format time for chat (hours:minutes only)
+function formatChatTime(isoString) {
+    if (!isoString) return '';
+    const d = new Date(isoString);
+    return d.toLocaleTimeString('en', { hour: '2-digit', minute: '2-digit' });
+}
+
+// Build metadata string for agent message
+function buildChatMeta(msg) {
+    const parts = [];
+    if (msg.runtime) parts.push(msg.runtime);
+    if (msg.cost_usd && msg.cost_usd > 0) parts.push(`$${msg.cost_usd.toFixed(4)}`);
+    if (msg.duration_sec && msg.duration_sec > 0) parts.push(`${msg.duration_sec.toFixed(1)}s`);
+    if (msg.task_id) parts.push(msg.task_id);
+    if (msg.timestamp) parts.push(formatChatTime(msg.timestamp));
+    return parts.join(' · ');
+}
+
+// Load chat history from API
+async function loadChatHistory(agentName) {
+    const area = document.getElementById('chatArea');
+    area.innerHTML = '<div class="chat-loading"><div class="chat-loading-spinner"></div><span>Loading history...</span></div>';
+
+    try {
+        const data = await api('GET', `/api/chat-history/${agentName}?limit=50`);
+        chatHistories[agentName] = [];
+
+        // Convert API messages to chat format
+        for (const msg of data.messages || []) {
+            // User prompt
+            if (msg.prompt) {
+                chatHistories[agentName].push({
+                    type: 'user',
+                    text: msg.prompt,
+                    meta: formatChatTime(msg.timestamp)
+                });
+            }
+            // Agent response
+            if (msg.result) {
+                chatHistories[agentName].push({
+                    type: msg.success === false ? 'error' : 'agent',
+                    text: msg.result,
+                    meta: buildChatMeta(msg)
+                });
+            }
+        }
+
+        renderChat();
+
+        // Show empty state if no messages
+        if (chatHistories[agentName].length === 0) {
+            area.innerHTML = '<div class="chat-empty"><p>History is empty</p><p style="font-size:12px; margin-top:8px;">Send a message to the agent</p></div>';
+        }
+    } catch (e) {
+        console.warn('[loadChatHistory] Loading error:', e.message);
+        // If API does not support history — just initialize empty array
+        chatHistories[agentName] = [];
+        area.innerHTML = '<div class="chat-empty"><p>Start a conversation</p></div>';
+    }
+}
+
+// Clear chat history
+async function clearChatHistory() {
+    if (!currentAgent || !confirm('Clear all chat history with this agent?')) return;
+    try {
+        await api('POST', `/api/chat-history/${currentAgent}/clear`);
+        chatHistories[currentAgent] = [];
+        renderChat();
+        addSystemMessage('Chat history cleared');
+    } catch (e) {
+        addSystemMessage('Error: ' + e.message, true);
+    }
+}
+
+function renderChat() {
+    const area = document.getElementById('chatArea');
+    area.innerHTML = '';
+    const history = chatHistories[currentAgent] || [];
+    for (const msg of history) {
+        const div = document.createElement('div');
+        div.className = `message ${msg.type}`;
+        div.textContent = msg.text;
+        if (msg.meta) {
+            const metaDiv = document.createElement('div');
+            metaDiv.className = 'meta';
+            metaDiv.innerHTML = msg.meta;
+            div.appendChild(metaDiv);
+        }
+        area.appendChild(div);
+    }
+    area.scrollTop = area.scrollHeight;
+}
+
+function addChatMessage(agent, type, text, meta = '') {
+    if (!chatHistories[agent]) chatHistories[agent] = [];
+    chatHistories[agent].push({ type, text, meta });
+    if (agent === currentAgent) renderChat();
+}
+
+function addSystemMessage(text, isError = false) {
+    if (currentAgent) addChatMessage(currentAgent, isError ? 'error' : 'system', text);
+    console.log(`[${isError ? 'ERR' : 'SYS'}] ${text}`);
+}
+
+function updateTypingIndicator(agentName) {
+    const indicator = document.getElementById('typingIndicator');
+    indicator.classList.toggle('show', !!thinkingAgents[agentName]);
+}
+
+async function sendPrompt() {
+    if (!currentAgent) return;
+    const input = document.getElementById('promptInput');
+    const text = input.value.trim();
+    if (!text) return;
+    input.value = ''; input.style.height = 'auto';
+
+    // Clear draft of current agent after sending
+    delete agentDrafts[currentAgent];
+
+    addChatMessage(currentAgent, 'user', text);
+
+    const agentForRequest = currentAgent;  // Save agent for this request
+    const btn = document.getElementById('btnSend');
+    btn.disabled = true; btn.textContent = '...';
+
+    // Set "thinking" state for this agent
+    thinkingAgents[agentForRequest] = true;
+    updateTypingIndicator(currentAgent);
+
+    const runtime = getAgentRuntime(agentForRequest);
+    try {
+        if (runtime === 'cursor') {
+            const result = await api('POST', '/api/send-prompt-cursor', { name: agentForRequest, prompt: text });
+            if (result.success) {
+                addChatMessage(agentForRequest, 'agent', result.result || '(Empty response)', result.stderr ? `Cursor CLI` : 'Cursor CLI');
+            } else {
+                addChatMessage(agentForRequest, 'error', (result.stderr || result.result || 'Cursor CLI Error').trim());
+            }
+        } else {
+            const result = await api('POST', '/api/send-prompt', { name: agentForRequest, prompt: text });
+            const response = result.result || result.stdout || JSON.stringify(result);
+            const meta = [];
+            if (result.cost_usd) meta.push(`$${result.cost_usd.toFixed(4)}`);
+            if (result.num_turns) meta.push(`${result.num_turns} turns`);
+            addChatMessage(agentForRequest, 'agent', response, meta.join(' &middot; '));
+        }
+    } catch (e) {
+        addChatMessage(agentForRequest, 'error', 'Error: ' + e.message);
+    } finally {
+        btn.disabled = false; btn.textContent = 'Send';
+        // Remove "thinking" state for this agent
+        delete thinkingAgents[agentForRequest];
+        updateTypingIndicator(currentAgent);
+    }
+}
+
+function handleKeyDown(e) { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendPrompt(); } }
+function autoGrow(el) { el.style.height = 'auto'; el.style.height = Math.min(el.scrollHeight, 200) + 'px'; }
+
+// ── Modals ──────────────────────────────────────────────────────────────────
+
+function openModal(title, bodyHtml, actionsHtml) {
+    document.getElementById('modalTitle').textContent = title;
+    document.getElementById('modalBody').innerHTML = bodyHtml;
+    document.getElementById('modalActions').innerHTML = actionsHtml;
+    document.getElementById('modalOverlay').classList.add('show');
+}
+
+function closeModal() {
+    document.getElementById('modalOverlay').classList.remove('show');
+}
+
+document.getElementById('modalOverlay').addEventListener('click', function(e) {
+    if (e.target === this) closeModal();
+});
+
+// ── Tasks Board (NEW — kanban with sprints) ────────────────────────────────
+
+const STATUS_LABELS = {
+    'pending': 'Pending',
+    'in_progress': 'In Progress',
+    'in_review': 'In Review',
+    'done': 'Done',
+    'cancelled': 'Cancelled',
+};
+
+const STATUS_NEXT_ROLE = {
+    'pending': { role: 'customer', label: 'Customer details requirements', btnClass: 'primary' },
+    'in_progress': { role: 'developer', label: 'Developer implements', btnClass: 'primary' },
+    'in_review': { role: 'tester', label: 'Tester verifies', btnClass: 'warning' },
+};
+
+let boardAutoRefreshTimer = null;
+let expandedSprints = {};  // { sprintId: true/false } — which sprints are expanded
+let allSprints = [];       // sprints cache
+let allTasks = [];         // tasks cache
+let taskFailures = {};     // { taskId: [failure, ...] } — unresolved failures cache
+
+function showTasksBoard() {
+    hideAllScreens();
+    document.getElementById('tasksBoardScreen').style.display = 'flex';
+    refreshTasksBoardNew();
+    startBoardAutoRefresh();
+}
+
+function startBoardAutoRefresh() {
+    stopBoardAutoRefresh();
+    boardAutoRefreshTimer = setInterval(() => {
+        if (document.getElementById('tasksBoardScreen').style.display !== 'none') {
+            fetchRunningTasks().then(() => {
+                if (Object.keys(runningTasks).length > 0) {
+                    refreshTasksBoardNew();
+                }
+            });
+        } else {
+            stopBoardAutoRefresh();
+        }
+    }, 5000);
+}
+
+function stopBoardAutoRefresh() {
+    if (boardAutoRefreshTimer) { clearInterval(boardAutoRefreshTimer); boardAutoRefreshTimer = null; }
+}
+
+async function fetchRunningTasks() {
+    try {
+        const data = await api('GET', '/api/running-tasks');
+        const serverRunning = data.running || {};
+        for (const tid of Object.keys(runningTasks)) {
+            if (!serverRunning[tid] && runningTasks[tid]._local) {
+                serverRunning[tid] = runningTasks[tid];
+            }
+        }
+        runningTasks = serverRunning;
+        updateRunningTasksIndicator();
+    } catch { }
+}
+
+function startRunningTasksTimer() {
+    stopRunningTasksTimer();
+    runningTasksTimer = setInterval(() => {
+        const badges = document.querySelectorAll('.task-running-badge .elapsed');
+        badges.forEach(el => {
+            const startedAt = parseFloat(el.dataset.startedAt);
+            if (startedAt) {
+                const elapsed = Math.round(Date.now() / 1000 - startedAt);
+                el.textContent = formatElapsed(elapsed);
+            }
+        });
+    }, 1000);
+}
+
+function stopRunningTasksTimer() {
+    if (runningTasksTimer) { clearInterval(runningTasksTimer); runningTasksTimer = null; }
+}
+
+function formatElapsed(seconds) {
+    if (seconds < 60) return `${seconds}s`;
+    const m = Math.floor(seconds / 60);
+    const s = seconds % 60;
+    return `${m}m ${s}s`;
+}
+
+function toggleSprint(sprintId) {
+    expandedSprints[sprintId] = !expandedSprints[sprintId];
+    const body = document.getElementById('sprint-body-' + sprintId);
+    const toggle = document.getElementById('sprint-toggle-' + sprintId);
+    if (body) body.classList.toggle('open', expandedSprints[sprintId]);
+    if (toggle) toggle.classList.toggle('open', expandedSprints[sprintId]);
+}
+
+async function refreshTasksBoardNew() {
+    const wrap = document.getElementById('tasksBoardWrap');
+    wrap.innerHTML = '<div class="empty-state">Loading...</div>';
+    try {
+        const [tasksData, sprintsData, , failuresData] = await Promise.all([
+            api('GET', '/api/tasks-list'),
+            api('GET', '/api/sprints'),
+            fetchRunningTasks(),
+            api('GET', '/api/agent-failures?resolved=false').catch(() => ({ failures: [] })),
+        ]);
+        allTasks = tasksData.tasks || [];
+        allSprints = sprintsData.sprints || [];
+
+        // Build taskFailures map from unresolved failures
+        taskFailures = {};
+        for (const f of (failuresData.failures || [])) {
+            if (!taskFailures[f.task_id]) taskFailures[f.task_id] = [];
+            taskFailures[f.task_id].push(f);
+        }
+
+        if (allTasks.length === 0 && allSprints.length === 0) {
+            wrap.innerHTML = `<div class="empty-state" style="padding:40px;">
+                <p style="margin-bottom:16px;">No tasks or sprints yet. Create the first sprint.</p>
+                <button class="btn primary" onclick="showCreateSprintModal()">+ Create sprint</button>
+            </div>`;
+            stopRunningTasksTimer();
+            return;
+        }
+
+        const hasRunning = Object.keys(runningTasks).length > 0;
+
+        // Group tasks by sprints
+        const tasksBySprint = {};
+        const orphanTasks = [];
+        for (const t of allTasks) {
+            const sid = t.sprint_id || '';
+            if (sid) {
+                if (!tasksBySprint[sid]) tasksBySprint[sid] = [];
+                tasksBySprint[sid].push(t);
+            } else {
+                orphanTasks.push(t);
+            }
+        }
+
+        let html = '';
+
+        // Sprints: oldest at bottom -> render in reverse order (newest on top)
+        // Requirement: "oldest at bottom" means the earliest sprints at the bottom of the list.
+        // So render sprints in reverse order (newest first, oldest last at bottom)
+        // On screen oldest should be at bottom, newest at top.
+        // Order in array: sprints[0] = oldest, sprints[N-1] = newest
+        // Render in reverse order: newest on top.
+        const sortedSprints = [...allSprints].reverse();
+
+        for (const sprint of sortedSprints) {
+            const sprintTasks = tasksBySprint[sprint.id] || [];
+            const isOpen = expandedSprints[sprint.id] || false;
+            // Count tasks (including finalize)
+            const doneCount = sprintTasks.filter(t => t.status === 'done').length;
+            const totalCount = sprintTasks.length;
+            const finalizeTask = sprintTasks.find(t => t.is_finalize);
+            let statusClass, statusText;
+            if (sprint.status === 'released') {
+                statusClass = 'released';
+                statusText = '🚀 released ' + (sprint.version || '');
+            } else if (sprint.status === 'completed' || (finalizeTask && finalizeTask.status === 'done')) {
+                statusClass = 'done';
+                statusText = 'completed';
+            } else {
+                statusClass = 'active';
+                statusText = 'active';
+            }
+            const statusBadge = `<span class="sprint-badge ${statusClass}">${statusText}</span>`;
+            const readyBadge = sprint.ready_to_execute ? `<span class="sprint-badge" style="background:var(--success); color:#fff; font-size:11px; padding:2px 8px; border-radius:4px; margin-left:4px;">READY</span>` : '';
+
+            // Count unresolved failures for tasks in this sprint
+            const sprintFailureCount = sprintTasks.reduce((n, t) => n + (taskFailures[t.id] ? 1 : 0), 0);
+            const failureBadge = sprintFailureCount > 0 ? `<span class="sprint-badge" style="background:var(--danger); color:#fff; font-size:11px; padding:2px 8px; border-radius:4px; margin-left:4px;">${sprintFailureCount} failed</span>` : '';
+
+            html += `<div class="sprint-section">
+                <div class="sprint-header" onclick="toggleSprint('${sprint.id}')">
+                    <div class="sprint-header-left">
+                        <span class="sprint-toggle${isOpen ? ' open' : ''}" id="sprint-toggle-${sprint.id}">&#9654;</span>
+                        <span class="sprint-id">${escapeHtml(sprint.id)}</span>
+                        <span class="sprint-title">${escapeHtml(sprint.title)}</span>
+                    </div>
+                    <div class="sprint-meta">
+                        ${readyBadge}
+                        ${failureBadge}
+                        ${statusBadge}
+                        <span class="sprint-progress">${doneCount}/${totalCount} tasks</span>
+                    </div>
+                </div>
+                <div class="sprint-body${isOpen ? ' open' : ''}" id="sprint-body-${sprint.id}">
+                    ${sprint.description ? `<div class="sprint-desc">${escapeHtml(sprint.description)}</div>` : ''}
+                    ${renderSprintToolbar(sprint, sprintTasks)}
+                    ${renderKanbanBoard(sprintTasks)}
+                </div>
+            </div>`;
+        }
+
+        // Tasks without sprint (if any)
+        if (orphanTasks.length > 0) {
+            const isOpen = expandedSprints['_orphan'] || false;
+            html += `<div class="sprint-section" style="border-color: var(--text-dim);">
+                <div class="sprint-header" onclick="toggleSprint('_orphan')">
+                    <div class="sprint-header-left">
+                        <span class="sprint-toggle${isOpen ? ' open' : ''}" id="sprint-toggle-_orphan">&#9654;</span>
+                        <span class="sprint-id" style="color:var(--text-dim);">—</span>
+                        <span class="sprint-title" style="color:var(--text-dim);">Tasks without sprint</span>
+                    </div>
+                    <div class="sprint-meta">
+                        <span class="sprint-progress">${orphanTasks.length} tasks</span>
+                    </div>
+                </div>
+                <div class="sprint-body${isOpen ? ' open' : ''}" id="sprint-body-_orphan">
+                    ${renderKanbanBoard(orphanTasks)}
+                </div>
+            </div>`;
+        }
+
+        wrap.innerHTML = html;
+
+        if (hasRunning) {
+            startRunningTasksTimer();
+        } else {
+            stopRunningTasksTimer();
+        }
+    } catch (e) {
+        wrap.innerHTML = '<div class="empty-state" style="color:var(--danger);">Error: ' + escapeHtml(e.message) + '</div>';
+    }
+}
+
+function renderKanbanBoard(tasks) {
+    const statuses = ['pending', 'in_progress', 'in_review', 'done', 'cancelled'];
+    const grouped = {};
+    statuses.forEach(s => grouped[s] = []);
+    tasks.forEach(t => {
+        if (grouped[t.status]) grouped[t.status].push(t);
+        else grouped['pending'].push(t);
+    });
+
+    let html = '<div class="tasks-columns">';
+    for (const status of statuses) {
+        const col = grouped[status];
+        html += `<div class="tasks-column col-${status}">
+            <div class="tasks-column-title">${STATUS_LABELS[status]} <span class="count">${col.length}</span></div>`;
+        for (const t of col) {
+            html += renderTaskCard(t);
+        }
+        html += '</div>';
+    }
+    html += '</div>';
+    return html;
+}
+
+function renderTaskCard(t) {
+    const isRunning = !!runningTasks[t.id];
+    const runInfo = runningTasks[t.id];
+    const next = STATUS_NEXT_ROLE[t.status];
+    let actionsHtml = '';
+    const isFinalize = t.is_finalize || false;
+
+    if (isRunning) {
+        actionsHtml += `<button class="btn sm running" disabled title="Agent ${escapeHtml(runInfo.agent || '?')} is running...">${escapeHtml(runInfo.agent || 'Agent')} thinking...</button>`;
+    } else if (next) {
+        const agentName = t[next.role] || '—';
+        const agentRuntime = getAgentRuntime(agentName);
+        const runtimeLabel = agentRuntime === 'cursor' ? 'Via Cursor CLI' : 'Via Claude API';
+        actionsHtml += `<button class="btn sm ${next.btnClass}" onclick="triggerTask('${t.id}','${agentRuntime}')" title="${runtimeLabel}">${escapeHtml(next.label)} (${escapeHtml(agentName)})</button>`;
+    }
+
+    if (!isRunning && t.status !== 'done' && t.status !== 'cancelled') {
+        actionsHtml += `<button class="btn sm danger" onclick="cancelTask('${t.id}')" title="Cancel task">Cancel</button>`;
+    }
+    if (!isRunning && t.status === 'in_review') {
+        actionsHtml += `<button class="btn sm" onclick="rejectTask('${t.id}')" title="Return to developer">Reject</button>`;
+    }
+
+    let resultHtml = '';
+    if (t.result) {
+        resultHtml = `<div class="task-card-result">${escapeHtml(t.result.slice(0, 200))}${t.result.length > 200 ? '...' : ''}</div>`;
+    }
+
+    // Dependencies
+    let depsHtml = '';
+    const deps = t.depends_on || [];
+    if (deps.length > 0) {
+        const depTags = deps.map(depId => {
+            const depTask = allTasks.find(x => x.id === depId);
+            const depStatus = depTask ? depTask.status : '?';
+            const depDone = depStatus === 'done';
+            const depColor = depDone ? 'color:var(--success)' : 'color:var(--warning)';
+            const icon = depDone ? '&#10003;' : '&#9679;';
+            return `<span class="dep-tag" style="${depColor}" title="${depId}: ${depStatus}">${icon} ${depId}</span>`;
+        }).join('');
+        depsHtml = `<div class="task-card-deps">Depends on: ${depTags}</div>`;
+    }
+
+    // Running badge
+    let runningBadgeHtml = '';
+    if (isRunning) {
+        const elapsed = runInfo.elapsed_seconds || 0;
+        const startedAt = runInfo.started_at || (Date.now() / 1000 - elapsed);
+        const runtimeIcon = runInfo.runtime === 'cursor' ? 'Cursor' : 'Claude';
+        runningBadgeHtml = `<div class="task-running-badge">
+            <div class="spinner"></div>
+            <span>${escapeHtml(runInfo.agent || '?')} · ${escapeHtml(runInfo.role || '')} · ${runtimeIcon}</span>
+            <span class="elapsed" data-started-at="${startedAt}">${formatElapsed(elapsed)}</span>
+        </div>`;
+    }
+
+    // Failure badge + retry button
+    let failureBadgeHtml = '';
+    const failures = taskFailures[t.id] || [];
+    if (failures.length > 0 && !isRunning) {
+        const latest = failures[failures.length - 1];
+        const errorType = escapeHtml(latest.error_type || 'unknown');
+        failureBadgeHtml = `<div style="display:flex; align-items:center; gap:8px; margin-top:4px;">
+            <span style="background:var(--danger); color:#fff; font-size:11px; padding:2px 8px; border-radius:4px; font-weight:600;">FAILED:${errorType}</span>
+            <button class="btn sm" style="font-size:11px; padding:2px 8px;" onclick="retryFailedTask('${t.id}')" title="Clear failure and re-trigger">Retry</button>
+        </div>`;
+    }
+
+    return `<div class="task-card${isRunning ? ' running' : ''}${isFinalize ? ' task-card-finalize' : ''}">
+        <div class="task-card-id">${escapeHtml(t.id)}${isFinalize ? ' · FINALIZE' : ''} · ${escapeHtml((t.updated_at || t.created_at || '').replace('T',' ').slice(0,16))}</div>
+        <div class="task-card-title">${escapeHtml(t.title)}</div>
+        ${t.description && !isFinalize ? `<div style="font-size:12px;color:var(--text-dim);margin-bottom:6px;">${escapeHtml(t.description.slice(0, 120))}${t.description.length > 120 ? '...' : ''}</div>` : ''}
+        <div class="task-card-roles">
+            <strong>Customer:</strong> ${escapeHtml(t.customer || '—')} &nbsp;
+            <strong>Developer:</strong> ${escapeHtml(t.developer || '—')} &nbsp;
+            <strong>Tester:</strong> ${escapeHtml(t.tester || '—')}
+        </div>
+        ${depsHtml}
+        ${resultHtml}
+        ${runningBadgeHtml}
+        ${failureBadgeHtml}
+        <div class="task-card-actions">${actionsHtml}</div>
+    </div>`;
+}
+
+async function triggerTask(taskId, runtime) {
+    if (runningTasks[taskId]) return;
+
+    const btn = event.target;
+    runningTasks[taskId] = {
+        agent: btn.textContent.match(/\(([^)]+)\)/)?.[1] || '?',
+        role: '',
+        runtime: runtime,
+        started_at: Date.now() / 1000,
+        elapsed_seconds: 0,
+        _local: true,
+    };
+    updateRunningTasksIndicator();
+    await refreshTasksBoardNew();
+
+    try {
+        const result = await api('POST', `/api/tasks-list/${taskId}/trigger`, { runtime });
+        if (result.agent) {
+            addChatMessage(result.agent, 'system', `Task ${taskId}: ${result.role}`);
+            if (result.result) {
+                addChatMessage(result.agent, 'agent', result.result);
+            }
+        }
+    } catch (e) {
+        console.error('triggerTask error:', e.message);
+        if (!e.message.includes('already running')) {
+            alert('Error: ' + e.message);
+        }
+    } finally {
+        delete runningTasks[taskId];
+        // Signal any waiting auto-run loops that a task slot freed up
+        const resolvers = _taskCompletionResolvers.splice(0);
+        resolvers.forEach(r => r());
+        if (document.getElementById('tasksBoardScreen').style.display !== 'none') {
+            await refreshTasksBoardNew();
+        }
+    }
+}
+
+async function cancelTask(taskId) {
+    if (!confirm(`Cancel task ${taskId}?`)) return;
+    try {
+        await api('PUT', `/api/tasks-list/${taskId}/status`, { status: 'cancelled' });
+        await refreshTasksBoardNew();
+    } catch (e) { alert('Error: ' + e.message); }
+}
+
+async function rejectTask(taskId) {
+    try {
+        await api('PUT', `/api/tasks-list/${taskId}/status`, { status: 'in_progress' });
+        await refreshTasksBoardNew();
+    } catch (e) { alert('Error: ' + e.message); }
+}
+
+async function retryFailedTask(taskId) {
+    // Resolve all unresolved failures for this task, then re-trigger
+    const failures = taskFailures[taskId] || [];
+    try {
+        await Promise.all(failures.map(f => api('DELETE', `/api/agent-failures/${f.id}`).catch(() => {})));
+        delete taskFailures[taskId];
+    } catch {}
+    // Determine runtime from the task's agent
+    const task = allTasks.find(t => t.id === taskId);
+    const next = task ? STATUS_NEXT_ROLE[task.status] : null;
+    const agentName = next ? (task[next.role] || '') : '';
+    const runtime = getAgentRuntime(agentName);
+    triggerTask(taskId, runtime);
+}
+
+// ── Sprint Auto-Run ────────────────────────────────────────────────────────
+
+function renderSprintToolbar(sprint, sprintTasks) {
+    // Only show toolbar for active sprints that have tasks
+    const nonFinalTasks = sprintTasks.filter(t => !t.is_finalize);
+    if (nonFinalTasks.length === 0) return '';
+
+    const isAutoRunning = sprintAutoRunState[sprint.id]?.running;
+    const doneCount = sprintTasks.filter(t => t.status === 'done' || t.status === 'cancelled').length;
+    const totalCount = sprintTasks.length;
+    const allDone = sprintTasks.every(t => t.status === 'done' || t.status === 'cancelled');
+
+    let btnHtml = '';
+    if (allDone && sprint.status === 'completed') {
+        btnHtml = `<span style="font-size:12px; color:var(--success); font-weight:600;">✓ Released ${sprint.version || ''}</span>`;
+    } else if (allDone) {
+        btnHtml = `<button class="btn sm success" onclick="event.stopPropagation(); showReleaseModal('${sprint.id}')">🚀 Release</button>`;
+    } else if (isAutoRunning) {
+        btnHtml = `<button class="btn sm auto-stop" onclick="event.stopPropagation(); stopSprintAutoRun('${sprint.id}')">⏹ Stop</button>`;
+        btnHtml += `<div class="auto-run-progress"><div class="spinner"></div><span>Auto-run: ${doneCount}/${totalCount} tasks done</span></div>`;
+    } else {
+        btnHtml = `<button class="btn sm auto-run" onclick="event.stopPropagation(); runAllSprintTasks('${sprint.id}')">▶ Run all sprint tasks</button>`;
+    }
+
+    // Ready to execute toggle (only for active sprints that aren't fully done)
+    let readyToggle = '';
+    if (sprint.status === 'active' && !allDone) {
+        const checked = sprint.ready_to_execute ? 'checked' : '';
+        readyToggle = `<label style="display:flex; align-items:center; gap:6px; cursor:pointer; margin-left:auto; font-size:12px; color:var(--text-dim);" onclick="event.stopPropagation();">
+            <input type="checkbox" ${checked} style="accent-color:var(--success); width:14px; height:14px;" onchange="toggleSprintReady('${sprint.id}', this.checked)">
+            Ready to execute
+        </label>`;
+    }
+
+    return `<div class="sprint-toolbar">${btnHtml}${readyToggle}</div>`;
+}
+
+async function toggleSprintReady(sprintId, ready) {
+    try {
+        await api('PUT', `/api/sprints/${sprintId}`, { ready_to_execute: ready });
+        // Update local cache
+        const sprint = allSprints.find(s => s.id === sprintId);
+        if (sprint) sprint.ready_to_execute = ready;
+        await refreshTasksBoardNew();
+    } catch (e) {
+        console.error('[toggleSprintReady] Error:', e);
+        alert('Error updating sprint: ' + e.message);
+    }
+}
+
+// ── Release Functions ───────────────────────────────────────────────────────
+
+async function showReleaseModal(sprintId) {
+    // Show modal with loading indicator
+    const loadingBody = `
+        <div style="text-align:center; padding:20px;">
+            <div class="spinner" style="margin:0 auto 16px;"></div>
+            <p>Checking release readiness...</p>
+        </div>
+    `;
+    openModal('🚀 Release', loadingBody, '');
+
+    try {
+        const releaseInfo = await api('GET', `/api/sprints/${sprintId}/release-ready`);
+
+        if (!releaseInfo.ready) {
+            const pendingIds = (releaseInfo.pending_tasks || []).map(t => t.id || t).join(', ');
+            closeModal();
+            alert('Not all tasks are done: ' + pendingIds);
+            return;
+        }
+
+        const sprint = allSprints.find(s => s.id === sprintId);
+        const sprintTitle = sprint?.title || sprintId;
+        const nextVersion = releaseInfo.next_version || 'v0.1.0';
+        const doneCount = releaseInfo.done_count || '?';
+
+        const body = `
+            <div style="display:flex; flex-direction:column; gap:16px;">
+                <div>
+                    <label style="font-size:12px; color:var(--text-dim);">Sprint</label>
+                    <p style="margin:4px 0; font-weight:600;">${escapeHtml(sprintId)} "${escapeHtml(sprintTitle)}"</p>
+                </div>
+                <div>
+                    <label style="font-size:12px; color:var(--text-dim);">Tasks done</label>
+                    <p style="margin:4px 0;">${doneCount}</p>
+                </div>
+                <div>
+                    <label style="font-size:12px; color:var(--text-dim);">Release version</label>
+                    <input type="text" id="releaseVersion" value="${escapeHtml(nextVersion)}" style="width:100%; margin-top:4px;">
+                </div>
+                <p style="font-size:12px; color:var(--text-dim); margin:0;">
+                    A commit with all changes, a version tag, and a push to GitHub will be created.
+                </p>
+            </div>
+        `;
+
+        openModal('🚀 Release', body,
+            `<button class="btn" onclick="closeModal()">Cancel</button>
+             <button class="btn success" onclick="executeRelease('${sprintId}')">Release</button>`);
+    } catch (e) {
+        closeModal();
+        alert('Readiness check error: ' + e.message);
+    }
+}
+
+async function executeRelease(sprintId) {
+    const versionInput = document.getElementById('releaseVersion');
+    const version = versionInput?.value?.trim();
+
+    document.getElementById('modalBody').innerHTML = `
+        <div style="text-align:center; padding:20px;">
+            <div class="spinner" style="margin:0 auto 16px;"></div>
+            <p>Creating release...</p>
+            <p style="font-size:12px; color:var(--text-dim); margin-top:8px;">Commit, tag, push to GitHub...</p>
+        </div>
+    `;
+    document.getElementById('modalActions').innerHTML = '';
+
+    try {
+        const result = await api('POST', '/api/git/release', {
+            sprint_id: sprintId,
+            version: version || undefined
+        });
+
+        closeModal();
+
+        if (result.success) {
+            const successMsg = `🚀 Release ${result.version} published!\nCommit: ${result.commit || 'created'}\nTag: ${result.tag_created ? 'created' : 'no'}`;
+            alert(successMsg);
+
+            await Promise.all([
+                refreshTasksBoardNew(),
+                loadSprints(),
+                loadGitStatus()
+            ]);
+        } else {
+            alert('Release error: ' + (result.error || result.message || 'Unknown error'));
+        }
+    } catch (e) {
+        closeModal();
+        alert('Error: ' + e.message);
+    }
+}
+
+async function triggerTaskAutoRun(taskId, runtime) {
+    if (runningTasks[taskId]) return;
+
+    const task = allTasks.find(t => t.id === taskId);
+    if (!task) return;
+    const next = STATUS_NEXT_ROLE[task.status];
+    if (!next) return;
+    const agentName = task[next.role] || '?';
+
+    runningTasks[taskId] = {
+        agent: agentName,
+        role: next.label || '',
+        runtime: runtime,
+        started_at: Date.now() / 1000,
+        elapsed_seconds: 0,
+        _local: true,
+    };
+    updateRunningTasksIndicator();
+
+    try {
+        const result = await api('POST', `/api/tasks-list/${taskId}/trigger`, { runtime });
+        if (result.agent && result.result) {
+            addChatMessage(result.agent, 'system', `Task ${taskId}: ${result.role}`);
+            addChatMessage(result.agent, 'agent', result.result);
+        }
+    } catch (e) {
+        console.error(`[AutoRun] triggerTask ${taskId} error:`, e.message);
+        // Mark task as failed in local cache for sprint loop awareness
+        if (!taskFailures[taskId]) taskFailures[taskId] = [];
+        taskFailures[taskId].push({ task_id: taskId, error_type: 'autorun', message: e.message });
+    } finally {
+        delete runningTasks[taskId];
+        updateRunningTasksIndicator();
+        // Signal any waiting loops that a task slot freed up
+        const resolvers = _taskCompletionResolvers.splice(0);
+        resolvers.forEach(r => r());
+    }
+}
+
+async function runAllSprintTasks(sprintId) {
+    if (sprintAutoRunState[sprintId]?.running) return;
+
+    const maxConcurrent = parseInt(document.getElementById('maxConcurrentInput')?.value) || 5;
+    sprintAutoRunState[sprintId] = { running: true, cancelled: false };
+    const failedTaskIds = new Set();  // Track tasks that failed during this run
+
+    // Expand this sprint so user sees progress
+    expandedSprints[sprintId] = true;
+    await refreshTasksBoardNew();
+
+    console.log(`[AutoRun] Starting sprint ${sprintId}, maxConcurrent=${maxConcurrent}`);
+
+    try {
+        while (!sprintAutoRunState[sprintId]?.cancelled) {
+            // Refresh all tasks from server
+            const tasksData = await api('GET', '/api/tasks-list');
+            const allTasksFresh = tasksData.tasks || [];
+            allTasks = allTasksFresh; // update global cache
+
+            // Refresh failures cache
+            try {
+                const fData = await api('GET', '/api/agent-failures?resolved=false');
+                taskFailures = {};
+                for (const f of (fData.failures || [])) {
+                    if (!taskFailures[f.task_id]) taskFailures[f.task_id] = [];
+                    taskFailures[f.task_id].push(f);
+                    failedTaskIds.add(f.task_id);
+                }
+            } catch {}
+
+            const sprintTasks = allTasksFresh.filter(t => t.sprint_id === sprintId);
+
+            // Check if all tasks are done
+            const allDone = sprintTasks.every(t =>
+                t.status === 'done' || t.status === 'cancelled'
+            );
+            if (allDone) {
+                console.log(`[AutoRun] Sprint ${sprintId}: all tasks done!`);
+                break;
+            }
+
+            // Find actionable tasks (not finished)
+            const actionable = sprintTasks.filter(t =>
+                ['pending', 'in_progress', 'in_review'].includes(t.status)
+            );
+
+            if (actionable.length === 0) break;
+
+            // Find ready tasks: not currently running, dependencies met, have valid next step
+            const ready = actionable.filter(t => {
+                // Skip already running
+                if (runningTasks[t.id]) return false;
+
+                // Skip tasks with unresolved failures (don't retry automatically)
+                if (taskFailures[t.id] && taskFailures[t.id].length > 0) return false;
+
+                // Must have a valid next step
+                const next = STATUS_NEXT_ROLE[t.status];
+                if (!next) return false;
+
+                // For 'pending' tasks, check all dependencies are done
+                if (t.status === 'pending') {
+                    const deps = t.depends_on || [];
+                    return deps.every(depId => {
+                        const depTask = allTasksFresh.find(x => x.id === depId);
+                        return depTask && (depTask.status === 'done' || depTask.status === 'cancelled');
+                    });
+                }
+
+                // in_progress and in_review are always ready to continue
+                return true;
+            });
+
+            // Sort by task number (lower number = higher priority)
+            ready.sort((a, b) => {
+                const numA = parseInt(a.id.replace(/\D/g, ''));
+                const numB = parseInt(b.id.replace(/\D/g, ''));
+                return numA - numB;
+            });
+
+            // Calculate available slots
+            const currentRunning = Object.keys(runningTasks).length;
+            const slots = Math.max(0, maxConcurrent - currentRunning);
+            const batch = ready.slice(0, slots);
+
+            console.log(`[AutoRun] Sprint ${sprintId}: actionable=${actionable.length}, ready=${ready.length}, running=${currentRunning}, slots=${slots}, batch=${batch.length}, failed=${failedTaskIds.size}`);
+
+            if (batch.length === 0) {
+                if (currentRunning > 0) {
+                    // Wait for ANY running task to complete (event-driven, not polling)
+                    await new Promise(r => {
+                        _taskCompletionResolvers.push(r);
+                        // Safety fallback: don't wait more than 500ms
+                        setTimeout(r, 500);
+                    });
+                    await refreshTasksBoardNew();
+                    continue;
+                }
+                // Nothing running and nothing ready - stuck (deps block or error)
+                console.warn(`[AutoRun] Sprint ${sprintId}: no tasks ready and nothing running. Stopping.`);
+                break;
+            }
+
+            // Update board to show running state
+            await refreshTasksBoardNew();
+
+            // Fire-and-forget: launch batch tasks without waiting for all to complete.
+            // Each task clears its runningTasks entry on completion and signals the loop.
+            batch.forEach(t => {
+                const next = STATUS_NEXT_ROLE[t.status];
+                const agentName = t[next.role] || '';
+                const runtime = getAgentRuntime(agentName);
+                triggerTaskAutoRun(t.id, runtime);
+            });
+
+            // Wait for ANY task in the batch to complete before re-evaluating
+            await new Promise(r => {
+                _taskCompletionResolvers.push(r);
+            });
+
+            // Refresh board after a task completes
+            await refreshTasksBoardNew();
+        }
+    } catch (e) {
+        console.error('[AutoRun] Error:', e);
+    } finally {
+        const wasCancelled = sprintAutoRunState[sprintId]?.cancelled;
+        delete sprintAutoRunState[sprintId];
+        await refreshTasksBoardNew();
+        // Summary
+        if (failedTaskIds.size > 0) {
+            const failList = [...failedTaskIds].join(', ');
+            console.warn(`[AutoRun] Sprint ${sprintId} finished with ${failedTaskIds.size} failed task(s): ${failList}`);
+            addSystemMessage(`Sprint ${sprintId} auto-run finished. ${failedTaskIds.size} task(s) failed: ${failList}`);
+        } else {
+            console.log(`[AutoRun] Sprint ${sprintId} finished. ${wasCancelled ? '(cancelled)' : '(complete)'}`);
+        }
+    }
+}
+
+function stopSprintAutoRun(sprintId) {
+    if (sprintAutoRunState[sprintId]) {
+        sprintAutoRunState[sprintId].cancelled = true;
+        console.log(`[AutoRun] Sprint ${sprintId}: cancel requested`);
+    }
+}
+
+// ── Create Sprint Modal ────────────────────────────────────────────────────
+
+function showCreateSprintModal() {
+    const body = `
+        <label>Sprint name</label>
+        <input type="text" id="newSprintTitle" placeholder="e.g.: MVP, Sprint 4 — Voiceover">
+        <label>Description</label>
+        <textarea id="newSprintDesc" rows="3" placeholder="Sprint goal, key tasks (optional)"></textarea>
+        <label style="display:flex; align-items:center; gap:8px; margin-top:8px; cursor:pointer;">
+            <input type="checkbox" id="newSprintReady" style="accent-color:var(--accent); width:16px; height:16px;">
+            <span style="font-size:13px; color:var(--text);">Ready to execute</span>
+        </label>
+    `;
+    openModal('Create sprint', body,
+        `<button class="btn" onclick="closeModal()">Cancel</button>
+         <button class="btn primary" onclick="createSprintFromModal()">Create</button>`);
+}
+
+async function createSprintFromModal() {
+    const title = document.getElementById('newSprintTitle').value.trim();
+    if (!title) { alert('Enter sprint name'); return; }
+    const data = {
+        title,
+        description: document.getElementById('newSprintDesc').value.trim(),
+        created_by: 'boss',
+        ready_to_execute: document.getElementById('newSprintReady').checked,
+    };
+    try {
+        const sprint = await api('POST', '/api/sprints', data);
+        closeModal();
+        // Automatically expand new sprint
+        expandedSprints[sprint.id] = true;
+        await refreshTasksBoardNew();
+        addSystemMessage(`Sprint ${sprint.id} created: ${sprint.title}`);
+    } catch (e) { alert('Error: ' + e.message); }
+}
+
+// ── Create Task Modal ──────────────────────────────────────────────────────
+
+function showCreateTaskModal() {
+    const empOptions = Object.keys(employees).map(n => `<option value="${n}">${n} — ${escapeHtml(employees[n].role || '')}</option>`).join('');
+    const sprintOptions = '<option value="">— no sprint —</option>' +
+        allSprints.filter(s => s.status === 'active').map(s =>
+            `<option value="${s.id}">${s.id} — ${escapeHtml(s.title)}</option>`
+        ).join('');
+    const taskOptions = allTasks.map(t =>
+        `<option value="${t.id}">${t.id} — ${escapeHtml(t.title.slice(0, 50))}</option>`
+    ).join('');
+
+    const body = `
+        <label>Sprint</label>
+        <select id="newTaskSprint">${sprintOptions}</select>
+        <label>Title</label>
+        <input type="text" id="newTaskTitle" placeholder="Brief task name">
+        <label>Description</label>
+        <textarea id="newTaskDesc" rows="3" placeholder="Detailed description (optional)"></textarea>
+        <label>Customer</label>
+        <select id="newTaskCustomer">${empOptions}</select>
+        <label>Developer</label>
+        <select id="newTaskDeveloper">${empOptions}</select>
+        <label>Tester</label>
+        <select id="newTaskTester">${empOptions}</select>
+        <label>Depends on tasks (Ctrl+Click for multiple selection)</label>
+        <select id="newTaskDeps" multiple size="4" style="min-height:80px;">${taskOptions}</select>
+    `;
+    openModal('Create task', body,
+        `<button class="btn" onclick="closeModal()">Cancel</button>
+         <button class="btn primary" onclick="createTaskFromModal()">Create</button>`);
+}
+
+async function createTaskFromModal() {
+    const title = document.getElementById('newTaskTitle').value.trim();
+    if (!title) { alert('Enter title'); return; }
+    const depsSelect = document.getElementById('newTaskDeps');
+    const depends_on = Array.from(depsSelect.selectedOptions).map(o => o.value);
+    const data = {
+        title,
+        description: document.getElementById('newTaskDesc').value.trim(),
+        customer: document.getElementById('newTaskCustomer').value,
+        developer: document.getElementById('newTaskDeveloper').value,
+        tester: document.getElementById('newTaskTester').value,
+        sprint_id: document.getElementById('newTaskSprint').value,
+        depends_on: depends_on.length > 0 ? depends_on : undefined,
+    };
+    try {
+        const task = await api('POST', '/api/tasks-list', data);
+        closeModal();
+        // Expand sprint where task was added
+        if (task.sprint_id) expandedSprints[task.sprint_id] = true;
+        await refreshTasksBoardNew();
+        addSystemMessage(`Task ${task.id} created: ${task.title}`);
+    } catch (e) { alert('Error: ' + e.message); }
+}
+
+function showCreateBacklogModal() {
+    const sprintOptions = '<option value="">— no sprint —</option>' +
+        allSprints.filter(s => s.status === 'active').map(s =>
+            `<option value="${s.id}">${s.id} — ${escapeHtml(s.title)}</option>`
+        ).join('');
+
+    const body = `
+        <label>Sprint for all backlog tasks</label>
+        <select id="backlogSprint">${sprintOptions}</select>
+        <p style="font-size:13px;color:var(--text-dim);margin-bottom:12px; margin-top:12px;">
+            Paste a JSON array of tasks. Each task: { "title", "description", "customer", "developer", "tester" }.
+            The sprint_id field will be added automatically from the selected sprint.
+        </p>
+        <textarea id="backlogJson" rows="12" style="font-family:var(--mono); font-size:12px;" placeholder='[
+  {
+    "title": "Task name",
+    "description": "Description",
+    "customer": "boss",
+    "developer": "developer_frontend",
+    "tester": "qa_tester"
+  }
+]'></textarea>
+    `;
+    openModal('Create backlog', body,
+        `<button class="btn" onclick="closeModal()">Cancel</button>
+         <button class="btn primary" onclick="createBacklogFromModal()">Create</button>`);
+}
+
+async function createBacklogFromModal() {
+    const text = document.getElementById('backlogJson').value.trim();
+    const sprintId = document.getElementById('backlogSprint').value;
+    let tasks;
+    try { tasks = JSON.parse(text); } catch { alert('Invalid JSON'); return; }
+    if (!Array.isArray(tasks) || tasks.length === 0) { alert('Non-empty array of tasks required'); return; }
+    // Add sprint_id to all tasks
+    if (sprintId) {
+        tasks = tasks.map(t => ({ ...t, sprint_id: sprintId }));
+    }
+    try {
+        const result = await api('POST', '/api/tasks-list', { tasks });
+        closeModal();
+        if (sprintId) expandedSprints[sprintId] = true;
+        await refreshTasksBoardNew();
+        addSystemMessage(`Created ${result.count} tasks`);
+    } catch (e) { alert('Error: ' + e.message); }
+}
+
+// ── Backlog Functions ──────────────────────────────────────────────────────
+
+let allBacklogItems = [];
+
+function showBacklogScreen() {
+    hideAllScreens();
+    document.getElementById('backlogScreen').style.display = 'flex';
+    refreshBacklog();
+}
+
+async function refreshBacklog() {
+    const container = document.getElementById('backlogContainer');
+    container.innerHTML = '<div class="empty-state">Loading...</div>';
+
+    try {
+        // Get filters
+        const priority = document.getElementById('backlogFilterPriority').value;
+        const nextSprintOnly = document.getElementById('backlogFilterNextSprint').checked;
+
+        // Build query params
+        const params = new URLSearchParams();
+        if (priority) params.append('priority', priority);
+        if (nextSprintOnly) params.append('next_sprint', 'true');
+
+        const data = await api('GET', `/api/backlog?${params.toString()}`);
+        allBacklogItems = data.items || [];
+
+        // Sort: priority (high -> medium -> low), then by date (newest first)
+        const priorityOrder = { high: 0, medium: 1, low: 2 };
+        allBacklogItems.sort((a, b) => {
+            const pDiff = priorityOrder[a.priority] - priorityOrder[b.priority];
+            if (pDiff !== 0) return pDiff;
+            return new Date(b.created_at) - new Date(a.created_at);
+        });
+
+        // Always show the + card first, then other cards
+        const cards = [renderAddNewCard(), ...allBacklogItems.map(item => renderBacklogCard(item))];
+        container.innerHTML = cards.join('');
+    } catch (e) {
+        container.innerHTML = `<div class="empty-state">⚠️ Load error: ${escapeHtml(e.message)}</div>`;
+    }
+}
+
+function renderBacklogCard(item) {
+    const priorityClass = item.priority || 'medium';
+    const nextSprintClass = item.next_sprint ? 'next-sprint' : '';
+
+    return `
+        <div class="backlog-card priority-${priorityClass} ${nextSprintClass}" onclick="startEditBacklogItem('${item.id}')">
+            <div class="backlog-card-description">${escapeHtml(item.description || item.title || '')}</div>
+            <div class="backlog-card-footer">
+                <div class="backlog-card-meta">
+                    ${item.created_by ? `${escapeHtml(item.created_by)} • ` : ''}${formatDate(item.created_at)}
+                </div>
+                <div class="backlog-card-actions">
+                    <label class="backlog-next-sprint-toggle ${item.next_sprint ? 'active' : ''}"
+                           onclick="toggleBacklogNextSprint('${item.id}', event)">
+                        <input type="checkbox" ${item.next_sprint ? 'checked' : ''} onclick="event.stopPropagation()">
+                        🚀
+                    </label>
+                    <button class="btn icon danger" onclick="deleteBacklogItem('${item.id}'); event.stopPropagation()" title="Delete">🗑️</button>
+                </div>
+            </div>
+        </div>
+    `;
+}
+
+function renderAddNewCard() {
+    return `
+        <div class="backlog-card add-new" onclick="startCreateBacklogItem()">
+            <div class="add-new-content">
+                <div class="add-new-icon">+</div>
+                <div class="add-new-text">Add entry</div>
+            </div>
+        </div>
+    `;
+}
+
+function showCreateBacklogItemModal() {
+    const body = `
+        <label>Title <span style="color:var(--danger);">*</span></label>
+        <input type="text" id="backlogItemTitle" placeholder="Brief task name">
+
+        <label>Description</label>
+        <textarea id="backlogItemDescription" rows="4" placeholder="Detailed task description"></textarea>
+
+        <label>Priority</label>
+        <select id="backlogItemPriority">
+            <option value="low">Low</option>
+            <option value="medium" selected>Medium</option>
+            <option value="high">High</option>
+        </select>
+
+        <label style="display:flex; align-items:center; gap:8px; cursor:pointer; margin-top:12px;">
+            <input type="checkbox" id="backlogItemNextSprint" style="accent-color:var(--success);">
+            <span>🚀 Add to next sprint</span>
+        </label>
+    `;
+
+    openModal('Add to backlog', body,
+        `<button class="btn" onclick="closeModal()">Cancel</button>
+         <button class="btn primary" onclick="createBacklogItem()">Create</button>`);
+}
+
+async function createBacklogItem() {
+    const title = document.getElementById('backlogItemTitle').value.trim();
+    const description = document.getElementById('backlogItemDescription').value.trim();
+    const priority = document.getElementById('backlogItemPriority').value;
+    const nextSprint = document.getElementById('backlogItemNextSprint').checked;
+
+    if (!title) {
+        alert('Enter title');
+        return;
+    }
+
+    try {
+        await api('POST', '/api/backlog', {
+            title,
+            description,
+            priority,
+            next_sprint: nextSprint,
+            created_by: 'boss'  // TODO: use current user
+        });
+        closeModal();
+        await refreshBacklog();
+        addSystemMessage(`Backlog entry created: ${title}`);
+    } catch (e) {
+        alert('Error: ' + e.message);
+    }
+}
+
+function showEditBacklogItemModal(itemId) {
+    const item = allBacklogItems.find(i => i.id === itemId);
+    if (!item) {
+        alert('Entry not found');
+        return;
+    }
+
+    const body = `
+        <label>Title <span style="color:var(--danger);">*</span></label>
+        <input type="text" id="editBacklogItemTitle" value="${escapeHtml(item.title)}">
+
+        <label>Description</label>
+        <textarea id="editBacklogItemDescription" rows="4">${escapeHtml(item.description || '')}</textarea>
+
+        <label>Priority</label>
+        <select id="editBacklogItemPriority">
+            <option value="low" ${item.priority === 'low' ? 'selected' : ''}>Low</option>
+            <option value="medium" ${item.priority === 'medium' ? 'selected' : ''}>Medium</option>
+            <option value="high" ${item.priority === 'high' ? 'selected' : ''}>High</option>
+        </select>
+
+        <label style="display:flex; align-items:center; gap:8px; cursor:pointer; margin-top:12px;">
+            <input type="checkbox" id="editBacklogItemNextSprint" ${item.next_sprint ? 'checked' : ''} style="accent-color:var(--success);">
+            <span>🚀 Add to next sprint</span>
+        </label>
+    `;
+
+    openModal('Edit entry', body,
+        `<button class="btn" onclick="closeModal()">Cancel</button>
+         <button class="btn primary" onclick="updateBacklogItem('${itemId}')">Save</button>`);
+}
+
+async function updateBacklogItem(itemId) {
+    const title = document.getElementById('editBacklogItemTitle').value.trim();
+    const description = document.getElementById('editBacklogItemDescription').value.trim();
+    const priority = document.getElementById('editBacklogItemPriority').value;
+    const nextSprint = document.getElementById('editBacklogItemNextSprint').checked;
+
+    if (!title) {
+        alert('Enter title');
+        return;
+    }
+
+    try {
+        await api('PUT', `/api/backlog/${itemId}`, {
+            title,
+            description,
+            priority,
+            next_sprint: nextSprint
+        });
+        closeModal();
+        await refreshBacklog();
+        addSystemMessage(`Entry ${itemId} updated`);
+    } catch (e) {
+        alert('Error: ' + e.message);
+    }
+}
+
+// Inline editing
+function startEditBacklogItem(itemId) {
+    const item = allBacklogItems.find(i => i.id === itemId);
+    if (!item) return;
+
+    const card = event.currentTarget;
+    const originalHTML = card.innerHTML;
+
+    card.classList.add('editing');
+    card.onclick = null;
+
+    card.innerHTML = `
+        <textarea id="editInlineDescription" rows="6">${escapeHtml(item.description || item.title || '')}</textarea>
+        <div class="backlog-edit-actions">
+            <button class="btn primary" onclick="saveInlineEdit('${itemId}')">Save</button>
+            <button class="btn" onclick="cancelInlineEdit('${itemId}')">Cancel</button>
+            <button class="btn icon danger" onclick="deleteBacklogItem('${itemId}')" title="Delete">🗑️</button>
+        </div>
+    `;
+
+    const textarea = card.querySelector('textarea');
+    textarea.focus();
+    textarea.setSelectionRange(textarea.value.length, textarea.value.length);
+
+    // Save original HTML for cancel
+    card.dataset.originalHtml = originalHTML;
+    card.dataset.itemId = itemId;
+
+    // Ctrl+Enter to save, Esc to cancel
+    textarea.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape') {
+            cancelInlineEdit(itemId);
+        } else if (e.ctrlKey && e.key === 'Enter') {
+            saveInlineEdit(itemId);
+        }
+    });
+}
+
+async function saveInlineEdit(itemId) {
+    const card = document.querySelector(`[data-item-id="${itemId}"]`);
+    if (!card) return;
+
+    const textarea = card.querySelector('textarea');
+    const description = textarea.value.trim();
+
+    if (!description) {
+        alert('Enter description');
+        return;
+    }
+
+    const item = allBacklogItems.find(i => i.id === itemId);
+
+    try {
+        await api('PUT', `/api/backlog/${itemId}`, {
+            title: item.title || description.substring(0, 50),
+            description: description,
+            priority: item.priority,
+            next_sprint: item.next_sprint
+        });
+        await refreshBacklog();
+        addSystemMessage(`Entry ${itemId} updated`);
+    } catch (e) {
+        alert('Error: ' + e.message);
+        cancelInlineEdit(itemId);
+    }
+}
+
+function cancelInlineEdit(itemId) {
+    const card = document.querySelector(`[data-item-id="${itemId}"]`);
+    if (!card) return;
+
+    card.classList.remove('editing');
+    card.innerHTML = card.dataset.originalHtml;
+    delete card.dataset.originalHtml;
+    delete card.dataset.itemId;
+
+    // Restore click handler
+    card.onclick = () => startEditBacklogItem(itemId);
+}
+
+// Inline creation
+function startCreateBacklogItem() {
+    const addCard = document.querySelector('.backlog-card.add-new');
+    if (!addCard) return;
+
+    addCard.classList.add('editing');
+    addCard.onclick = null;
+
+    addCard.innerHTML = `
+        <textarea id="createInlineDescription" rows="6" placeholder="Task description..."></textarea>
+        <div class="backlog-edit-actions">
+            <button class="btn primary" onclick="saveInlineCreate()">Create</button>
+            <button class="btn" onclick="cancelInlineCreate()">Cancel</button>
+        </div>
+    `;
+
+    const textarea = addCard.querySelector('textarea');
+    textarea.focus();
+
+    // Ctrl+Enter to create, Esc to cancel
+    textarea.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape') {
+            cancelInlineCreate();
+        } else if (e.ctrlKey && e.key === 'Enter') {
+            saveInlineCreate();
+        }
+    });
+}
+
+async function saveInlineCreate() {
+    const textarea = document.getElementById('createInlineDescription');
+    const description = textarea.value.trim();
+
+    if (!description) {
+        alert('Enter description');
+        return;
+    }
+
+    try {
+        await api('POST', '/api/backlog', {
+            title: description.substring(0, 50),
+            description: description,
+            priority: 'medium',
+            next_sprint: false
+        });
+        await refreshBacklog();
+        addSystemMessage('New backlog item added');
+    } catch (e) {
+        alert('Error: ' + e.message);
+        cancelInlineCreate();
+    }
+}
+
+function cancelInlineCreate() {
+    const addCard = document.querySelector('.backlog-card.add-new');
+    if (!addCard) return;
+
+    addCard.classList.remove('editing');
+    addCard.innerHTML = `
+        <div class="add-new-content">
+            <div class="add-new-icon">+</div>
+            <div class="add-new-text">Add entry</div>
+        </div>
+    `;
+    addCard.onclick = startCreateBacklogItem;
+}
+
+async function deleteBacklogItem(itemId) {
+    const item = allBacklogItems.find(i => i.id === itemId);
+    const title = item ? item.title : itemId;
+
+    if (!confirm(`Delete entry "${title}"?`)) {
+        return;
+    }
+
+    try {
+        await api('DELETE', `/api/backlog/${itemId}`);
+        await refreshBacklog();
+        addSystemMessage(`Entry ${itemId} deleted`);
+    } catch (e) {
+        alert('Error: ' + e.message);
+    }
+}
+
+async function toggleBacklogNextSprint(itemId, event) {
+    event.preventDefault();
+    event.stopPropagation();
+
+    try {
+        await api('POST', `/api/backlog/${itemId}/toggle`);
+        await refreshBacklog();
+    } catch (e) {
+        alert('Error: ' + e.message);
+    }
+}
+
+// ── Old Tasks Board (tasks.md) ─────────────────────────────────────────────
+
+function showOldTasksBoard() {
+    hideAllScreens();
+    document.getElementById('tasksScreen').style.display = 'flex';
+    refreshOldTasksBoard();
+}
+
+async function refreshOldTasksBoard() {
+    const el = document.getElementById('oldTasksBoardContent');
+    el.textContent = 'Loading...';
+    try {
+        const data = await api('GET', '/api/tasks');
+        el.textContent = data.content || '';
+    } catch (e) { el.textContent = 'Error: ' + e.message; }
+}
+
+// ── Ensure Agents ──────────────────────────────────────────────────────────
+
+async function ensureAgents() {
+    addSystemMessage('Checking agents...');
+    try {
+        const result = await api('POST', '/api/ensure-agents');
+        for (const r of result.results) {
+            addSystemMessage(`Agent "${r.agent}": ${r.status}`, r.status === 'error');
+        }
+        await loadAgents();
+    } catch (e) { addSystemMessage('Error: ' + e.message, true); }
+}
+
+async function killAllAgents() {
+    addSystemMessage('Deleting all agents...');
+    try {
+        const result = await api('POST', '/api/kill-agents?stop_server=false');
+        addSystemMessage('All agents deleted. Use \'Provision agents\' to restore.');
+        await loadAgents();
+    } catch (e) {
+        addSystemMessage('Error deleting agents: ' + e.message, true);
+    }
+}
+
+async function createCursorChats() {
+    addSystemMessage('Creating Cursor chats...');
+    try {
+        const result = await api('POST', '/api/cursor-create-chats');
+        for (const r of result.results || []) {
+            if (r.created && r.chat_id) addSystemMessage(`Cursor chat "${r.agent}": ${r.chat_id}`);
+            else if (r.chat_id) addSystemMessage(`Chat "${r.agent}" already exists`);
+            else addSystemMessage(`"${r.agent}": ${r.error || 'not created'}`, true);
+        }
+    } catch (e) { addSystemMessage('Error: ' + e.message, true); }
+}
+
+// ── Running tasks header indicator ─────────────────────────────────────────
+
+function updateRunningTasksIndicator() {
+    const count = Object.keys(runningTasks).length;
+    const el = document.getElementById('runningTasksIndicator');
+    const countEl = document.getElementById('runningTasksCount');
+    if (count > 0) {
+        el.style.display = 'flex';
+        countEl.textContent = count;
+    } else {
+        el.style.display = 'none';
+    }
+}
+
+// Global polling of running tasks (not only when board is visible)
+let globalRunningPollTimer = null;
+
+function startGlobalRunningPoll() {
+    if (globalRunningPollTimer) return;
+    globalRunningPollTimer = setInterval(async () => {
+        await fetchRunningTasks();
+        updateRunningTasksIndicator();
+    }, 1000);
+}
+
+// ── Auto-launch sprints loop ────────────────────────────────────────────────
+
+let autoLaunchTimer = null;
+let autoLaunchRunning = {};  // { sprintId: true } — sprints currently being auto-launched
+
+function startAutoLaunchLoop() {
+    if (autoLaunchTimer) return;
+    console.log('[AutoLaunch] Loop started');
+    autoLaunchTimer = setInterval(checkAndAutoLaunchReadySprints, 10000);
+    // Run immediately on start too
+    checkAndAutoLaunchReadySprints();
+}
+
+function stopAutoLaunchLoop() {
+    if (autoLaunchTimer) {
+        clearInterval(autoLaunchTimer);
+        autoLaunchTimer = null;
+        console.log('[AutoLaunch] Loop stopped');
+    }
+}
+
+async function checkAndAutoLaunchReadySprints() {
+    try {
+        const sprintsData = await api('GET', '/api/sprints');
+        const sprints = sprintsData.sprints || [];
+        for (const sprint of sprints) {
+            if (
+                sprint.ready_to_execute &&
+                sprint.status === 'active' &&
+                !autoLaunchRunning[sprint.id] &&
+                !sprintAutoRunState[sprint.id]?.running
+            ) {
+                console.log(`[AutoLaunch] Launching sprint ${sprint.id}: ${sprint.title}`);
+                autoLaunchRunning[sprint.id] = true;
+                // Fire and forget — runAllSprintTasks handles its own lifecycle
+                runAllSprintTasks(sprint.id).finally(() => {
+                    delete autoLaunchRunning[sprint.id];
+                });
+            }
+        }
+    } catch (e) {
+        console.error('[AutoLaunch] Error checking sprints:', e);
+    }
+}
+
+// ── Git Functions ───────────────────────────────────────────────────────────
+
+let gitStatus = null;
+let gitHistoryExpanded = false;
+let gitAutoRefreshTimer = null;
+
+async function loadGitStatus() {
+    const container = document.getElementById('gitStatusContainer');
+
+    // Update indicator in header
+    updateGitHeaderIndicator('loading');
+
+    try {
+        const data = await api('GET', '/api/git/status');
+        console.log('git status response:', data);
+        gitStatus = data;
+
+        // Check initialized: false (Git not initialized)
+        if (data && data.initialized === false) {
+            updateGitHeaderIndicator('not_initialized', data);
+            if (container) renderGitUnavailable(data.message || 'Git not initialized');
+            return;
+        }
+
+        // Git initialized — show status
+        if (container) renderGitSection(data);
+        updateGitHeaderIndicator('success', data);
+    } catch (e) {
+        console.warn('Git unavailable:', e.message);
+        if (container) renderGitUnavailable(e.message);
+        updateGitHeaderIndicator('error', null, e.message);
+    }
+}
+
+// Updates git status indicator in header
+function updateGitHeaderIndicator(state, data = null, errorMsg = null) {
+    const branchEl = document.getElementById('gitBranchHeader');
+    const dotEl = document.getElementById('gitDotHeader');
+    const indicator = document.getElementById('gitStatusIndicator');
+    const initBtn = document.getElementById('gitInitBtnHeader');
+
+    if (!branchEl || !dotEl || !indicator) return;
+
+    // Hide Init button by default
+    if (initBtn) initBtn.style.display = 'none';
+
+    switch(state) {
+        case 'loading':
+            branchEl.textContent = '...';
+            dotEl.className = 'git-dot loading';
+            indicator.title = 'Loading git status...';
+            break;
+
+        case 'not_initialized':
+            branchEl.textContent = 'No Git';
+            dotEl.className = 'git-dot warning';
+            indicator.title = 'Git not initialized. Click Init to initialize.';
+            if (initBtn) initBtn.style.display = 'inline-block';
+            break;
+
+        case 'success':
+            if (data) {
+                const branchName = data.branch || '(no commits)';
+                branchEl.textContent = branchName;
+                const stagedCount = (data.staged || []).length;
+                const unstagedCount = (data.unstaged || []).length;
+                const untrackedCount = (data.untracked || []).length;
+                const hasChanges = stagedCount + unstagedCount + untrackedCount > 0;
+
+                dotEl.className = 'git-dot ' + (hasChanges ? 'dirty' : 'clean');
+
+                // Build tooltip
+                let tooltip = `Branch: ${branchName}\n`;
+                if (hasChanges) {
+                    if (stagedCount > 0) tooltip += `Staged: ${stagedCount} file(s)\n`;
+                    if (unstagedCount > 0) tooltip += `Modified: ${unstagedCount} file(s)\n`;
+                    if (untrackedCount > 0) tooltip += `Untracked: ${untrackedCount} file(s)`;
+                } else {
+                    tooltip += 'No local changes';
+                }
+                indicator.title = tooltip.trim();
+            } else {
+                // Fallback: no data
+                updateGitHeaderIndicator('not_initialized');
+                return;
+            }
+            break;
+
+        case 'error':
+            branchEl.textContent = '—';
+            dotEl.className = 'git-dot error';
+            indicator.title = errorMsg || 'Error getting git status';
+            break;
+    }
+}
+
+// Show toast notification for git operations
+function showGitToast(message, type = 'error') {
+    // Remove previous toast if exists
+    const existing = document.querySelector('.git-toast');
+    if (existing) existing.remove();
+
+    const toast = document.createElement('div');
+    toast.className = `git-toast ${type}`;
+    toast.textContent = message;
+    document.body.appendChild(toast);
+
+    // Auto-remove after 5 seconds
+    setTimeout(() => toast.remove(), 5000);
+}
+
+function renderGitUnavailable(message = 'Git unavailable') {
+    const container = document.getElementById('gitStatusContainer');
+    if (!container) return;
+
+    // Check if this is an error "Git not initialized"
+    // Also check JSON response {"initialized": false}
+    const lowerMsg = message.toLowerCase();
+    const isNotInitialized = lowerMsg.includes('initialized') ||
+                              lowerMsg.includes('not a git') ||
+                              lowerMsg.includes('not initialized') ||
+                              lowerMsg.includes('"initialized"') ||
+                              lowerMsg.includes('not git') ||
+                              lowerMsg.includes('repository') ||
+                              lowerMsg.includes('false');
+
+    if (isNotInitialized) {
+        container.innerHTML = `
+            <div class="git-unavailable">
+                <div class="icon">📁</div>
+                <p>Git repository not initialized</p>
+                <button class="btn primary" onclick="initGitRepo()" style="margin-top: 10px;">
+                    🔧 Initialize Git
+                </button>
+            </div>
+        `;
+    } else {
+        container.innerHTML = `
+            <div class="git-unavailable">
+                <div class="icon">⚠️</div>
+                <p>${escapeHtml(message)}</p>
+            </div>
+        `;
+    }
+}
+
+async function initGitRepo() {
+    const container = document.getElementById('gitStatusContainer');
+    if (container) {
+        container.innerHTML = `
+            <div class="git-unavailable">
+                <div class="icon">⏳</div>
+                <p>Initializing repository...</p>
+            </div>
+        `;
+    }
+
+    try {
+        const result = await api('POST', '/api/git/init', { create_gitignore: true });
+        console.log('git init result:', result);
+        if (result.success) {
+            showGitToast('Git repository initialized' + (result.gitignore_created ? ' (.gitignore created)' : ''), 'success');
+            await loadGitStatus();
+        } else {
+            throw new Error(result.message || 'Initialization error');
+        }
+    } catch (e) {
+        console.error('git init error:', e);
+        showGitToast('Initialization error: ' + e.message, 'error');
+        updateGitHeaderIndicator('error', null, e.message);
+        renderGitUnavailable(e.message);
+    }
+}
+
+function renderGitSection(data) {
+    const container = document.getElementById('gitStatusContainer');
+    if (!container) return;
+
+    // If initialized=true but branch empty — repo without commits
+    if (!data) {
+        renderGitUnavailable('Not a Git repository');
+        return;
+    }
+
+    // Use branch or fallback for new repo without commits
+    const branchName = data.branch || '(no commits)';
+
+    // Count files from arrays
+    const stagedCount = (data.staged || []).length;
+    const unstagedCount = (data.unstaged || []).length;
+    const untrackedCount = (data.untracked || []).length;
+    const isClean = stagedCount === 0 && unstagedCount === 0 && untrackedCount === 0;
+    const statusClass = isClean ? 'clean' : 'dirty';
+    const statusText = isClean ? 'clean' : 'dirty';
+
+    // Format changes
+    let changesHtml = '';
+    if (stagedCount > 0 || unstagedCount > 0 || untrackedCount > 0) {
+        changesHtml = `<div class="git-changes">`;
+        if (stagedCount > 0) changesHtml += `<span class="staged">+${stagedCount} staged</span> `;
+        if (unstagedCount > 0) changesHtml += `<span class="unstaged">${unstagedCount} modified</span> `;
+        if (untrackedCount > 0) changesHtml += `<span class="untracked">${untrackedCount} untracked</span>`;
+        changesHtml += `</div>`;
+    }
+
+    container.innerHTML = `
+        <div class="git-status-card">
+            <div class="git-branch-row">
+                <span class="git-branch-icon">🌿</span>
+                <span class="git-branch-name">${escapeHtml(branchName)}</span>
+                <span class="git-status-dot ${statusClass}" title="${statusText}"></span>
+            </div>
+            ${changesHtml}
+        </div>
+
+        <div class="git-actions">
+            <button class="btn sm" onclick="showGitCommitModal()" ${isClean ? 'disabled title="No changes"' : ''}>📝 Commit</button>
+            <button class="btn sm" onclick="gitPush()">⬆️ Push</button>
+            <button class="btn sm" onclick="showGitPRModal()">🔀 PR</button>
+        </div>
+
+        <div class="git-history">
+            <div class="git-history-toggle" onclick="toggleGitHistory()">
+                <span class="arrow ${gitHistoryExpanded ? 'open' : ''}" id="gitHistoryArrow">▶</span>
+                <span>History (last 20)</span>
+            </div>
+            <div class="git-history-list ${gitHistoryExpanded ? 'open' : ''}" id="gitHistoryList">
+                <div style="text-align:center; padding:10px; color:var(--text-dim);">Loading...</div>
+            </div>
+        </div>
+    `;
+
+    if (gitHistoryExpanded) {
+        loadGitHistory();
+    }
+}
+
+async function toggleGitHistory() {
+    gitHistoryExpanded = !gitHistoryExpanded;
+    const arrow = document.getElementById('gitHistoryArrow');
+    const list = document.getElementById('gitHistoryList');
+
+    if (arrow) arrow.classList.toggle('open', gitHistoryExpanded);
+    if (list) list.classList.toggle('open', gitHistoryExpanded);
+
+    if (gitHistoryExpanded) {
+        await loadGitHistory();
+    }
+}
+
+async function loadGitHistory() {
+    const list = document.getElementById('gitHistoryList');
+    if (!list) return;
+
+    try {
+        const data = await api('GET', '/api/git/log?limit=20');
+        const commits = data.commits || [];
+
+        if (commits.length === 0) {
+            list.innerHTML = '<div style="text-align:center; padding:10px; color:var(--text-dim);">No commits</div>';
+            return;
+        }
+
+        list.innerHTML = commits.map(c => `
+            <div class="git-commit-item">
+                <span class="git-commit-hash">${escapeHtml(c.hash?.slice(0, 7) || '?')}</span>
+                <span class="git-commit-msg" title="${escapeHtml(c.message || '')}">${escapeHtml(c.message?.split('\n')[0] || '')}</span>
+                <span class="git-commit-time">${formatGitTime(c.date)}</span>
+            </div>
+        `).join('');
+    } catch (e) {
+        list.innerHTML = `<div style="text-align:center; padding:10px; color:var(--danger);">Error: ${escapeHtml(e.message)}</div>`;
+    }
+}
+
+function formatGitTime(dateStr) {
+    if (!dateStr) return '';
+    const date = new Date(dateStr);
+    const now = new Date();
+    const diffMs = now - date;
+    const diffHours = Math.floor(diffMs / (1000 * 60 * 60));
+
+    if (diffHours < 1) return 'just now';
+    if (diffHours < 24) return `${diffHours}h ago`;
+    const diffDays = Math.floor(diffHours / 24);
+    if (diffDays < 7) return `${diffDays}d ago`;
+    return date.toLocaleDateString('en');
+}
+
+// ── Git Commit Modal ────────────────────────────────────────────────────────
+
+async function showGitCommitModal() {
+    // Show modal with loading
+    const loadingBody = `
+        <div style="text-align:center; padding:20px; color:var(--text-dim);">
+            <div style="font-size:24px; margin-bottom:10px;">⏳</div>
+            <p>Loading file list...</p>
+        </div>
+    `;
+    openModal('Commit', loadingBody, '<button class="btn" onclick="closeModal()">Cancel</button>');
+
+    try {
+        const data = await api('GET', '/api/git/status');
+
+        const staged = data.staged || [];
+        const unstaged = data.unstaged || [];
+        const untracked = data.untracked || [];
+        const isClean = staged.length === 0 && unstaged.length === 0 && untracked.length === 0;
+
+        if (isClean) {
+            closeModal();
+            alert('No changes to commit');
+            return;
+        }
+
+        let filesHtml = '';
+        if (staged.length > 0) {
+            filesHtml += `<div style="font-size:12px; color:var(--success); margin:8px 0 4px;">Staged (${staged.length})</div>`;
+            filesHtml += staged.map(f => renderCommitFileItem(f, true)).join('');
+        }
+        if (unstaged.length > 0) {
+            filesHtml += `<div style="font-size:12px; color:var(--warning); margin:8px 0 4px;">Modified (${unstaged.length})</div>`;
+            filesHtml += unstaged.map(f => renderCommitFileItem(f, false)).join('');
+        }
+        if (untracked.length > 0) {
+            filesHtml += `<div style="font-size:12px; color:var(--text-dim); margin:8px 0 4px;">Untracked (${untracked.length})</div>`;
+            filesHtml += untracked.map(f => renderCommitFileItem(f, false)).join('');
+        }
+
+        const body = `
+            <div class="commit-type-row">
+                <select id="commitType">
+                    <option value="feat">feat</option>
+                    <option value="fix">fix</option>
+                    <option value="docs">docs</option>
+                    <option value="style">style</option>
+                    <option value="refactor">refactor</option>
+                    <option value="test">test</option>
+                    <option value="chore">chore</option>
+                </select>
+                <input type="text" id="commitScope" placeholder="scope (optional)">
+            </div>
+            <label>Message</label>
+            <textarea id="commitMessage" rows="3" placeholder="Describe changes..."></textarea>
+
+            <label>Files</label>
+            <div class="commit-files-list">
+                ${filesHtml}
+            </div>
+        `;
+
+        openModal('Commit', body,
+            `<button class="btn" onclick="closeModal()">Cancel</button>
+             <button class="btn primary" onclick="submitGitCommit()">Commit</button>`);
+
+    } catch (e) {
+        closeModal();
+        alert('Error getting status: ' + e.message);
+    }
+}
+
+function renderCommitFileItem(file, isStaged) {
+    // file can be a string (filename) or object
+    const path = typeof file === 'string' ? file : (file.path || file.file || '');
+
+    return `
+        <div class="commit-file-item">
+            <input type="checkbox" name="commitFiles" value="${escapeHtml(path)}" ${isStaged ? 'checked' : ''}>
+            <span class="commit-file-path" title="${escapeHtml(path)}">${escapeHtml(path)}</span>
+        </div>
+    `;
+}
+
+async function submitGitCommit() {
+    const type = document.getElementById('commitType').value;
+    const scope = document.getElementById('commitScope').value.trim();
+    const message = document.getElementById('commitMessage').value.trim();
+
+    if (!message) {
+        alert('Enter commit message');
+        return;
+    }
+
+    // Collect selected files
+    const checkboxes = document.querySelectorAll('input[name="commitFiles"]:checked');
+    const files = Array.from(checkboxes).map(cb => cb.value);
+
+    if (files.length === 0) {
+        alert('Select at least one file');
+        return;
+    }
+
+    // Build commit message
+    const fullMessage = scope
+        ? `${type}(${scope}): ${message}`
+        : `${type}: ${message}`;
+
+    try {
+        const result = await api('POST', '/api/git/commit', {
+            message: fullMessage,
+            files: files
+        });
+
+        closeModal();
+        addSystemMessage(`Commit created: ${result.hash?.slice(0, 7) || 'OK'}`);
+        showGitToast('Commit created successfully', 'success');
+        await loadGitStatus();
+    } catch (e) {
+        const errorMsg = parseGitError(e.message);
+        showGitToast('Git error: ' + errorMsg, 'error');
+        updateGitHeaderIndicator('error', null, errorMsg);
+    }
+}
+
+// ── Git Push ────────────────────────────────────────────────────────────────
+
+async function gitPush() {
+    if (!confirm('Perform git push?')) return;
+
+    try {
+        const result = await api('POST', '/api/git/push');
+        addSystemMessage(`Push completed: ${result.message || 'OK'}`);
+        showGitToast('Push completed successfully', 'success');
+        await loadGitStatus();
+    } catch (e) {
+        const errorMsg = parseGitError(e.message);
+        showGitToast('Git error: ' + errorMsg, 'error');
+        updateGitHeaderIndicator('error', null, errorMsg);
+    }
+}
+
+// Parse git error messages for user-friendly display
+function parseGitError(message) {
+    const lowerMsg = (message || '').toLowerCase();
+
+    if (lowerMsg.includes('could not resolve host') || lowerMsg.includes('unable to access')) {
+        return 'Cannot access remote repository';
+    }
+    if (lowerMsg.includes('permission denied') || lowerMsg.includes('authentication failed')) {
+        return 'Authentication error';
+    }
+    if (lowerMsg.includes('merge conflict') || lowerMsg.includes('conflict')) {
+        return 'Merge conflict';
+    }
+    if (lowerMsg.includes('already exists')) {
+        return 'Branch already exists';
+    }
+    if (lowerMsg.includes('not a git repository')) {
+        return 'Not a Git repository';
+    }
+    if (lowerMsg.includes('rejected') || lowerMsg.includes('failed to push')) {
+        return 'Push rejected (you may need to pull first)';
+    }
+    if (lowerMsg.includes('nothing to commit')) {
+        return 'No changes to commit';
+    }
+
+    return message || 'Unknown error';
+}
+
+// ── Git PR Modal ────────────────────────────────────────────────────────────
+
+async function showGitPRModal() {
+    // Load branches
+    const loadingBody = `
+        <div style="text-align:center; padding:20px; color:var(--text-dim);">
+            <div style="font-size:24px; margin-bottom:10px;">⏳</div>
+            <p>Loading branches...</p>
+        </div>
+    `;
+    openModal('Create Pull Request', loadingBody, '<button class="btn" onclick="closeModal()">Cancel</button>');
+
+    try {
+        const [statusData, branchesData] = await Promise.all([
+            api('GET', '/api/git/status'),
+            api('GET', '/api/git/branches')
+        ]);
+
+        const currentBranch = statusData.branch || 'unknown';
+        const branches = branchesData.branches || [];
+
+        // Options for base branch (excluding current branch)
+        const baseOptions = branches
+            .filter(b => b !== currentBranch)
+            .map(b => `<option value="${escapeHtml(b)}" ${b === 'develop' ? 'selected' : ''}>${escapeHtml(b)}</option>`)
+            .join('');
+
+        const body = `
+            <div style="margin-bottom:12px;">
+                <label style="display:block; margin-bottom:4px;">Branch</label>
+                <div style="font-family:var(--mono); font-size:14px; color:var(--accent);">${escapeHtml(currentBranch)}</div>
+            </div>
+
+            <label>Base branch</label>
+            <select id="prBaseBranch">${baseOptions}</select>
+
+            <label>Title</label>
+            <input type="text" id="prTitle" placeholder="PR title" value="${escapeHtml(currentBranch)}">
+
+            <label>Description</label>
+            <textarea id="prDescription" rows="6" placeholder="## Summary&#10;- ...&#10;&#10;## Changes&#10;- ..."></textarea>
+        `;
+
+        openModal('Create Pull Request', body,
+            `<button class="btn" onclick="closeModal()">Cancel</button>
+             <button class="btn primary" onclick="submitGitPR()">Create PR</button>`);
+
+    } catch (e) {
+        closeModal();
+        alert('Error: ' + e.message);
+    }
+}
+
+async function submitGitPR() {
+    const baseBranch = document.getElementById('prBaseBranch').value;
+    const title = document.getElementById('prTitle').value.trim();
+    const description = document.getElementById('prDescription').value.trim();
+
+    if (!title) {
+        alert('Enter PR title');
+        return;
+    }
+
+    try {
+        const result = await api('POST', '/api/git/pr', {
+            base: baseBranch,
+            title: title,
+            body: description
+        });
+
+        closeModal();
+
+        if (result.url) {
+            addSystemMessage(`PR created: ${result.url}`);
+            showGitToast('PR created successfully', 'success');
+            if (confirm(`PR created!\n\nOpen in browser?\n${result.url}`)) {
+                window.open(result.url, '_blank');
+            }
+        } else {
+            addSystemMessage(`PR created: ${result.number || 'OK'}`);
+            showGitToast('PR created successfully', 'success');
+        }
+
+        await loadGitStatus();
+    } catch (e) {
+        const errorMsg = parseGitError(e.message);
+        showGitToast('Git error: ' + errorMsg, 'error');
+    }
+}
+
+// ── Git Auto-refresh ────────────────────────────────────────────────────────
+
+function startGitAutoRefresh() {
+    if (gitAutoRefreshTimer) return;
+    gitAutoRefreshTimer = setInterval(() => {
+        loadGitStatus();
+    }, 30000); // every 30 seconds
+}
+
+function stopGitAutoRefresh() {
+    if (gitAutoRefreshTimer) {
+        clearInterval(gitAutoRefreshTimer);
+        gitAutoRefreshTimer = null;
+    }
+}
+
+// ── Refresh ────────────────────────────────────────────────────────────────
+
+async function refreshAll() {
+    await Promise.all([checkStatus(), loadEmployees(), loadAgents(), fetchRunningTasks(), loadSprints(), loadGitStatus()]);
+    updateRunningTasksIndicator();
+}
+
+async function loadSprints() {
+    try {
+        const data = await api('GET', '/api/sprints');
+        allSprints = data.sprints || [];
+    } catch {
+        allSprints = [];
+    }
+}
+
+// ── Init ───────────────────────────────────────────────────────────────────
+
+(async () => {
+    // Load settings (including theme) on startup
+    const _initSettings = await loadSettings();
+
+    // Check if there is an open project
+    try {
+        const status = await api('GET', '/api/status');
+
+        if (!status.has_project) {
+            // No current project — show project-picker
+            showProjectPicker();
+            return;
+        }
+    } catch (e) {
+        console.warn('Failed to check project status:', e.message);
+        // On error show project-picker
+        showProjectPicker();
+        return;
+    }
+
+    // Project exists — load main application
+    await Promise.all([checkStatus(), loadEmployees(), loadAgents(), fetchRunningTasks(), loadSprints(), loadGitStatus()]);
+    updateRunningTasksIndicator();
+    setInterval(checkStatus, 10000);
+    startGlobalRunningPoll();
+    startGitAutoRefresh();
+
+    // Start auto-launch loop if setting is enabled
+    if (_initSettings && _initSettings.autoLaunchSprints) {
+        startAutoLaunchLoop();
+    }
+
+    // Ping server every 5 seconds (for auto-shutdown on tab close)
+    // Use keepalive for background tab
+    let pingFailCount = 0;
+    const MAX_PING_FAILS = 3;
+
+    setInterval(() => {
+        fetch('/api/ping', {
+            method: 'POST',
+            keepalive: true,  // Allows request to complete even if tab is in background
+            headers: { 'Content-Type': 'application/json' }
+        })
+        .then(response => {
+            if (response.ok) {
+                pingFailCount = 0;  // Reset counter on success
+            } else {
+                pingFailCount++;
+                if (pingFailCount >= MAX_PING_FAILS) {
+                    console.warn(`[PING] Ping failed ${pingFailCount} times`);
+                }
+            }
+        })
+        .catch(err => {
+            pingFailCount++;
+            if (pingFailCount >= MAX_PING_FAILS) {
+                console.error(`[PING] Connection error (${pingFailCount} fails):`, err.message);
+            }
+        });
+    }, 5000);
+
+    // Additional ping on visibility change event (switching from background to active tab)
+    document.addEventListener('visibilitychange', () => {
+        if (!document.hidden) {
+            // Tab became active — send ping immediately
+            fetch('/api/ping', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' }
+            }).catch(() => {});
+        }
+    });
+})();
+</script>
+
+</body>
+</html>
