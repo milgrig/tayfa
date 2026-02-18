@@ -3134,6 +3134,7 @@ async function triggerTaskAutoRun(taskId, runtime) {
 
 async function runAllSprintTasks(sprintId) {
     if (sprintAutoRunState[sprintId]?.running) return;
+    delete autoLaunchFinished[sprintId];  // Reset so manual re-launch is always allowed
 
     const maxConcurrent = parseInt(document.getElementById('maxConcurrentInput')?.value) || 5;
     sprintAutoRunState[sprintId] = { running: true, cancelled: false, finished: false };
@@ -3887,6 +3888,7 @@ function startGlobalRunningPoll() {
 
 let autoLaunchTimer = null;
 let autoLaunchRunning = {};  // { sprintId: true } — sprints currently being auto-launched
+let autoLaunchFinished = {};  // { sprintId: true } — sprints that completed auto-run (prevent re-launch loop)
 
 function startAutoLaunchLoop() {
     if (autoLaunchTimer) return;
@@ -3913,6 +3915,7 @@ async function checkAndAutoLaunchReadySprints() {
                 sprint.ready_to_execute &&
                 sprint.status === 'active' &&
                 !autoLaunchRunning[sprint.id] &&
+                !autoLaunchFinished[sprint.id] &&
                 !sprintAutoRunState[sprint.id]?.running
             ) {
                 console.log(`[AutoLaunch] Launching sprint ${sprint.id}: ${sprint.title}`);
@@ -3920,6 +3923,7 @@ async function checkAndAutoLaunchReadySprints() {
                 // Fire and forget — runAllSprintTasks handles its own lifecycle
                 runAllSprintTasks(sprint.id).finally(() => {
                     delete autoLaunchRunning[sprint.id];
+                    autoLaunchFinished[sprint.id] = true;  // Prevent re-launch after completion
                 });
             }
         }
