@@ -182,11 +182,13 @@ def get_project_path_for_scoping() -> str:
 
 
 _DEFAULT_AGENT_TIMEOUT = 600.0
+_DEFAULT_MAX_ROLE_TRIGGERS = 2
+_DEFAULT_ARTIFACT_MAX_LINES = 300
 
 
-def get_agent_timeout() -> float:
-    """Read agent_timeout_seconds from .tayfa/config.json. Fresh on every call (no restart needed).
-    Returns default 600 if missing, invalid, or non-positive."""
+def _read_config_value(key: str, default, validator=None):
+    """Read a value from .tayfa/config.json. Fresh on every call (no restart needed).
+    validator(val) -> bool; if fails or key missing, returns default."""
     try:
         config_path = get_personel_dir() / "config.json"
         if not config_path.exists():
@@ -194,12 +196,36 @@ def get_agent_timeout() -> float:
         if config_path.exists():
             import json as _json
             data = _json.loads(config_path.read_text(encoding="utf-8"))
-            val = data.get("agent_timeout_seconds")
-            if isinstance(val, (int, float)) and val > 0:
-                return float(val)
+            val = data.get(key)
+            if val is not None and (validator is None or validator(val)):
+                return type(default)(val)
     except Exception:
         pass
-    return _DEFAULT_AGENT_TIMEOUT
+    return default
+
+
+def get_agent_timeout() -> float:
+    """Read agent_timeout_seconds from .tayfa/config.json."""
+    return _read_config_value(
+        "agent_timeout_seconds", _DEFAULT_AGENT_TIMEOUT,
+        lambda v: isinstance(v, (int, float)) and v > 0,
+    )
+
+
+def get_max_role_triggers() -> int:
+    """Read max_role_triggers from .tayfa/config.json. Default 2."""
+    return _read_config_value(
+        "max_role_triggers", _DEFAULT_MAX_ROLE_TRIGGERS,
+        lambda v: isinstance(v, int) and v > 0,
+    )
+
+
+def get_artifact_max_lines() -> int:
+    """Read artifact_max_lines from .tayfa/config.json. Default 300."""
+    return _read_config_value(
+        "artifact_max_lines", _DEFAULT_ARTIFACT_MAX_LINES,
+        lambda v: isinstance(v, int) and v > 0,
+    )
 
 
 # Legacy aliases (for compatibility with existing code, computed dynamically)
@@ -271,6 +297,10 @@ api_running: bool = False
 # Tasks currently being executed by agents: { task_id: { agent, role, runtime, started_at } }
 import time as _time
 running_tasks: dict[str, dict] = {}
+
+# Loop detection: per-task trigger counts by role
+# Structure: { "T001": { "developer": 3, "tester": 2 } }
+task_trigger_counts: dict[str, dict[str, int]] = {}
 
 # Auto-shutdown when browser tab is closed
 last_ping_time: float = _time.time()
@@ -357,6 +387,52 @@ def resolve_agent_failure(failure_id: str) -> dict | None:
             _save_failures(failures)
             return f
     return None
+
+
+def _check_artifact_size(task_id: str, agent_name: str, result_text: str) -> None:
+    """Check if agent output exceeds artifact_max_lines. If so, log warning and create backlog item."""
+    if not result_text:
+        return
+    max_lines = get_artifact_max_lines()
+    actual_lines = len(result_text.splitlines())
+    if actual_lines <= max_lines:
+        return
+
+    # Log warning
+    logger.warning(
+        f"Agent output for {task_id} exceeds {max_lines} lines "
+        f"({actual_lines} lines). Creating backlog item."
+    )
+
+    # Create backlog item
+    try:
+        create_backlog_item(
+            title=f"Decompose {task_id}: oversized output ({actual_lines} lines)",
+            description=(
+                f"Task {task_id} produced oversized output ({actual_lines} lines, "
+                f"limit {max_lines}). Consider decomposing into smaller sub-tasks."
+            ),
+            priority="medium",
+            created_by="orchestrator",
+        )
+    except Exception as e:
+        logger.error(f"Failed to create backlog item for oversized output: {e}")
+
+    # Append note to discussion file
+    try:
+        disc_dir = get_personel_dir() / "common" / "discussions"
+        disc_file = disc_dir / f"{task_id}.md"
+        if disc_file.exists():
+            note = (
+                f"\n\n## [{datetime.now().strftime('%Y-%m-%d %H:%M')}] orchestrator (system)\n\n"
+                f"⚠️ **Oversized output warning**: Agent `{agent_name}` produced "
+                f"{actual_lines} lines (limit: {max_lines}). "
+                f"Consider decomposing this task into smaller sub-tasks.\n"
+            )
+            with open(disc_file, "a", encoding="utf-8") as f:
+                f.write(note)
+    except Exception as e:
+        logger.error(f"Failed to write size warning to discussion {task_id}: {e}")
 
 
 def _classify_error(exc: Exception) -> str:
@@ -2144,6 +2220,10 @@ async def api_update_task_status(task_id: str, data: dict):
     if not new_status:
         raise HTTPException(status_code=400, detail="status field is required")
 
+    # Reset loop counter when task is completed or cancelled
+    if new_status in ("done", "cancelled"):
+        task_trigger_counts.pop(task_id, None)
+
     # update_task_status now handles release on its own when completing a finalizing task
     result = update_task_status(task_id, new_status)
     if "error" in result:
@@ -2232,6 +2312,49 @@ async def api_trigger_task(task_id: str, data: dict = Body(default_factory=dict)
             status_code=400,
             detail=f"Agent '{agent_name}' is not registered in employees.json",
         )
+
+    # ── Loop detection ──────────────────────────────────────────────────────
+    max_triggers = get_max_role_triggers()
+    if task_id not in task_trigger_counts:
+        task_trigger_counts[task_id] = {}
+    role_counts = task_trigger_counts[task_id]
+    role_counts[role_label] = role_counts.get(role_label, 0) + 1
+    trigger_count = role_counts[role_label]
+
+    if trigger_count > max_triggers:
+        loop_msg = (
+            f"LOOP DETECTED: Task {task_id} has been triggered {trigger_count} times "
+            f"for role '{role_label}'. Likely too complex for single execution. "
+            f"Recommend decomposing into smaller tasks."
+        )
+        logger.warning(f"[Loop] {loop_msg}")
+
+        # Set task result and status to pending (frozen for human decision)
+        set_task_result(task_id, loop_msg)
+        update_task_status(task_id, "pending")
+
+        # Create backlog item suggesting decomposition
+        try:
+            create_backlog_item(
+                title=f"Decompose: {task.get('title', task_id)}",
+                description=(
+                    f"Task {task_id} was auto-stopped after {trigger_count} triggers for role '{role_label}'. "
+                    f"Original description: {task.get('description', 'N/A')}. "
+                    f"Suggested action: break into 2-3 smaller tasks with artifacts under 300 lines each."
+                ),
+                priority="high",
+                created_by="system",
+            )
+        except Exception as e:
+            logger.warning(f"[Loop] Failed to create backlog item for {task_id}: {e}")
+
+        return {
+            "task_id": task_id,
+            "loop_detected": True,
+            "triggers": trigger_count,
+            "role": role_label,
+            "message": loop_msg,
+        }
 
     # Build prompt for agent
     prompt_parts = [
@@ -2340,6 +2463,9 @@ async def api_trigger_task(task_id: str, data: dict = Body(default_factory=dict)
                         extra={"role": role_label, "num_turns": api_result.get("num_turns")},
                     )
 
+                    # ── Artifact size check ──────────────────────────
+                    _check_artifact_size(task_id, agent_name, api_result.get("result", ""))
+
                     return {
                         "task_id": task_id,
                         "agent": agent_name,
@@ -2389,6 +2515,17 @@ async def api_trigger_task(task_id: str, data: dict = Body(default_factory=dict)
     finally:
         # Remove task from 'running' regardless of outcome
         running_tasks.pop(task_id, None)
+
+
+@app.post("/api/tasks-list/{task_id}/reset-loop-counter")
+async def api_reset_loop_counter(task_id: str):
+    """Reset the loop-detection trigger counter for a task so it can be re-triggered."""
+    removed = task_trigger_counts.pop(task_id, None)
+    return {
+        "task_id": task_id,
+        "reset": removed is not None,
+        "message": f"Loop counter cleared for {task_id}" if removed else f"No counter found for {task_id}",
+    }
 
 
 # ── Agent Failures API ─────────────────────────────────────────────────────────

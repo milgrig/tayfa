@@ -289,6 +289,8 @@ class TestAgentFailuresAPI:
 def mock_task_env(tmp_failures, monkeypatch):
     """Mock out dependencies of api_trigger_task for isolated testing."""
     import app
+    # Reset loop-detection counters so tests don't leak state
+    app.task_trigger_counts.pop("T001", None)
     mock_task = {
         "id": "T001", "title": "Test task", "description": "desc",
         "status": "in_progress", "result": "",
