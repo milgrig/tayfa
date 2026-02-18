@@ -519,8 +519,11 @@ def run(req: UnifiedRequest):
 
     agent = agents[internal_key]
     system_prompt = _resolve_system_prompt(agent)
+    # Transient model override: use req.model if provided (from UI model selector),
+    # otherwise fall back to agent's stored model. Does NOT persist to agent config.
+    run_model = req.model or agent.get("model", "")
     # #region agent log
-    _debug_log_api("RUN resolve", {"internal_key": internal_key, "agent_prompt_len": len(agent.get("system_prompt") or ""), "resolved_prompt_len": len(system_prompt), "project_path": project_path})
+    _debug_log_api("RUN resolve", {"internal_key": internal_key, "agent_prompt_len": len(agent.get("system_prompt") or ""), "resolved_prompt_len": len(system_prompt), "project_path": project_path, "run_model": run_model})
     # #endregion
 
     result = _run_claude(
@@ -529,7 +532,7 @@ def run(req: UnifiedRequest):
         allowed_tools=agent.get("allowed_tools", "Read Edit Bash"),
         system_prompt=system_prompt,
         session_id=agent.get("session_id") or "",
-        model=agent.get("model", ""),
+        model=run_model,
         permission_mode=agent.get("permission_mode", "bypassPermissions"),
         budget_limit=agent.get("budget_limit", 10.0),
         use_structured_output=req.use_structured_output,
@@ -547,7 +550,7 @@ def run(req: UnifiedRequest):
             workdir=agent["workdir"],
             allowed_tools=agent.get("allowed_tools", "Read Edit Bash"),
             system_prompt=system_prompt,
-            model=agent.get("model", ""),
+            model=run_model,
             permission_mode=agent.get("permission_mode", "bypassPermissions"),
             budget_limit=agent.get("budget_limit", 10.0),
             use_structured_output=req.use_structured_output,
