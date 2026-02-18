@@ -1277,7 +1277,7 @@
     <div class="status-bar">
         <div class="status-item">
             <span class="status-dot off" id="wslDot"></span>
-            WSL: <span id="wslStatus">off</span>
+            Claude API: <span id="wslStatus">off</span>
         </div>
         <div class="status-item">
             <span class="status-dot off" id="apiDot"></span>
@@ -2178,15 +2178,15 @@ async function checkStatus() {
         updateStatusUI(s);
         return s;
     } catch {
-        updateStatusUI({ wsl_running: false, api_running: false });
+        updateStatusUI({ claude_api_running: false, api_running: false });
         return null;
     }
 }
 
 function updateStatusUI(s) {
-    document.getElementById('wslDot').className = `status-dot ${s.wsl_running ? 'on' : 'off'}`;
+    document.getElementById('wslDot').className = `status-dot ${s.claude_api_running ? 'on' : 'off'}`;
     document.getElementById('apiDot').className = `status-dot ${s.api_running ? 'on' : 'off'}`;
-    document.getElementById('wslStatus').textContent = s.wsl_running ? 'running' : 'off';
+    document.getElementById('wslStatus').textContent = s.claude_api_running ? 'running' : 'off';
     document.getElementById('apiStatus').textContent = s.api_running ? 'running' : 'off';
     document.getElementById('btnStartServer').style.display = s.api_running ? 'none' : '';
     document.getElementById('btnStopServer').style.display = s.api_running ? '' : 'none';

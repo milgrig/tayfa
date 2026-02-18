@@ -1,7 +1,7 @@
 """
 Tayfa Orchestrator — web application for managing a multi-agent system.
 
-Launches Claude API server (WSL + uvicorn), manages agents,
+Launches Claude API server (uvicorn), manages agents,
 and provides a web interface.
 """
 
@@ -17,7 +17,7 @@ import subprocess
 import sys
 import webbrowser
 from datetime import datetime
-from pathlib import Path, PureWindowsPath, PurePosixPath
+from pathlib import Path
 
 # Set UTF-8 for stdout/stderr (for correct operation from exe)
 if sys.stdout and hasattr(sys.stdout, 'reconfigure'):
@@ -127,80 +127,31 @@ TAYFA_ROOT_WIN = KOK_DIR.parent  # TayfaNew/
 TAYFA_DATA_DIR = TAYFA_ROOT_WIN / ".tayfa"  # TayfaNew/.tayfa/ — Tayfa data
 
 
-def _to_wsl_path(path) -> str:
-    """Converts a path to WSL format. Works from both Windows and WSL."""
-    p = str(path).replace("\\", "/")
-    # Fix double-conversion artifact: /mnt//nt/c/... -> /mnt/c/...
-    if "/mnt//nt/" in p:
-        p = p.replace("/mnt//nt/", "/mnt/")
-    if p.startswith("/mnt/"):
-        return p  # already a WSL path
-    if len(p) >= 2 and p[1] == ":":
-        # Windows path: C:/Foo/Bar -> /mnt/c/Foo/Bar
-        return "/mnt/" + p[0].lower() + p[2:]
-    # Handle UNC/non-standard paths: //nt/c/... -> /mnt/c/...
-    import re
-    m = re.match(r"^/{1,2}nt/([a-zA-Z])/(.*)", p)
-    if m:
-        return "/mnt/" + m.group(1).lower() + "/" + m.group(2)
-    return p  # fallback
-
-
-TAYFA_ROOT_WSL = _to_wsl_path(TAYFA_ROOT_WIN)
-
 # Fallback paths (for backward compatibility when no project is selected)
 # TAYFA_DATA_DIR points to .tayfa in the Tayfa project root
 _FALLBACK_PERSONEL_DIR = TAYFA_DATA_DIR
-_FALLBACK_PERSONEL_WSL = _to_wsl_path(TAYFA_DATA_DIR)
 
 
 def get_personel_dir() -> Path:
-    """Path to .tayfa of the current project (Windows). Fallback: old Personel."""
+    """Path to .tayfa of the current project. Fallback: old Personel."""
     project = get_current_project()
     if project:
         return Path(project["path"]) / TAYFA_DIR_NAME
     return _FALLBACK_PERSONEL_DIR
 
 
-def get_personel_wsl() -> str:
-    """Path to .tayfa of the current project (WSL). Fallback: old Personel."""
-    project = get_current_project()
-    if project:
-        return _to_wsl_path(Path(project["path"])) + "/" + TAYFA_DIR_NAME
-    return _FALLBACK_PERSONEL_WSL
-
-
 def get_project_dir() -> Path | None:
-    """Path to the current project root (Windows). None if no project is selected."""
+    """Path to the current project root. None if no project is selected."""
     project = get_current_project()
     return Path(project["path"]) if project else None
 
 
-def get_project_wsl() -> str | None:
-    """Path to the current project root (WSL). None if no project is selected."""
-    project = get_current_project()
-    return _to_wsl_path(Path(project["path"])) if project else None
-
-
 def get_agent_workdir() -> str:
-    """workdir for agents — project root.
-    On Windows returns a Windows path (C:\\...),
-    on WSL — a WSL path (/mnt/c/...).
-    claude_api.py handles the format itself (see _workdir_win).
-    """
-    import sys
+    """workdir for agents — project root (Windows path)."""
     project = get_current_project()
     if project:
-        win_path = str(Path(project["path"]))
-        # On WSL return WSL path, on native Windows — Windows path
-        if sys.platform == "win32":
-            return win_path
-        return _to_wsl_path(win_path)
-    # fallback
-    import sys as _sys
-    if _sys.platform == "win32":
-        return str(_FALLBACK_PERSONEL_DIR)
-    return _FALLBACK_PERSONEL_WSL
+        return str(Path(project["path"]))
+    return str(_FALLBACK_PERSONEL_DIR)
 
 
 def get_project_path_for_scoping() -> str:
@@ -215,7 +166,6 @@ def get_project_path_for_scoping() -> str:
 # Legacy aliases (for compatibility with existing code, computed dynamically)
 # DO NOT use in new code — call the functions directly
 PERSONEL_DIR = _FALLBACK_PERSONEL_DIR  # legacy, use get_personel_dir()
-PERSONEL_WSL = _FALLBACK_PERSONEL_WSL  # legacy, use get_personel_wsl()
 TASKS_FILE = PERSONEL_DIR / "boss" / "tasks.md"  # unified task board (legacy)
 SKILLS_DIR = PERSONEL_DIR / "common" / "skills"  # skills inside Personel/common/skills/
 
@@ -269,14 +219,14 @@ from git_manager import (
     release_sprint,
 )
 
-CURSOR_CLI_PROMPT_FILE = TAYFA_ROOT_WIN / ".cursor_cli_prompt.txt"  # temporary file for prompt in WSL
+CURSOR_CLI_PROMPT_FILE = TAYFA_ROOT_WIN / ".cursor_cli_prompt.txt"  # temporary file for prompt
 CURSOR_CHATS_FILE = TAYFA_ROOT_WIN / ".cursor_chats.json"  # agent_name -> chat_id (for --resume)
 CURSOR_CLI_TIMEOUT = 600.0  # Cursor CLI call timeout (seconds)
 CURSOR_CREATE_CHAT_TIMEOUT = 30.0  # create-chat timeout (seconds)
 
 # ── Global state ──────────────────────────────────────────────────────
 
-wsl_process: subprocess.Popen | None = None
+claude_api_process: subprocess.Popen | None = None
 api_running: bool = False
 
 # Tasks currently being executed by agents: { task_id: { agent, role, runtime, started_at } }
@@ -468,8 +418,8 @@ async def lifespan(app: FastAPI):
     # Set paths to tasks.json and employees.json for current project
     _init_files_for_current_project()
 
-    # Auto-start Claude API server (WSL)
-    print("  Starting Claude API server (WSL)...")
+    # Auto-start Claude API server
+    print("  Starting Claude API server...")
     result = start_claude_api()
     if result.get("status") == "started":
         print(f"  Claude API: started (pid={result.get('pid')}, port={result.get('port')})")
@@ -523,24 +473,6 @@ async def log_requests(request: Request, call_next):
 
 # ── Utilities ───────────────────────────────────────────────────────────────────
 
-def win_to_wsl_path(win_path: str) -> str:
-    """Converts a Windows path to a WSL path. Works from both Windows and WSL."""
-    p = str(win_path).replace("\\", "/")
-    # Fix double-conversion artifact: /mnt//nt/c/... -> /mnt/c/...
-    if "/mnt//nt/" in p:
-        p = p.replace("/mnt//nt/", "/mnt/")
-    if p.startswith("/mnt/"):
-        return p  # already a WSL path
-    if len(p) >= 2 and p[1] == ":":
-        return "/mnt/" + p[0].lower() + p[2:]
-    # Handle UNC/non-standard paths: //nt/c/... -> /mnt/c/...
-    import re
-    m = re.match(r"^/{1,2}nt/([a-zA-Z])/(.*)", p)
-    if m:
-        return "/mnt/" + m.group(1).lower() + "/" + m.group(2)
-    return p
-
-
 async def health_check_loop():
     """Periodic health check for Claude API availability."""
     global api_running
@@ -590,55 +522,49 @@ async def call_claude_api(method: str, path: str, json_data: dict | None = None,
         raise HTTPException(status_code=500, detail=f"Claude API error: {str(e)}")
 
 
-# ── WSL / uvicorn management ─────────────────────────────────────────────────
+# ── Claude API (uvicorn) management ──────────────────────────────────────────
 
 def start_claude_api() -> dict:
-    """Starts the Claude API server in WSL with a dynamic port."""
-    global wsl_process, ACTUAL_CLAUDE_API_PORT, CLAUDE_API_URL
+    """Starts the Claude API server natively on Windows with a dynamic port."""
+    global claude_api_process, ACTUAL_CLAUDE_API_PORT, CLAUDE_API_URL
 
-    if wsl_process and wsl_process.poll() is None:
-        return {"status": "already_running", "pid": wsl_process.pid, "port": ACTUAL_CLAUDE_API_PORT}
+    if claude_api_process and claude_api_process.poll() is None:
+        return {"status": "already_running", "pid": claude_api_process.pid, "port": ACTUAL_CLAUDE_API_PORT}
 
     # Find a free port for Claude API
     ACTUAL_CLAUDE_API_PORT = find_free_port(DEFAULT_CLAUDE_API_PORT)
     CLAUDE_API_URL = f"http://localhost:{ACTUAL_CLAUDE_API_PORT}"
 
-    wsl_script = (
-        'source ~/claude_venv/bin/activate && '
-        f'cd "{TAYFA_ROOT_WSL}" && '
-        f'python -m uvicorn claude_api:app --app-dir "{TAYFA_ROOT_WSL}/kok" --host 0.0.0.0 --port {ACTUAL_CLAUDE_API_PORT}'
-    )
-
     try:
-        wsl_process = subprocess.Popen(
-            ["wsl", "bash"],
-            stdin=subprocess.PIPE,
+        claude_api_process = subprocess.Popen(
+            [
+                sys.executable, "-m", "uvicorn",
+                "claude_api:app",
+                "--app-dir", str(KOK_DIR),
+                "--host", "0.0.0.0",
+                "--port", str(ACTUAL_CLAUDE_API_PORT),
+            ],
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
-            creationflags=subprocess.CREATE_NEW_PROCESS_GROUP if sys.platform == "win32" else 0,
+            cwd=str(TAYFA_ROOT_WIN),
+            creationflags=subprocess.CREATE_NEW_PROCESS_GROUP,
         )
-        # Pass the script via stdin and close it so bash starts execution
-        wsl_process.stdin.write(wsl_script.encode("utf-8"))
-        wsl_process.stdin.close()
-        return {"status": "started", "pid": wsl_process.pid, "port": ACTUAL_CLAUDE_API_PORT}
+        return {"status": "started", "pid": claude_api_process.pid, "port": ACTUAL_CLAUDE_API_PORT}
     except Exception as e:
         return {"status": "error", "detail": str(e)}
 
 
 def stop_claude_api() -> dict:
     """Stops the Claude API server."""
-    global wsl_process, api_running
+    global claude_api_process, api_running
 
-    if wsl_process and wsl_process.poll() is None:
+    if claude_api_process and claude_api_process.poll() is None:
         try:
-            if sys.platform == "win32":
-                wsl_process.terminate()
-            else:
-                os.kill(wsl_process.pid, signal.SIGTERM)
-            wsl_process.wait(timeout=10)
+            claude_api_process.terminate()
+            claude_api_process.wait(timeout=10)
         except Exception:
-            wsl_process.kill()
-        wsl_process = None
+            claude_api_process.kill()
+        claude_api_process = None
         api_running = False
         return {"status": "stopped"}
     return {"status": "not_running"}
@@ -646,14 +572,25 @@ def stop_claude_api() -> dict:
 
 # ── Cursor CLI via WSL ─────────────────────────────────────────────────────
 
+def _to_wsl_path(path) -> str:
+    """Converts a Windows path to WSL format. Used only for Cursor CLI."""
+    p = str(path).replace("\\", "/")
+    if p.startswith("/mnt/"):
+        return p
+    if len(p) >= 2 and p[1] == ":":
+        return "/mnt/" + p[0].lower() + p[2:]
+    return p
+
+
 def _cursor_cli_base_script() -> str:
     """Base prefix for Cursor CLI commands in WSL: PATH and cd to project.
     We don't use $PATH — in WSL it may contain Windows paths with spaces and parentheses (Program Files (x86)),
     which causes bash to throw syntax error near unexpected token `('.
     """
+    wsl_root = _to_wsl_path(TAYFA_ROOT_WIN)
     return (
         'export PATH="$HOME/.local/bin:/usr/local/bin:/usr/bin:/bin" && '
-        f'cd "{TAYFA_ROOT_WSL}"'
+        f'cd "{wsl_root}"'
     )
 
 
@@ -992,12 +929,12 @@ async def shutdown():
 async def get_status():
     """System status."""
     global api_running
-    wsl_running = wsl_process is not None and wsl_process.poll() is None
+    claude_api_running = claude_api_process is not None and claude_api_process.poll() is None
     project = get_current_project()
     return {
-        "wsl_running": wsl_running,
+        "claude_api_running": claude_api_running,
         "api_running": api_running,
-        "wsl_pid": wsl_process.pid if wsl_running else None,
+        "claude_api_pid": claude_api_process.pid if claude_api_running else None,
         "tayfa_root": str(TAYFA_ROOT_WIN),
         "api_url": CLAUDE_API_URL,
         "orchestrator_port": ACTUAL_ORCHESTRATOR_PORT,
@@ -1233,7 +1170,7 @@ if ($result -eq [System.Windows.Forms.DialogResult]::OK) {
 
 @app.post("/api/start-server")
 async def start_server():
-    """Start Claude API server in WSL."""
+    """Start Claude API server."""
     result = start_claude_api()
     # Wait for the server to start
     if result["status"] == "started":
@@ -1558,7 +1495,7 @@ async def ensure_agents(request: Request = None):
         _proj = Path(project_path_str)
         personel_dir = _proj / TAYFA_DIR_NAME
         import sys
-        agent_workdir = str(_proj) if sys.platform == "win32" else _to_wsl_path(str(_proj))
+        agent_workdir = str(_proj)
         _source = "project_path"
     else:
         personel_dir = get_personel_dir()
