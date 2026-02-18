@@ -79,6 +79,23 @@ def _exception_handler(exc_type, exc_value, exc_tb):
 
 sys.excepthook = _exception_handler
 
+# #region debug log (ensure_agents payload comparison)
+_debug_log_ensure_path = None
+def _debug_log_ensure(message: str, data: dict, hypothesis_id: str = ""):
+    global _debug_log_ensure_path
+    for base in (_APP_DIR.parent, Path.cwd()):
+        log_path = base / "debug-6f4251.log"
+        try:
+            with open(log_path, "a", encoding="utf-8") as f:
+                f.write(json.dumps({"sessionId": "6f4251", "hypothesisId": hypothesis_id, "location": "app.py ensure_agents", "message": message, "data": data, "timestamp": int(datetime.now().timestamp() * 1000)}, ensure_ascii=False) + "\n")
+            if _debug_log_ensure_path is None:
+                _debug_log_ensure_path = str(log_path)
+                logger.info(f"[debug] ensure_agents log: {log_path}")
+            return
+        except Exception:
+            continue
+# #endregion
+
 logger.info("=" * 60)
 logger.info(f"Tayfa Orchestrator starting at {datetime.now().isoformat()}")
 
@@ -147,11 +164,12 @@ def get_project_dir() -> Path | None:
 
 
 def get_agent_workdir() -> str:
-    """workdir for agents — project root (Windows path)."""
+    """workdir for agents — project root (Windows path). When no project, use parent of .tayfa so system_prompt_file resolves correctly."""
     project = get_current_project()
     if project:
         return str(Path(project["path"]))
-    return str(_FALLBACK_PERSONEL_DIR)
+    # Fallback: project root = parent of .tayfa, so .tayfa/<name>/prompt.md resolves
+    return str(_FALLBACK_PERSONEL_DIR.parent)
 
 
 def get_project_path_for_scoping() -> str:
@@ -161,6 +179,27 @@ def get_project_path_for_scoping() -> str:
     if project:
         return str(Path(project["path"]))
     return ""
+
+
+_DEFAULT_AGENT_TIMEOUT = 600.0
+
+
+def get_agent_timeout() -> float:
+    """Read agent_timeout_seconds from .tayfa/config.json. Fresh on every call (no restart needed).
+    Returns default 600 if missing, invalid, or non-positive."""
+    try:
+        config_path = get_personel_dir() / "config.json"
+        if not config_path.exists():
+            config_path = TAYFA_DATA_DIR / "config.json"
+        if config_path.exists():
+            import json as _json
+            data = _json.loads(config_path.read_text(encoding="utf-8"))
+            val = data.get("agent_timeout_seconds")
+            if isinstance(val, (int, float)) and val > 0:
+                return float(val)
+    except Exception:
+        pass
+    return _DEFAULT_AGENT_TIMEOUT
 
 
 # Legacy aliases (for compatibility with existing code, computed dynamically)
@@ -544,8 +583,8 @@ def start_claude_api() -> dict:
                 "--host", "0.0.0.0",
                 "--port", str(ACTUAL_CLAUDE_API_PORT),
             ],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
             cwd=str(TAYFA_ROOT_WIN),
             creationflags=subprocess.CREATE_NEW_PROCESS_GROUP,
         )
@@ -822,13 +861,15 @@ def load_skill_content(skill_id: str) -> str | None:
         return None
 
 
-def compose_system_prompt(agent_name: str, use_skills: list[str] | None = None) -> str | None:
+def compose_system_prompt(agent_name: str, use_skills: list[str] | None = None, personel_dir: Path | None = None) -> str | None:
     """
     Composes system prompt from prompt.md + 'Skills' block from profile.md (and skills.md).
     If use_skills is provided, appends SKILL.md content from Tayfa/skills/<id>/ to the end of the prompt.
+    If personel_dir is provided, use it (e.g. from ensure_agents); else get_personel_dir().
     Returns None if folders/files don't exist — then only system_prompt_file from the request is used.
     """
-    personel_dir = get_personel_dir()
+    if personel_dir is None:
+        personel_dir = get_personel_dir()
     agent_dir = personel_dir / agent_name
     prompt_file = agent_dir / "prompt.md"
     profile_file = agent_dir / "profile.md"
@@ -1257,11 +1298,15 @@ async def create_agent(data: dict):
     payload = dict(data)
     use_skills = payload.pop("use_skills", None)
     name = payload.get("name")
-    if name and payload.get("system_prompt_file"):
+    # Always try to compose initial system prompt when we have agent name, so agents get their role/context
+    if name:
         composed = compose_system_prompt(name, use_skills=use_skills)
         if composed is not None:
             payload.pop("system_prompt_file", None)
             payload["system_prompt"] = composed
+        elif not payload.get("system_prompt") and not payload.get("system_prompt_file"):
+            # Fallback: point to .tayfa/<name>/prompt.md so claude_api can read from workdir
+            payload["system_prompt_file"] = f"{TAYFA_DIR_NAME}/{name}/prompt.md"
     # Inject project_path for scoping if not already present
     if "project_path" not in payload:
         payload["project_path"] = get_project_path_for_scoping()
@@ -1280,7 +1325,7 @@ async def send_prompt(data: dict):
         data["project_path"] = get_project_path_for_scoping()
 
     start_time = _time.time()
-    api_result = await call_claude_api("POST", "/run", json_data=data, timeout=600.0)
+    api_result = await call_claude_api("POST", "/run", json_data=data, timeout=get_agent_timeout())
     duration_sec = _time.time() - start_time
 
     # Save to chat history
@@ -1414,11 +1459,19 @@ async def delete_agent(name: str):
 
 
 @app.post("/api/kill-agents")
-async def kill_all_agents(stop_server: bool = True):
-    """Delete all agents for the current project in Claude API and optionally stop the server."""
+async def kill_all_agents(request: Request = None, stop_server: bool = True):
+    """Delete all agents for the current project in Claude API and optionally stop the server.
+    Accepts optional body {"project_path": "C:\\Project"} to scope by project (same as Ensure agents)."""
     deleted = []
     errors = []
     pp = get_project_path_for_scoping()
+    if request is not None:
+        try:
+            body = await request.json()
+        except Exception:
+            body = {}
+        if isinstance(body, dict) and body.get("project_path"):
+            pp = body["project_path"]
     try:
         agents = await call_claude_api("GET", "/agents", params={"project_path": pp} if pp else None)
     except HTTPException:
@@ -1494,7 +1547,6 @@ async def ensure_agents(request: Request = None):
     if project_path_str:
         _proj = Path(project_path_str)
         personel_dir = _proj / TAYFA_DIR_NAME
-        import sys
         agent_workdir = str(_proj)
         _source = "project_path"
     else:
@@ -1504,6 +1556,9 @@ async def ensure_agents(request: Request = None):
         _source = "current_project"
 
     logger.info(f"[ensure_agents] START personel_dir={personel_dir}, agent_workdir={agent_workdir!r}, project_path={project_path_str!r}, source={_source}")
+    # #region agent log
+    _debug_log_ensure("ensure_agents START", {"personel_dir": str(personel_dir), "agent_workdir": agent_workdir, "project_path_str": project_path_str, "source": _source}, "Tayfa")
+    # #endregion
 
     # Query params for scoped GET/DELETE requests
     _scope_params = {"project_path": project_path_str} if project_path_str else None
@@ -1530,7 +1585,7 @@ async def ensure_agents(request: Request = None):
                 model = emp_data.get("model", "sonnet")
                 allowed_tools = emp_data.get("allowed_tools", "Read Edit Bash")
                 permission_mode = emp_data.get("permission_mode", "bypassPermissions")
-                composed = compose_system_prompt(emp_name)
+                composed = compose_system_prompt(emp_name, personel_dir=personel_dir)
                 update_payload = {
                     "name": emp_name,
                     "workdir": agent_workdir,
@@ -1539,13 +1594,13 @@ async def ensure_agents(request: Request = None):
                     "permission_mode": permission_mode,
                     "project_path": project_path_str or "",
                 }
-                if composed is not None:
-                    update_payload["system_prompt"] = composed
-                    logger.info(f"[ensure_agents] {emp_name}: workdir_fix + inline system_prompt ({len(composed)} chars)")
-                else:
-                    update_payload["system_prompt_file"] = f"{TAYFA_DIR_NAME}/{emp_name}/prompt.md"
-                    logger.info(f"[ensure_agents] {emp_name}: workdir_fix + system_prompt_file={update_payload['system_prompt_file']!r}")
+                # Always use system_prompt_file so prompt.md edits take effect immediately
+                update_payload["system_prompt_file"] = f"{TAYFA_DIR_NAME}/{emp_name}/prompt.md"
+                logger.info(f"[ensure_agents] {emp_name}: workdir_fix + system_prompt_file={update_payload['system_prompt_file']!r}")
                 try:
+                    # #region agent log
+                    _debug_log_ensure("ensure_agents workdir_fix payload", {"path": "workdir_fix", "emp_name": emp_name, "payload_keys": list(update_payload.keys()), "has_system_prompt": bool(update_payload.get("system_prompt")), "system_prompt_len": len(update_payload.get("system_prompt") or ""), "workdir": update_payload.get("workdir"), "project_path": update_payload.get("project_path")}, "Tayfa")
+                    # #endregion
                     log_upd = {k: (v[:200] + "..." if isinstance(v, str) and len(v) > 200 else v)
                                for k, v in update_payload.items()}
                     logger.info(f"[ensure_agents] {emp_name}: UPDATE payload={log_upd}")
@@ -1559,36 +1614,24 @@ async def ensure_agents(request: Request = None):
                 # Check: does the agent have a system_prompt (inline) — if not, rebuild it
                 has_inline = bool((existing or {}).get("system_prompt"))
                 spf = (existing or {}).get("system_prompt_file") or ""
+                expected_spf = f"{TAYFA_DIR_NAME}/{emp_name}/prompt.md"
                 logger.info(f"[ensure_agents] {emp_name}: already exists, has_inline_prompt={has_inline}, system_prompt_file={spf!r}")
 
-                if not has_inline and not spf:
-                    # Agent without prompt — rebuild
-                    composed = compose_system_prompt(emp_name)
-                    if composed is not None:
-                        try:
-                            await call_claude_api("POST", "/run", json_data={
-                                "name": emp_name,
-                                "system_prompt": composed,
-                                "project_path": project_path_str or "",
-                            })
-                            logger.info(f"[ensure_agents] {emp_name}: injected missing system_prompt ({len(composed)} chars)")
-                            results.append({"agent": emp_name, "status": "prompt_injected"})
-                        except Exception as e:
-                            logger.error(f"[ensure_agents] {emp_name}: prompt injection FAILED: {e}")
-                            results.append({"agent": emp_name, "status": "already_exists"})
-                    else:
-                        results.append({"agent": emp_name, "status": "already_exists"})
-                elif spf and not spf.startswith(TAYFA_DIR_NAME + "/"):
-                    # Fix old system_prompt_file format (without .tayfa/)
+                # Migrate: if agent uses stale inline prompt or wrong file path,
+                # switch to system_prompt_file so prompt.md edits take effect immediately
+                if has_inline or spf != expected_spf:
                     try:
-                        await call_claude_api("POST", "/run", json_data={
+                        _fix_payload = {
                             "name": emp_name,
-                            "system_prompt_file": f"{TAYFA_DIR_NAME}/{emp_name}/prompt.md",
+                            "system_prompt_file": expected_spf,
                             "project_path": project_path_str or "",
-                        })
-                        logger.info(f"[ensure_agents] {emp_name}: prompt_path_fixed from {spf!r}")
-                        results.append({"agent": emp_name, "status": "prompt_path_fixed"})
-                    except Exception:
+                        }
+                        _debug_log_ensure("ensure_agents prompt_to_file payload", {"path": "prompt_to_file", "emp_name": emp_name, "had_inline": has_inline, "old_spf": spf, "new_spf": expected_spf, "project_path": project_path_str or ""}, "Tayfa")
+                        await call_claude_api("POST", "/run", json_data=_fix_payload)
+                        logger.info(f"[ensure_agents] {emp_name}: switched to system_prompt_file={expected_spf!r} (had_inline={has_inline}, old_spf={spf!r})")
+                        results.append({"agent": emp_name, "status": "prompt_switched_to_file"})
+                    except Exception as e:
+                        logger.error(f"[ensure_agents] {emp_name}: prompt switch FAILED: {e}")
                         results.append({"agent": emp_name, "status": "already_exists"})
                 else:
                     results.append({"agent": emp_name, "status": "already_exists"})
@@ -1605,14 +1648,15 @@ async def ensure_agents(request: Request = None):
             })
             continue
 
-        # Compose system prompt and create agent
+        # Compose system prompt and create agent (use same personel_dir as for this request)
         try:
-            composed = compose_system_prompt(emp_name)
+            composed = compose_system_prompt(emp_name, personel_dir=personel_dir)
             # Model and permissions from employees.json
             emp_data = employees.get(emp_name, {})
             model = emp_data.get("model", "sonnet")
             allowed_tools = emp_data.get("allowed_tools", "Read Edit Bash")
             permission_mode = emp_data.get("permission_mode", "bypassPermissions")
+            # Do not pass session_id — new agent starts with a fresh session (e.g. after Kill all agents)
             payload = {
                 "name": emp_name,
                 "workdir": agent_workdir,
@@ -1621,20 +1665,17 @@ async def ensure_agents(request: Request = None):
                 "model": model,
                 "project_path": project_path_str or "",
             }
-            if composed is not None:
-                payload["system_prompt"] = composed
-                logger.info(
-                    f"[ensure_agents] {emp_name}: CREATE with inline system_prompt "
-                    f"({len(composed)} chars), workdir={agent_workdir!r}, model={model!r}"
-                )
-            else:
-                # workdir = project root -> file is at .tayfa/<emp_name>/prompt.md
-                payload["system_prompt_file"] = f"{TAYFA_DIR_NAME}/{emp_name}/prompt.md"
-                logger.warning(
-                    f"[ensure_agents] {emp_name}: compose_system_prompt returned None! "
-                    f"Fallback to system_prompt_file={payload['system_prompt_file']!r}, workdir={agent_workdir!r}"
-                )
+            # Always use system_prompt_file so edits to prompt.md take effect
+            # immediately without needing to re-run ensure_agents.
+            payload["system_prompt_file"] = f"{TAYFA_DIR_NAME}/{emp_name}/prompt.md"
+            logger.info(
+                f"[ensure_agents] {emp_name}: CREATE with system_prompt_file="
+                f"{payload['system_prompt_file']!r}, workdir={agent_workdir!r}, model={model!r}"
+            )
 
+            # #region agent log
+            _debug_log_ensure("ensure_agents CREATE payload", {"path": "create", "emp_name": emp_name, "payload_keys": list(payload.keys()), "has_system_prompt": bool(payload.get("system_prompt")), "system_prompt_len": len(payload.get("system_prompt") or ""), "workdir": payload.get("workdir"), "project_path": payload.get("project_path")}, "Tayfa")
+            # #endregion
             # Log full payload (system_prompt truncated to 200 chars for readability)
             log_payload = {k: (v[:200] + "..." if isinstance(v, str) and len(v) > 200 else v)
                            for k, v in payload.items()}
@@ -2283,7 +2324,7 @@ async def api_trigger_task(task_id: str, data: dict = Body(default_factory=dict)
                         "name": agent_name,
                         "prompt": full_prompt,
                         "project_path": get_project_path_for_scoping(),
-                    }, timeout=600.0)
+                    }, timeout=get_agent_timeout())
                     duration_sec = _time.time() - start_time
 
                     # Save to chat history

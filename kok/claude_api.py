@@ -4,6 +4,8 @@ from pydantic import BaseModel
 import subprocess
 import json
 import os
+import shutil
+import tempfile
 import threading
 import logging
 
@@ -22,6 +24,73 @@ app = FastAPI(title="Claude Code API")
 
 AGENTS_FILE = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "claude_agents.json")
 _lock = threading.Lock()
+
+# #region debug log (prompt storage vs run)
+def _debug_log_api(message: str, data: dict):
+    try:
+        log_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "debug-6f4251.log")
+        payload = {"sessionId": "6f4251", "location": "claude_api.py", "message": message, "data": data}
+        with open(log_path, "a", encoding="utf-8") as f:
+            f.write(json.dumps(payload, ensure_ascii=False) + "\n")
+    except Exception:
+        pass
+# #endregion
+
+# --------------- resolve claude executable (PATH may differ when run from exe/uvicorn) ---------------
+
+_CLAUDE_EXE: Optional[str] = None
+
+
+def _resolve_claude_exe() -> Optional[str]:
+    """Find 'claude' in PATH or common Windows locations. Cached after first success."""
+    global _CLAUDE_EXE
+    if _CLAUDE_EXE is not None:
+        return _CLAUDE_EXE
+    # 1) PATH (current process)
+    exe = shutil.which("claude")
+    if exe:
+        _CLAUDE_EXE = exe
+        logger.info(f"claude executable: {exe} (from PATH)")
+        return exe
+    # 2) Windows: Desktop App alias, winget install, npm install paths
+    if os.name == "nt":
+        localappdata = os.environ.get("LOCALAPPDATA", "")
+        userprofile = os.environ.get("USERPROFILE", "")
+        candidates = [
+            os.path.join(userprofile, ".claude", "local", "claude.exe"),
+            os.path.join(localappdata, "Microsoft", "WindowsApps", "claude.exe"),
+            os.path.join(localappdata, "Programs", "claude", "claude.exe"),
+            os.path.join(os.environ.get("APPDATA", ""), "npm", "claude.cmd"),
+        ]
+        for path in candidates:
+            if path and os.path.isfile(path):
+                _CLAUDE_EXE = path
+                logger.info(f"claude executable: {path} (Windows path)")
+                return path
+        # 3) Fallback: use where.exe which searches the full system PATH
+        #    (shutil.which may miss paths when running inside a venv)
+        try:
+            result = subprocess.run(
+                ["where.exe", "claude"],
+                capture_output=True, text=True, timeout=5,
+            )
+            if result.returncode == 0:
+                found = result.stdout.strip().splitlines()[0]
+                if os.path.isfile(found):
+                    _CLAUDE_EXE = found
+                    logger.info(f"claude executable: {found} (from where.exe)")
+                    return found
+        except Exception:
+            pass
+    _CLAUDE_EXE = ""  # mark as "already looked, not found"
+    return None
+
+
+def _get_claude_cmd() -> list:
+    """Return [claude_exe] or ['claude']; use for subprocess. First element must be executable path."""
+    exe = _resolve_claude_exe()
+    return [exe] if exe else ["claude"]
+
 
 # --------------- schema for structured handoff ---------------
 
@@ -145,6 +214,20 @@ def save_agents(agents: dict):
     with open(AGENTS_FILE, "w", encoding='utf-8') as f:
         json.dump(agents, f, indent=2, ensure_ascii=False)
 
+
+def _read_prompt_from_file(workdir: str, system_prompt_file: str) -> str:
+    """Read system prompt from file. workdir + system_prompt_file (relative or absolute). Returns "" on error."""
+    if not workdir and not os.path.isabs(system_prompt_file):
+        return ""
+    full = os.path.normpath(os.path.join(workdir, system_prompt_file)) if not os.path.isabs(system_prompt_file) else system_prompt_file
+    try:
+        with open(full, encoding="utf-8") as f:
+            return f.read().strip()
+    except Exception as e:
+        logger.error(f"_read_prompt_from_file: failed to read {full!r}: {e}")
+        return ""
+
+
 def _resolve_system_prompt(agent: dict) -> str:
     """Read system prompt from file if system_prompt_file is set,
     otherwise return inline system_prompt.
@@ -185,8 +268,8 @@ def _run_claude(prompt: str, workdir: str, allowed_tools: str,
         f"has_system_prompt={bool(system_prompt)}"
     )
 
-    cmd_parts = [
-        "claude", "-p",
+    cmd_parts = _get_claude_cmd() + [
+        "-p",
         "--output-format", "json",
         "--permission-mode", permission_mode or "bypassPermissions",
         "--allowedTools", allowed_tools,
@@ -207,12 +290,36 @@ def _run_claude(prompt: str, workdir: str, allowed_tools: str,
 
     if session_id:
         cmd_parts.extend(["--resume", session_id])
-        logger.info(f"_run_claude: resuming session {session_id!r}, system_prompt SKIPPED")
+        logger.info(f"_run_claude: resuming session {session_id!r}")
 
-    use_system_prompt = bool(system_prompt and not session_id)
-    if use_system_prompt:
-        cmd_parts.extend(["--append-system-prompt", system_prompt])
-        logger.info(f"_run_claude: --append-system-prompt ({len(system_prompt)} chars, first 200: {system_prompt[:200]!r})")
+    # Always send system prompt when we have one.
+    # Use --system-prompt (replaces default) so agents adopt their role identity.
+    # For long prompts (or any with newlines on Windows), use temp file to avoid CLI/argv issues.
+    _SYSTEM_PROMPT_FILE_THRESHOLD = 2000  # chars; above this use temp file (was 6000; hr ~3188 was passed inline, could break on Windows)
+    system_prompt_temp_path: Optional[str] = None  # set only when using temp file; cleaned in finally
+    if system_prompt:
+        if len(system_prompt) > _SYSTEM_PROMPT_FILE_THRESHOLD:
+            # Write to temp file and pass content via --system-prompt
+            # Read it back to pass as argument (avoids Windows cmd line limit)
+            fd, system_prompt_temp_path = tempfile.mkstemp(suffix=".txt", prefix="claude_system_", text=True)
+            try:
+                with os.fdopen(fd, "w", encoding="utf-8") as f:
+                    f.write(system_prompt)
+                # Read back and pass via --system-prompt; temp file is just a buffer
+                with open(system_prompt_temp_path, "r", encoding="utf-8") as f:
+                    sp_content = f.read()
+                cmd_parts.extend(["--system-prompt", sp_content])
+                logger.info(f"_run_claude: --system-prompt via file ({len(system_prompt)} chars)")
+            except Exception:
+                if system_prompt_temp_path and os.path.isfile(system_prompt_temp_path):
+                    try:
+                        os.unlink(system_prompt_temp_path)
+                    except Exception:
+                        pass
+                raise
+        else:
+            cmd_parts.extend(["--system-prompt", system_prompt])
+            logger.info(f"_run_claude: --system-prompt ({len(system_prompt)} chars)")
 
     try:
         proc = subprocess.run(
@@ -225,10 +332,28 @@ def _run_claude(prompt: str, workdir: str, allowed_tools: str,
             encoding="utf-8",
             shell=False,
         )
+    except OSError as e:
+        return {
+            "code": -1,
+            "result": "",
+            "error": f"Failed to run Claude CLI: {e}",
+            "session_id": "",
+        }
     except subprocess.TimeoutExpired:
         return {"code": -1, "result": "", "error": "timeout", "session_id": ""}
     except FileNotFoundError:
-        return {"code": -1, "result": "", "error": "claude command not found. Make sure Claude Code is installed (where.exe claude).", "session_id": ""}
+        return {
+            "code": -1,
+            "result": "",
+            "error": "claude command not found. Install Claude Code (winget install Anthropic.ClaudeCode or https://claude.ai/install) and ensure it is in PATH or in %LOCALAPPDATA%\\Microsoft\\WindowsApps.",
+            "session_id": "",
+        }
+    finally:
+        if system_prompt_temp_path and os.path.isfile(system_prompt_temp_path):
+            try:
+                os.unlink(system_prompt_temp_path)
+            except Exception:
+                pass
 
     logger.info(
         f"_run_claude: finished, returncode={proc.returncode}, "
@@ -258,7 +383,7 @@ def _run_claude(prompt: str, workdir: str, allowed_tools: str,
             "error":      proc.stderr,
         }
 
-def _save_session(name: str, session_id: str, project_path: str = ""):
+def _save_session(name: str, session_id: Optional[str], project_path: str = ""):
     """Save session_id for an agent (uses scoped internal key)."""
     internal_key = _scoped_name(name, project_path)
     with _lock:
@@ -274,9 +399,10 @@ def run(req: UnifiedRequest):
 
     # --- legacy: no name, just prompt → run claude directly ---
     if not req.name and req.prompt:
+        cmd = _get_claude_cmd() + ["-p"]
         try:
             p = subprocess.run(
-                ["claude", "-p"],
+                cmd,
                 input=req.prompt,
                 text=True,
                 capture_output=True,
@@ -284,7 +410,10 @@ def run(req: UnifiedRequest):
             )
             return {"code": p.returncode, "stdout": p.stdout, "stderr": p.stderr}
         except FileNotFoundError:
-            raise HTTPException(500, "claude command not found. Make sure Claude Code is installed.")
+            raise HTTPException(
+                500,
+                "claude command not found. Install Claude Code (winget install Anthropic.ClaudeCode or https://claude.ai/install) and ensure it is in PATH."
+            )
 
     if not req.name:
         raise HTTPException(400, "Field 'name' is required")
@@ -339,17 +468,27 @@ def run(req: UnifiedRequest):
                     a["model"] = req.model
                 if req.budget_limit is not None:
                     a["budget_limit"] = req.budget_limit
+                # Always clear session on update so next run starts a new session (e.g. after Kill + Ensure)
+                a["session_id"] = None
                 save_agents(agents)
+                # #region agent log
+                _debug_log_api("UPDATE saved", {"internal_key": internal_key, "stored_prompt_len": len(a["system_prompt"])})
+                # #endregion
                 return {"status": "updated", "agent": req.name}
             else:
                 # create
-                has_inline = bool(req.system_prompt)
+                # #region agent log
+                _debug_log_api("CREATE request", {"internal_key": internal_key, "req_system_prompt_len": len(req.system_prompt or ""), "req_system_prompt_file": req.system_prompt_file or ""})
+                # #endregion
+                inline_prompt = (req.system_prompt or "").strip()
+                has_inline = bool(inline_prompt)
                 has_file = bool(req.system_prompt_file)
-                prompt_preview = (req.system_prompt[:120] + "...") if req.system_prompt and len(req.system_prompt) > 120 else req.system_prompt
+                workdir = (req.workdir or "").strip()
+                prompt_preview = (inline_prompt[:120] + "...") if inline_prompt and len(inline_prompt) > 120 else (inline_prompt or "")
                 logger.info(
                     f"CREATE agent={req.name!r} (key={internal_key!r}), "
                     f"has_inline_prompt={has_inline}, "
-                    f"system_prompt_len={len(req.system_prompt) if req.system_prompt else 0}, "
+                    f"system_prompt_len={len(inline_prompt)}, "
                     f"system_prompt_preview={prompt_preview!r}, "
                     f"system_prompt_file={req.system_prompt_file!r}, "
                     f"workdir={req.workdir!r}, model={req.model!r}, "
@@ -357,9 +496,9 @@ def run(req: UnifiedRequest):
                 )
                 if has_inline and has_file:
                     logger.warning(f"CREATE agent={req.name!r}: BOTH system_prompt and system_prompt_file set! Using inline.")
-                # If inline prompt is provided, don't store system_prompt_file (inline takes priority)
+                # Store inline prompt when we have it (from request or from file); keep system_prompt_file as fallback for run
                 agents[internal_key] = {
-                    "system_prompt":      req.system_prompt if has_inline else "",
+                    "system_prompt":      inline_prompt if has_inline else "",
                     "system_prompt_file": "" if has_inline else (req.system_prompt_file or ""),
                     "workdir":            req.workdir or "",
                     "allowed_tools":      req.allowed_tools or "Read Edit Bash",
@@ -369,6 +508,9 @@ def run(req: UnifiedRequest):
                     "session_id":         None,
                 }
                 save_agents(agents)
+                # #region agent log
+                _debug_log_api("CREATE saved", {"internal_key": internal_key, "stored_prompt_len": len(agents[internal_key]["system_prompt"]), "req_prompt_len": len(req.system_prompt or "")})
+                # #endregion
                 return {"status": "created", "agent": req.name}
 
     # --- run agent ---
@@ -377,6 +519,9 @@ def run(req: UnifiedRequest):
 
     agent = agents[internal_key]
     system_prompt = _resolve_system_prompt(agent)
+    # #region agent log
+    _debug_log_api("RUN resolve", {"internal_key": internal_key, "agent_prompt_len": len(agent.get("system_prompt") or ""), "resolved_prompt_len": len(system_prompt), "project_path": project_path})
+    # #endregion
 
     result = _run_claude(
         prompt=req.prompt,

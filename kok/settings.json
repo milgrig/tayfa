@@ -4,6 +4,7 @@
   "language": "ru",
   "autoOpenBrowser": true,
   "maxConcurrentTasks": 5,
+  "autoLaunchSprints": true,
   "autoShutdown": {
     "enabled": true,
     "timeout": 120
