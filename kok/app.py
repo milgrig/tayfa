@@ -287,7 +287,7 @@ from git_manager import (
 CURSOR_CLI_PROMPT_FILE = TAYFA_ROOT_WIN / ".cursor_cli_prompt.txt"  # temporary file for prompt
 CURSOR_CHATS_FILE = TAYFA_ROOT_WIN / ".cursor_chats.json"  # agent_name -> chat_id (for --resume)
 CURSOR_CLI_TIMEOUT = 600.0  # Cursor CLI call timeout (seconds)
-CURSOR_CLI_MODEL = "Composer 1.5"  # default model for Cursor CLI (agent --model)
+CURSOR_CLI_MODEL = "Composer-1.5"  # default model for Cursor CLI (agent --model)
 CURSOR_CREATE_CHAT_TIMEOUT = 30.0  # create-chat timeout (seconds)
 
 # ── Global state ──────────────────────────────────────────────────────
