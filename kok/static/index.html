@@ -1715,6 +1715,7 @@ function updateSettingsScreen(settings) {
 }
 
 async function showSettingsScreen() {
+    saveCurrentDraft();
     hideAllScreens();
     document.getElementById('settingsScreen').style.display = 'flex';
 
@@ -2162,6 +2163,20 @@ function formatDate(dateStr) {
 
 // ── Screens ────────────────────────────────────────────────────────────────
 
+function saveCurrentDraft() {
+    const chatScreen = document.getElementById('chatScreen');
+    if (!chatScreen || chatScreen.style.display === 'none') return;  // Only save when chat is visible
+    const input = document.getElementById('promptInput');
+    if (currentAgent && input) {
+        const currentDraft = input.value.trim();
+        if (currentDraft) {
+            agentDrafts[currentAgent] = currentDraft;
+        } else {
+            delete agentDrafts[currentAgent];  // Remove empty drafts
+        }
+    }
+}
+
 function hideAllScreens() {
     ['welcomeScreen','tasksBoardScreen','tasksScreen','chatScreen','settingsScreen','backlogScreen'].forEach(id => {
         document.getElementById(id).style.display = 'none';
@@ -2264,16 +2279,11 @@ async function loadAgents() {
 }
 
 async function selectAgent(name) {
-    // Save draft of previous agent (if any)
-    const input = document.getElementById('promptInput');
-    if (currentAgent && currentAgent !== name && input) {
-        const currentDraft = input.value.trim();
-        if (currentDraft) {
-            agentDrafts[currentAgent] = currentDraft;
-        } else {
-            delete agentDrafts[currentAgent];  // Remove empty drafts
-        }
-    }
+    // Save draft of previous agent before switching
+    // Save draft of previous agent before switching.
+    // saveCurrentDraft() checks chatScreen visibility, so it only saves
+    // when chat is actually shown (prevents clearing drafts on re-entry).
+    saveCurrentDraft();
 
     currentAgent = name;
     hideAllScreens();
@@ -2303,6 +2313,7 @@ async function selectAgent(name) {
     updateTypingIndicator(name);
 
     // Load draft of new agent
+    const input = document.getElementById('promptInput');
     if (input) {
         input.value = agentDrafts[name] || '';
         autoGrow(input);  // Adjust field height
@@ -2554,6 +2565,7 @@ let allTasks = [];         // tasks cache
 let taskFailures = {};     // { taskId: [failure, ...] } — unresolved failures cache
 
 function showTasksBoard() {
+    saveCurrentDraft();
     hideAllScreens();
     document.getElementById('tasksBoardScreen').style.display = 'flex';
     refreshTasksBoardNew();
@@ -3414,6 +3426,7 @@ async function createBacklogFromModal() {
 let allBacklogItems = [];
 
 function showBacklogScreen() {
+    saveCurrentDraft();
     hideAllScreens();
     document.getElementById('backlogScreen').style.display = 'flex';
     refreshBacklog();
@@ -3777,6 +3790,7 @@ async function toggleBacklogNextSprint(itemId, event) {
 // ── Old Tasks Board (tasks.md) ─────────────────────────────────────────────
 
 function showOldTasksBoard() {
+    saveCurrentDraft();
     hideAllScreens();
     document.getElementById('tasksScreen').style.display = 'flex';
     refreshOldTasksBoard();
@@ -3796,7 +3810,12 @@ async function refreshOldTasksBoard() {
 async function ensureAgents() {
     addSystemMessage('Checking agents...');
     try {
-        const result = await api('POST', '/api/ensure-agents');
+        const body = {};
+        try {
+            const cur = await api('GET', '/api/current-project');
+            if (cur && cur.path) body.project_path = cur.path;
+        } catch (_) {}
+        const result = await api('POST', '/api/ensure-agents', Object.keys(body).length ? body : undefined);
         for (const r of result.results) {
             addSystemMessage(`Agent "${r.agent}": ${r.status}`, r.status === 'error');
         }
@@ -3807,7 +3826,12 @@ async function ensureAgents() {
 async function killAllAgents() {
     addSystemMessage('Deleting all agents...');
     try {
-        const result = await api('POST', '/api/kill-agents?stop_server=false');
+        const body = {};
+        try {
+            const cur = await api('GET', '/api/current-project');
+            if (cur && cur.path) body.project_path = cur.path;
+        } catch (_) {}
+        const result = await api('POST', '/api/kill-agents?stop_server=false', Object.keys(body).length ? body : undefined);
         addSystemMessage('All agents deleted. Use \'Provision agents\' to restore.');
         await loadAgents();
     } catch (e) {
