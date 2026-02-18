@@ -97,6 +97,6 @@
     "permission_mode": "bypassPermissions",
     "model": "sonnet",
     "budget_limit": 10.0,
-    "session_id": "e901868e-2445-4da5-b7df-5c58af2dd85e"
+    "session_id": null
   }
 }

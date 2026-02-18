@@ -383,13 +383,35 @@ def _run_claude(prompt: str, workdir: str, allowed_tools: str,
             "error":      proc.stderr,
         }
 
-def _save_session(name: str, session_id: Optional[str], project_path: str = ""):
-    """Save session_id for an agent (uses scoped internal key)."""
+def _get_session_id(agent: dict, model: str) -> str:
+    """Get session_id for a specific model from per-model dict or legacy string."""
+    sid = agent.get("session_id")
+    if isinstance(sid, dict):
+        return sid.get(model) or ""
+    # backward compat: old string format — return as-is
+    return sid or ""
+
+
+def _save_session(name: str, session_id: Optional[str], project_path: str = "", model: str = ""):
+    """Save session_id for an agent, scoped per model.
+
+    session_id is stored as a dict: {"opus": "sid1", "sonnet": "sid2", ...}.
+    Backward compat: migrates old string/None format to dict on first write.
+    """
     internal_key = _scoped_name(name, project_path)
     with _lock:
         agents = load_agents()
         if internal_key in agents:
-            agents[internal_key]["session_id"] = session_id
+            current = agents[internal_key].get("session_id")
+            # Migrate legacy string/None → dict
+            if not isinstance(current, dict):
+                current = {}
+            if model:
+                current[model] = session_id
+            else:
+                # No model specified → clear all sessions
+                current = {}
+            agents[internal_key]["session_id"] = current
             save_agents(agents)
 
 # --------------- single endpoint ---------------
@@ -429,7 +451,8 @@ def run(req: UnifiedRequest):
     if req.reset:
         if not exists:
             raise HTTPException(404, f"Agent '{req.name}' not found")
-        _save_session(req.name, None, project_path)
+        # If model specified, reset only that model's session; otherwise reset all
+        _save_session(req.name, None, project_path, model=req.model or "")
         return {"status": "reset", "agent": req.name}
 
     # --- create / update agent (no prompt) ---
@@ -451,12 +474,12 @@ def run(req: UnifiedRequest):
                 if req.system_prompt:
                     a["system_prompt"] = req.system_prompt
                     a["system_prompt_file"] = ""  # inline prompt takes priority, clear file ref
-                    a["session_id"] = None
+                    a["session_id"] = {}  # clear all model sessions — prompt changed
                     logger.info(f"UPDATE agent={req.name!r}: set inline system_prompt, cleared system_prompt_file")
                 if req.system_prompt_file:
                     a["system_prompt_file"] = req.system_prompt_file
                     a["system_prompt"] = ""  # file prompt takes priority, clear inline
-                    a["session_id"] = None
+                    a["session_id"] = {}  # clear all model sessions — prompt changed
                     logger.info(f"UPDATE agent={req.name!r}: set system_prompt_file={req.system_prompt_file!r}, cleared inline")
                 if req.workdir:
                     a["workdir"] = req.workdir
@@ -469,7 +492,7 @@ def run(req: UnifiedRequest):
                 if req.budget_limit is not None:
                     a["budget_limit"] = req.budget_limit
                 # Always clear session on update so next run starts a new session (e.g. after Kill + Ensure)
-                a["session_id"] = None
+                a["session_id"] = {}
                 save_agents(agents)
                 # #region agent log
                 _debug_log_api("UPDATE saved", {"internal_key": internal_key, "stored_prompt_len": len(a["system_prompt"])})
@@ -505,7 +528,7 @@ def run(req: UnifiedRequest):
                     "permission_mode":    req.permission_mode or "bypassPermissions",
                     "model":              req.model or "",
                     "budget_limit":       req.budget_limit if req.budget_limit is not None else 10.0,
-                    "session_id":         None,
+                    "session_id":         {},  # per-model: {"opus": sid, "sonnet": sid, ...}
                 }
                 save_agents(agents)
                 # #region agent log
@@ -522,8 +545,12 @@ def run(req: UnifiedRequest):
     # Transient model override: use req.model if provided (from UI model selector),
     # otherwise fall back to agent's stored model. Does NOT persist to agent config.
     run_model = req.model or agent.get("model", "")
+
+    # Per-model sessions: each model has its own session_id, so no model-change guard needed.
+    # Switching models simply resumes that model's own session (or starts fresh if none).
+    model_session_id = _get_session_id(agent, run_model)
     # #region agent log
-    _debug_log_api("RUN resolve", {"internal_key": internal_key, "agent_prompt_len": len(agent.get("system_prompt") or ""), "resolved_prompt_len": len(system_prompt), "project_path": project_path, "run_model": run_model})
+    _debug_log_api("RUN resolve", {"internal_key": internal_key, "agent_prompt_len": len(agent.get("system_prompt") or ""), "resolved_prompt_len": len(system_prompt), "project_path": project_path, "run_model": run_model, "model_session_id": model_session_id[:8] if model_session_id else ""})
     # #endregion
 
     result = _run_claude(
@@ -531,7 +558,7 @@ def run(req: UnifiedRequest):
         workdir=agent["workdir"],
         allowed_tools=agent.get("allowed_tools", "Read Edit Bash"),
         system_prompt=system_prompt,
-        session_id=agent.get("session_id") or "",
+        session_id=model_session_id,
         model=run_model,
         permission_mode=agent.get("permission_mode", "bypassPermissions"),
         budget_limit=agent.get("budget_limit", 10.0),
@@ -541,10 +568,10 @@ def run(req: UnifiedRequest):
 
     new_sid = result.get("session_id")
     if new_sid:
-        _save_session(req.name, new_sid, project_path)
-    elif agent.get("session_id") and result.get("code") != 0:
-        # Session stale — retry without resume
-        _save_session(req.name, None, project_path)
+        _save_session(req.name, new_sid, project_path, model=run_model)
+    elif model_session_id and result.get("code") != 0:
+        # Session stale — retry without resume (clear only this model's session)
+        _save_session(req.name, None, project_path, model=run_model)
         result = _run_claude(
             prompt=req.prompt,
             workdir=agent["workdir"],
@@ -558,7 +585,7 @@ def run(req: UnifiedRequest):
         )
         new_sid = result.get("session_id")
         if new_sid:
-            _save_session(req.name, new_sid, project_path)
+            _save_session(req.name, new_sid, project_path, model=run_model)
 
     return result
 

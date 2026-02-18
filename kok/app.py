@@ -1709,20 +1709,28 @@ async def ensure_agents(request: Request = None):
                 has_inline = bool((existing or {}).get("system_prompt"))
                 spf = (existing or {}).get("system_prompt_file") or ""
                 expected_spf = f"{TAYFA_DIR_NAME}/{emp_name}/prompt.md"
-                logger.info(f"[ensure_agents] {emp_name}: already exists, has_inline_prompt={has_inline}, system_prompt_file={spf!r}")
+                existing_model = (existing or {}).get("model") or ""
+                emp_data = employees.get(emp_name, {})
+                expected_model = emp_data.get("model", "sonnet")
+                model_missing = not existing_model
+                logger.info(f"[ensure_agents] {emp_name}: already exists, has_inline_prompt={has_inline}, system_prompt_file={spf!r}, model={existing_model!r}")
 
-                # Migrate: if agent uses stale inline prompt or wrong file path,
-                # switch to system_prompt_file so prompt.md edits take effect immediately
-                if has_inline or spf != expected_spf:
+                # Migrate: if agent uses stale inline prompt, wrong file path, or missing model —
+                # update so prompt.md edits take effect immediately and model is always set
+                if has_inline or spf != expected_spf or model_missing:
                     try:
                         _fix_payload = {
                             "name": emp_name,
                             "system_prompt_file": expected_spf,
                             "project_path": project_path_str or "",
                         }
-                        _debug_log_ensure("ensure_agents prompt_to_file payload", {"path": "prompt_to_file", "emp_name": emp_name, "had_inline": has_inline, "old_spf": spf, "new_spf": expected_spf, "project_path": project_path_str or ""}, "Tayfa")
+                        # Always ensure model is set from employees.json (fixes model="" agents)
+                        if model_missing:
+                            _fix_payload["model"] = expected_model
+                            logger.info(f"[ensure_agents] {emp_name}: fixing missing model → {expected_model!r}")
+                        _debug_log_ensure("ensure_agents prompt_to_file payload", {"path": "prompt_to_file", "emp_name": emp_name, "had_inline": has_inline, "old_spf": spf, "new_spf": expected_spf, "model_missing": model_missing, "expected_model": expected_model, "project_path": project_path_str or ""}, "Tayfa")
                         await call_claude_api("POST", "/run", json_data=_fix_payload)
-                        logger.info(f"[ensure_agents] {emp_name}: switched to system_prompt_file={expected_spf!r} (had_inline={has_inline}, old_spf={spf!r})")
+                        logger.info(f"[ensure_agents] {emp_name}: switched to system_prompt_file={expected_spf!r} (had_inline={has_inline}, old_spf={spf!r}, model_fixed={model_missing})")
                         results.append({"agent": emp_name, "status": "prompt_switched_to_file"})
                     except Exception as e:
                         logger.error(f"[ensure_agents] {emp_name}: prompt switch FAILED: {e}")
