@@ -33,7 +33,7 @@ python .tayfa/common/task_manager.py sprints
 
 | Status | Description |
 |--------|-------------|
-| `new` | Created, not started |
+| `pending` | Created, not started |
 | `in_progress` | Developer working |
 | `in_review` | Tester verifying |
 | `done` | Done |
@@ -43,7 +43,7 @@ python .tayfa/common/task_manager.py sprints
 
 | Role | Action |
 |------|--------|
-| **Customer** | `new` → details requirements → `in_progress` |
+| **Customer** | `pending` → details requirements → `in_progress` |
 | **Developer** | `in_progress` → implements → `in_review` |
 | **Tester** | `in_review` → verifies → `done` or back to `in_progress` |
 

@@ -3,7 +3,7 @@
 """
 Backlog Manager — backlog manager for project ideas and features for Tayfa Orchestrator.
 
-Manages backlog entries: adding, editing, filtering, prioritization.
+Manages backlog entries: adding, editing, filtering, prioritizing.
 Data is stored in .tayfa/common/backlog.json.
 
 CLI usage examples:
@@ -40,7 +40,7 @@ Code usage examples:
     item = add_item("New feature", priority="high", next_sprint=True)
     print(item["id"])  # B001
 
-    # Getting the list
+    # Getting a list
     items = get_items(next_sprint=True, priority="high")
     for item in items:
         print(f"{item['id']}: {item['title']}")
@@ -57,25 +57,25 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
-# Path to the backlog.json file
+# Path to backlog.json file
 SCRIPT_DIR = Path(__file__).resolve().parent
 BACKLOG_FILE = SCRIPT_DIR / "backlog.json"
 
-# Allowed priorities
+# Valid priorities
 PRIORITIES = ["high", "medium", "low"]
 
 
 def _now() -> str:
-    """Return the current time in ISO format (without microseconds)."""
+    """Return current time in ISO format (without microseconds)."""
     return datetime.now().isoformat(timespec='seconds')
 
 
 def _load() -> dict:
     """Load data from backlog.json. Creates the file if it does not exist."""
     if not BACKLOG_FILE.exists():
-        # Create directory if it does not exist
+        # Create the directory if it does not exist
         BACKLOG_FILE.parent.mkdir(parents=True, exist_ok=True)
-        # Initialize empty structure
+        # Initialize an empty structure
         initial_data = {"items": [], "next_id": 1}
         _save(initial_data)
         return initial_data
@@ -119,7 +119,7 @@ def add_item(
         created_by, created_at, updated_at
     """
     if priority not in PRIORITIES:
-        return {"error": f"Invalid priority '{priority}'. Allowed: {', '.join(PRIORITIES)}"}
+        return {"error": f"Invalid priority '{priority}'. Valid options: {', '.join(PRIORITIES)}"}
 
     data = _load()
     item_id = f"B{data['next_id']:03d}"
@@ -194,15 +194,15 @@ def edit_item(
 
     Args:
         item_id: Entry ID
-        title: New title (if None, unchanged)
-        description: New description (if None, unchanged)
-        priority: New priority (if None, unchanged)
+        title: New title (if None, not changed)
+        description: New description (if None, not changed)
+        priority: New priority (if None, not changed)
 
     Returns:
         Updated entry or {"error": ...}
     """
     if priority is not None and priority not in PRIORITIES:
-        return {"error": f"Invalid priority '{priority}'. Allowed: {', '.join(PRIORITIES)}"}
+        return {"error": f"Invalid priority '{priority}'. Valid options: {', '.join(PRIORITIES)}"}
 
     data = _load()
 
@@ -225,7 +225,7 @@ def edit_item(
 
 def toggle_next_sprint(item_id: str) -> dict:
     """
-    Toggle the next_sprint flag (true / false).
+    Toggle the next_sprint flag (true <-> false).
 
     Args:
         item_id: Entry ID
@@ -265,51 +265,6 @@ def remove_item(item_id: str) -> dict:
             return {"status": "removed", "id": item_id}
 
     return {"error": f"Entry {item_id} not found"}
-
-
-# ── Aliases for compatibility with app.py ─────────────────────────────────────
-
-def set_backlog_file(path: Path | str) -> None:
-    """Set the path to backlog.json (for working with different projects)."""
-    global BACKLOG_FILE
-    BACKLOG_FILE = Path(path) if isinstance(path, str) else path
-
-
-def get_backlog(next_sprint: bool | None = None, priority: str | None = None) -> list[dict]:
-    """Alias for get_items."""
-    return get_items(next_sprint=next_sprint, priority=priority)
-
-
-def get_backlog_item(item_id: str) -> dict | None:
-    """Alias for get_item."""
-    return get_item(item_id)
-
-
-def create_backlog_item(
-    title: str,
-    description: str = "",
-    priority: str = "medium",
-    next_sprint: bool = False,
-    created_by: str = "boss"
-) -> dict:
-    """Alias for add_item."""
-    return add_item(title, description, priority, next_sprint, created_by)
-
-
-def update_backlog_item(
-    item_id: str,
-    title: str | None = None,
-    description: str | None = None,
-    priority: str | None = None,
-    next_sprint: bool | None = None
-) -> dict:
-    """Alias for edit_item."""
-    return edit_item(item_id, title, description, priority, next_sprint)
-
-
-def delete_backlog_item(item_id: str) -> dict:
-    """Alias for remove_item."""
-    return remove_item(item_id)
 
 
 def _format_list(items: list[dict]) -> str:
@@ -412,7 +367,7 @@ def main():
         sys.exit(1)
 
     try:
-        # Handle commands
+        # Process commands
         if args.command == "add":
             result = add_item(
                 title=args.title,

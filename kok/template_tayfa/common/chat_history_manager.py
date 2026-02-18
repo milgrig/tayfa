@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Management of chat history with agents.
+Chat history management for agents.
 
 Each agent has its own chat_history.json file in the .tayfa/{agent_name}/ folder.
 The file contains a list of messages (maximum 500 most recent) with metadata.
@@ -99,7 +99,7 @@ def _save_history(agent_name: str, messages: list[dict]) -> bool:
     if history_file is None:
         return False
 
-    # Create the agent's directory if it does not exist
+    # Create the agent directory if it does not exist
     history_file.parent.mkdir(parents=True, exist_ok=True)
 
     # Atomic write: write to a temporary file, then rename
@@ -112,7 +112,7 @@ def _save_history(agent_name: str, messages: list[dict]) -> bool:
         try:
             with os.fdopen(fd, "w", encoding="utf-8") as f:
                 json.dump(messages, f, ensure_ascii=False, indent=2)
-            # Rename (atomic on most filesystems)
+            # Rename (atomic on most file systems)
             os.replace(temp_path, history_file)
             return True
         except Exception:
@@ -169,7 +169,7 @@ def save_message(
         prompt: Text of the sent prompt
         result: Agent response
         runtime: "claude" or "cursor"
-        cost_usd: Cost of the request in USD (if available)
+        cost_usd: Request cost in USD (if available)
         duration_sec: Execution time in seconds
         task_id: Task ID (if the message is part of a task)
         success: True if the request was successful
@@ -233,8 +233,8 @@ def get_history(
     messages = _load_history(agent_name)
     total = len(messages)
 
-    # Return messages in chronological order (oldest to newest)
-    # Pagination works from the end (newest messages last)
+    # Return messages in chronological order (from oldest to newest)
+    # Pagination works from the end (newest messages are last)
     if offset > 0:
         messages = messages[:-offset] if offset < len(messages) else []
 
@@ -273,7 +273,7 @@ def get_last_messages(agent_name: str, count: int = 5) -> list[dict]:
         count: Number of messages
 
     Returns:
-        List of the most recent messages
+        List of the last messages
     """
     messages = _load_history(agent_name)
     return messages[-count:] if count < len(messages) else messages
@@ -285,7 +285,7 @@ def search_history(
     limit: int = 20,
 ) -> list[dict]:
     """
-    Search the history by prompt or result text.
+    Search history by prompt or result text.
 
     Args:
         agent_name: Agent name
@@ -293,7 +293,7 @@ def search_history(
         limit: Maximum number of results
 
     Returns:
-        List of matching messages
+        List of found messages
     """
     messages = _load_history(agent_name)
     query_lower = query.lower()

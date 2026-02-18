@@ -1,6 +1,6 @@
 ---
 name: team-assignment
-description: "Selects the optimal executor for a task from Tayfa employees. Use when you need to assign a task, decide who to delegate work to, or understand which employee will handle it best. Triggers: 'who to assign', 'who will handle it best', 'find an executor', or when you are creating a task and need to specify an assignee."
+description: "Selects the optimal executor for a task from Tayfa employees. Use when you need to assign a task, decide who to delegate work to, or determine which employee will handle it best. Triggers: 'who to assign', 'who will handle it best', 'find an executor', or when creating a task and need to specify an assignee."
 ---
 
 # Team Assignment
@@ -23,14 +23,14 @@ For each employee, study their profile:
 - `.tayfa/{employee}/prompt.md` — how they work, their style
 - `.tayfa/{employee}/tasks.md` — current tasks (workload)
 
-## Criteria for Choosing an Executor
+## Criteria for Selecting an Executor
 
 ### 1. Skill Match
 
-**Priority:** employee skills should match the task.
+**Priority:** the employee's skills must match the task.
 
 | Task Type | Suitable Roles |
-|-----------|----------------|
+|-----------|---------------|
 | Backend logic, API, DB | developer_python, developer_backend |
 | UI, layout, React/Vue | developer_frontend |
 | Mobile application | developer_mobile |
@@ -59,11 +59,11 @@ Consider:
 
 **Context advantage:** if the employee has already worked with the code, they will complete it faster.
 
-### 4. Dependencies Between Tasks
+### 4. Task Dependencies
 
 If task B depends on task A:
 - Can assign to the same employee (context preservation)
-- Can assign to another (parallel work after A completes)
+- Can assign to another (parallel work after A is completed)
 
 ## Assignment Workflow
 
@@ -74,13 +74,13 @@ What skills are needed?
   → Backend? Frontend? Testing? Research?
 
 What is the complexity?
-  → Junior can handle it? Senior needed?
+  → Can a junior handle it? Need a senior?
 
-Any specifics?
-  → Requires knowledge of a specific technology?
+Is there anything specific?
+  → Does it require knowledge of a specific technology?
 ```
 
-### 2. Candidate Search
+### 2. Finding Candidates
 
 ```bash
 # View all employees
@@ -117,26 +117,26 @@ python .tayfa/common/task_manager.py assign T001 {employee}
 ### Standard Tayfa Roles
 
 | Role | Primary Tasks | Do Not Assign |
-|------|---------------|---------------|
+|------|--------------|---------------|
 | developer_python | Backend, API, scripts, DB | UI, layout |
 | developer_frontend | UI, components, styles | Backend logic |
 | qa_tester | Testing, bug reports | Feature development |
-| devops_engineer | CI/CD, deploy, infra | Business logic |
+| devops_engineer | CI/CD, deployment, infrastructure | Business logic |
 | ai_expert | ML, prompts, research | Routine code |
 
 ### Special Cases
 
 **Research task:**
-→ Assign to someone who can make decisions and has broad perspective
+→ Assign to someone who can make decisions and has a broad perspective
 
 **Urgent production bug:**
-→ Assign to the person who knows this code best (even if busy)
+→ Assign to someone who knows this code best (even if busy)
 
 **New technology:**
-→ Assign to someone willing to learn and ready to experiment
+→ Assign to someone who wants to learn and is ready to experiment
 
 **Routine task:**
-→ Assign to whoever has the lightest workload
+→ Assign to someone with the lightest workload
 
 ## Communication During Assignment
 
@@ -181,5 +181,5 @@ python .tayfa/common/task_manager.py assign T001 {new_employee}
 - [ ] Read profile.md — skills match
 - [ ] Checked workload — not overloaded
 - [ ] Task contains clear instructions
-- [ ] Acceptance criteria defined
-- [ ] Dependencies accounted for (task is not blocked)
+- [ ] Acceptance criteria are defined
+- [ ] Dependencies are accounted for (task is not blocked)

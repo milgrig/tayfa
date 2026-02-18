@@ -1,64 +1,64 @@
-# Quick Guide: Creating Agents and Employee Skills
+# Quick Guide: Agent Creation and Employee Skills
 
-## How an Agent is Created in the Application
+## How an agent is created
 
-1. **Preparing the employee folder**
-   In `Personel/<name>/` the following structure is created:
+1. **Prepare employee folder**
+   In `.tayfa/<name>/` the following structure is created:
    - `prompt.md` — system prompt (role, instructions)
-   - `profile.md` — profile: role, **skills**, area of responsibility
-   - optionally `skills.md` — extended skill description
-   - `tasks.md`, `notes.md`, `source.md`
+   - `profile.md` — profile: role, **skills**, responsibilities
+   - optionally `skills.md` — extended skill descriptions
+   - `notes.md`, `source.md`
 
-2. **Registering the agent via API**
-   A JSON is placed in `Personel/Request/` (or the orchestrator sends a request). You can explicitly specify **use_skills** — an array of skill names from the `Tayfa/skills/` folder (see below):
+2. **Register agent via API**
+   The orchestrator sends a request. You can specify **use_skills** — an array of skill names from `.tayfa/common/skills/`:
    ```json
    {
      "name": "employee_name",
-     "system_prompt_file": "Personel/employee_name/prompt.md",
-     "workdir": "/mnt/c/Cursor/Tayfa",
+     "system_prompt_file": ".tayfa/employee_name/prompt.md",
+     "workdir": "C:/Cursor/TayfaWindows",
      "allowed_tools": "Read Edit Bash",
      "use_skills": ["project-decomposer"]
    }
    ```
-   A **POST** is sent to `http://localhost:8788/run` **without a `prompt` field** — this is a request to create/update an agent.
+   Sent as **POST** to `http://localhost:8788/run` **without `prompt` field** — this is a create/update request.
 
-3. **Assembling the system prompt**
-   The orchestrator (or the API when called with `system_prompt_file`) during agent creation/update:
-   - reads `Personel/<name>/prompt.md`;
-   - reads `Personel/<name>/profile.md` and if present — `Personel/<name>/skills.md`;
-   - inserts the "Skills" section from the profile (and from `skills.md`) into the prompt and passes the assembled text as the agent's system prompt.
+3. **System prompt assembly**
+   The orchestrator (or API when called with `system_prompt_file`) on agent create/update:
+   - reads `.tayfa/<name>/prompt.md`;
+   - reads `.tayfa/<name>/profile.md` and if present — `.tayfa/<name>/skills.md`;
+   - injects the "Skills" block from profile (and from `skills.md`) into the prompt and passes the assembled text as system prompt.
 
 4. **Who creates agents**
-   New employees are onboarded by **HR**: creates the folder, fills in `prompt.md`, `profile.md` (including skills), optionally `skills.md`. Agent creation in the API is performed by the orchestrator based on this data. Only **boss** contacts **hr** with staffing requests.
+   New employees are onboarded by **HR**: creates folder, fills `profile.md` (including skills), optionally `skills.md`, and registers in `employees.json`. Agent creation in API is handled by the orchestrator. Only **boss** contacts **hr** about staffing.
 
 ---
 
-## How to Properly Add Skills to Employees
+## How to properly add skills to employees
 
-- **Primary source of skills** — the **"## Skills"** section in `Personel/<name>/profile.md`.
-  The orchestrator inserts it into the system prompt during agent creation/update.
+- **Primary skill source** — the **"## Skills"** section in `.tayfa/<name>/profile.md`.
+  The orchestrator injects it into the system prompt on agent create/update.
 
-- **Optionally** — a `Personel/<name>/skills.md` file for details (levels, checklists, references).
-  If it exists, the orchestrator includes it as well. In `profile.md` in the "Skills" section you can write: "See skills.md".
+- **Optionally** — file `.tayfa/<name>/skills.md` for detailed descriptions (levels, checklists, references).
+  If present, the orchestrator injects it too. In `profile.md` Skills block you can write: "See skills.md".
 
-- **Do not duplicate** the skill list in `prompt.md` — skills are taken only from `profile.md` and optionally from `skills.md`.
+- **Do not duplicate** skill list in `prompt.md` — skills are taken only from `profile.md` and optionally `skills.md`.
 
 - **When to add/change skills:**
-  1. **Onboarding** — HR fills in "Skills" in `profile.md` when creating an employee (and creates `skills.md` if needed)
-  2. **Updating** — boss or hr assigns the task; the responsible person edits `profile.md` (and `skills.md` if needed).
+  1. **Onboarding** — HR fills "Skills" in `profile.md` (and optionally creates `skills.md`) based on role description.
+  2. **Update** — boss or hr assigns update task; responsible person edits `profile.md` (and optionally `skills.md`).
 
 - **Rules for HR and boss:**
-  During onboarding, the "Skills" section in `profile.md` must be filled in. When a role or area of responsibility changes, skills in `profile.md` must also be updated.
+  On onboarding, always fill the "Skills" section in `profile.md`. On role or responsibility changes, update skills in `profile.md` too.
 
-After changing `profile.md` or `skills.md`, the next agent call (or prompt reassembly via API) will already use the updated skills — there is no need to "apply" them separately.
+After changing `profile.md` or `skills.md`, the next agent call (or prompt rebuild via API) will use updated skills automatically.
 
 ---
 
-## Explicit Skill Attachment (Tayfa/skills)
+## Explicit skill attachment (skills/)
 
-All **Cursor Agent Skills** are stored in **Tayfa/skills/** — each subfolder (e.g. `project-decomposer`, `team-role-analyzer` or `public/pptx`) contains a `SKILL.md` file.
+All **Agent Skills** are stored in `.tayfa/common/skills/` — each subfolder (e.g. `project-decomposer`) contains a `SKILL.md` file.
 
-When creating an agent or sending a prompt through the orchestrator, you can specify which skills to attach to the agent:
+When creating an agent or sending a prompt via orchestrator, you can specify which skills to attach:
 
 ```json
 {
@@ -68,4 +68,4 @@ When creating an agent or sending a prompt through the orchestrator, you can spe
 }
 ```
 
-When creating an agent, add a **use_skills** field to the JSON request — an array of identifiers (folder names in `Tayfa/skills/`). The orchestrator will read the corresponding `SKILL.md` files and add their content to the agent's system prompt. Nested paths are supported, e.g. `"public/pptx"` → `Tayfa/skills/public/pptx/SKILL.md`.
+Add the **use_skills** field — an array of skill identifiers (folder names). The orchestrator reads corresponding `SKILL.md` files and appends their content to the agent's system prompt. Nested paths are supported, e.g. `"public/pptx"` → `skills/public/pptx/SKILL.md`.
