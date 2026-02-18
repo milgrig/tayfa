@@ -4,7 +4,6 @@ from pydantic import BaseModel
 import subprocess
 import json
 import os
-import tempfile
 import threading
 import logging
 
@@ -21,7 +20,7 @@ logger = logging.getLogger("claude_api")
 
 app = FastAPI(title="Claude Code API")
 
-AGENTS_FILE = os.path.expanduser("~\\claude_agents.json")
+AGENTS_FILE = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "claude_agents.json")
 _lock = threading.Lock()
 
 # --------------- schema for structured handoff ---------------
@@ -152,21 +151,12 @@ def _resolve_system_prompt(agent: dict) -> str:
     File is re-read on every call so edits take effect immediately."""
     spf = agent.get("system_prompt_file", "")
     raw_workdir = agent.get("workdir", "")
-    logger.info(f"_resolve_system_prompt: system_prompt_file={spf!r}, workdir={raw_workdir!r}, is_wsl={_is_wsl()}")
+    logger.info(f"_resolve_system_prompt: system_prompt_file={spf!r}, workdir={raw_workdir!r}")
     if spf:
-        # Use native path for the current OS:
-        # - In WSL: keep /mnt/c/... as-is (don't convert to C:\)
-        # - On Windows: convert /mnt/c/... to C:\...
-        if _is_wsl():
-            workdir = raw_workdir  # keep WSL path as-is
-        else:
-            workdir = _workdir_win(raw_workdir)
+        workdir = raw_workdir
         logger.info(f"_resolve_system_prompt: resolved workdir={workdir!r}")
         if os.path.isabs(spf):
-            if _is_wsl():
-                full = spf  # already absolute WSL path
-            else:
-                full = _workdir_win(spf) if spf.startswith("/mnt/") else spf
+            full = spf
         else:
             full = os.path.normpath(os.path.join(workdir, spf))
         logger.info(f"_resolve_system_prompt: full path={full!r}, exists={os.path.exists(full)}")
@@ -182,65 +172,19 @@ def _resolve_system_prompt(agent: dict) -> str:
     logger.info(f"_resolve_system_prompt: using inline system_prompt, len={len(inline)}")
     return inline
 
-def _escape_powershell(s: str) -> str:
-    """Escape string for PowerShell command line."""
-    # Replace single quotes with two single quotes for PowerShell
-    return s.replace("'", "''")
-
-def _workdir_win(workdir: str) -> str:
-    """Convert WSL path /mnt/c/... or Git Bash /c/... to C:\\... for Windows."""
-    if not workdir:
-        return workdir
-    s = workdir.replace("\\", "/").strip()
-    if s.startswith("/mnt/") and len(s) > 5 and s[5] != "/":
-        drive = s[5].upper()
-        rest = s[6:].replace("/", "\\")
-        return f"{drive}:{rest}" if rest else f"{drive}:\\"
-    # Git Bash /c/... -> C:\...
-    if len(s) >= 3 and s[0] == "/" and s[2] == "/" and s[1].isalpha():
-        drive = s[1].upper()
-        rest = s[3:].replace("/", "\\")
-        return f"{drive}:{rest}" if rest else f"{drive}:\\"
-    return workdir
-
-def _win_to_wsl(win_path: str) -> str:
-    """Convert Windows path C:\\X\\Y to /mnt/c/X/Y for use in WSL/Python when writing temp files
-    that will be read by Windows PowerShell."""
-    if not win_path or win_path.startswith("/"):
-        return win_path
-    s = win_path.replace("\\", "/").strip()
-    if len(s) >= 2 and s[1] == ":":
-        drive = s[0].upper()
-        rest = s[2:].lstrip("/")
-        return f"/mnt/{drive.lower()}/{rest}" if rest else f"/mnt/{drive.lower()}"
-    return win_path
-
-def _is_wsl() -> bool:
-    """True if we're running inside WSL (Linux with /mnt/c)."""
-    return os.name == "posix" and os.path.exists("/mnt/c")
-
-def _quote_cmd(s: str) -> str:
-    """Quote for cmd.exe: wrap in double quotes and escape " as \"\"."""
-    s = str(s)
-    return '"' + s.replace('"', '""') + '"' if any(c in s for c in ' "\t\n') else s
-
 def _run_claude(prompt: str, workdir: str, allowed_tools: str,
                 system_prompt: Optional[str] = "", session_id: str = "",
                 model: str = "", permission_mode: str = "bypassPermissions",
                 budget_limit: Optional[float] = None,
                 use_structured_output: bool = False, timeout: int = 300) -> dict:
-    """Run claude CLI. From WSL runs via .bat script so Windows claude/node are used
-    and system_prompt (with Cyrillic) is passed correctly via UTF-8 encoded file."""
-    workdir_win = _workdir_win(workdir)
-
+    """Run claude CLI natively on Windows."""
     logger.info(
-        f"_run_claude: workdir={workdir!r} -> win={workdir_win!r}, "
+        f"_run_claude: workdir={workdir!r}, "
         f"model={model!r}, session_id={session_id!r}, "
         f"system_prompt_len={len(system_prompt) if system_prompt else 0}, "
-        f"has_system_prompt={bool(system_prompt)}, is_wsl={_is_wsl()}"
+        f"has_system_prompt={bool(system_prompt)}"
     )
 
-    # Build command arguments (same for native Windows and for cmd.exe when in WSL)
     cmd_parts = [
         "claude", "-p",
         "--output-format", "json",
@@ -265,108 +209,22 @@ def _run_claude(prompt: str, workdir: str, allowed_tools: str,
         cmd_parts.extend(["--resume", session_id])
         logger.info(f"_run_claude: resuming session {session_id!r}, system_prompt SKIPPED")
 
-    # system_prompt is added below, handled differently for WSL vs native Windows
     use_system_prompt = bool(system_prompt and not session_id)
     if use_system_prompt:
-        logger.info(f"_run_claude: will pass --append-system-prompt ({len(system_prompt)} chars, first 200: {system_prompt[:200]!r})")
+        cmd_parts.extend(["--append-system-prompt", system_prompt])
+        logger.info(f"_run_claude: --append-system-prompt ({len(system_prompt)} chars, first 200: {system_prompt[:200]!r})")
 
     try:
-        if _is_wsl():
-            # WSL: avoid cmd.exe argument encoding issues with Cyrillic/multiline
-            # system_prompt. Special chars (&, |, <, >, %, !) and encoding break
-            # when passed as cmd.exe /c arguments.
-            run_dir = workdir_win or "C:\\"
-            sp_tmp = None
-            try:
-                if use_system_prompt:
-                    # Temp file MUST be on a path that Windows PowerShell can read (e.g. C:\...).
-                    # Python's /tmp (or gettempdir() in Git Bash) is not visible to PowerShell.
-                    if workdir and workdir.startswith("/mnt/"):
-                        temp_dir_wsl = workdir
-                    elif workdir and len(workdir) > 1 and workdir[1] == ":":
-                        temp_dir_wsl = _win_to_wsl(workdir)
-                    else:
-                        try:
-                            r = subprocess.run(
-                                ["cmd.exe", "/c", "echo %TEMP%"],
-                                capture_output=True, text=True, timeout=5, encoding="utf-8"
-                            )
-                            win_temp = (r.stdout or "").strip()
-                            temp_dir_wsl = _win_to_wsl(win_temp) if win_temp else "/mnt/c/Windows/Temp"
-                        except Exception:
-                            temp_dir_wsl = "/mnt/c/Windows/Temp"
-                    try:
-                        os.makedirs(temp_dir_wsl, exist_ok=True)
-                    except OSError:
-                        pass
-                    sp_fd, sp_path_wsl = tempfile.mkstemp(
-                        suffix=".txt", prefix="claude_sp_", dir=temp_dir_wsl
-                    )
-                    with os.fdopen(sp_fd, "w", encoding="utf-8") as f:
-                        f.write(system_prompt)
-                    sp_path_win = _workdir_win(sp_path_wsl)
-                    sp_tmp = sp_path_wsl
-                    logger.info(f"_run_claude: wrote system_prompt to temp file: {sp_path_wsl} -> win={sp_path_win}")
-
-                    # Use PowerShell to read system_prompt from file and pass to claude.
-                    # PowerShell handles UTF-8 and multiline correctly, unlike cmd.exe.
-                    ps_args = []
-                    for p in cmd_parts:
-                        ps_args.append(f"'{_escape_powershell(p)}'")
-                    ps_args.append("'--append-system-prompt'")
-                    ps_args.append(f"(Get-Content -Path '{_escape_powershell(sp_path_win)}' -Raw -Encoding UTF8)")
-
-                    ps_cmd = (
-                        f"[Console]::InputEncoding = [System.Text.Encoding]::UTF8; "
-                        f"[Console]::OutputEncoding = [System.Text.Encoding]::UTF8; "
-                        f"Set-Location -Path '{_escape_powershell(run_dir)}'; "
-                        f"& {' '.join(ps_args)}"
-                    )
-
-                    logger.info(f"_run_claude: using PowerShell to pass system_prompt from file ({len(system_prompt)} chars)")
-                    proc = subprocess.run(
-                        ["powershell.exe", "-NoProfile", "-Command", ps_cmd],
-                        input=prompt,
-                        text=True,
-                        capture_output=True,
-                        timeout=timeout,
-                        encoding="utf-8",
-                    )
-                else:
-                    # No system_prompt — use simple cmd.exe (no encoding issues without Cyrillic)
-                    quoted_parts = [_quote_cmd(p) for p in cmd_parts]
-                    cmd_str = "cd /d " + _quote_cmd(run_dir) + " && " + " ".join(quoted_parts)
-                    logger.info(f"_run_claude: cmd.exe /c (no system_prompt), cmd_len={len(cmd_str)}")
-                    proc = subprocess.run(
-                        ["cmd.exe", "/c", cmd_str],
-                        input=prompt,
-                        text=True,
-                        capture_output=True,
-                        timeout=timeout,
-                        encoding="utf-8",
-                    )
-            finally:
-                # Clean up temp files
-                if sp_tmp and os.path.exists(sp_tmp):
-                    try:
-                        os.unlink(sp_tmp)
-                    except OSError:
-                        pass
-        else:
-            # Native Windows: pass args as list (no cmd.exe encoding issues)
-            if use_system_prompt:
-                cmd_parts.extend(["--append-system-prompt", system_prompt])
-                logger.info(f"_run_claude: native Windows, --append-system-prompt in args ({len(system_prompt)} chars)")
-            proc = subprocess.run(
-                cmd_parts,
-                input=prompt,
-                text=True,
-                capture_output=True,
-                timeout=timeout,
-                cwd=workdir_win or None,
-                encoding="utf-8",
-                shell=False,
-            )
+        proc = subprocess.run(
+            cmd_parts,
+            input=prompt,
+            text=True,
+            capture_output=True,
+            timeout=timeout,
+            cwd=workdir or None,
+            encoding="utf-8",
+            shell=False,
+        )
     except subprocess.TimeoutExpired:
         return {"code": -1, "result": "", "error": "timeout", "session_id": ""}
     except FileNotFoundError:
