@@ -47,7 +47,7 @@ class TestHealthEndpoint:
         import app
         from fastapi.testclient import TestClient
 
-        with patch("app.httpx.AsyncClient") as mock_client_cls:
+        with patch("routers.server.httpx.AsyncClient") as mock_client_cls:
             mock_client = AsyncMock()
             mock_client.__aenter__ = AsyncMock(return_value=mock_client)
             mock_client.__aexit__ = AsyncMock(return_value=False)
@@ -69,7 +69,7 @@ class TestHealthEndpoint:
         import app
         from fastapi.testclient import TestClient
 
-        with patch("app.httpx.AsyncClient") as mock_client_cls:
+        with patch("routers.server.httpx.AsyncClient") as mock_client_cls:
             mock_client = AsyncMock()
             mock_client.__aenter__ = AsyncMock(return_value=mock_client)
             mock_client.__aexit__ = AsyncMock(return_value=False)
@@ -201,17 +201,17 @@ class TestStartupHealthCheck:
 
     def test_read_config_startup_retries(self, tmp_path, monkeypatch):
         """_read_config_value reads claude_api_startup_retries from config.json."""
-        import app
+        import app_state
 
         config_data = {"claude_api_startup_retries": 3}
         config_file = tmp_path / "config.json"
         config_file.write_text(json.dumps(config_data), encoding="utf-8")
 
-        monkeypatch.setattr(app, "get_personel_dir", lambda: tmp_path)
+        monkeypatch.setattr(app_state, "get_personel_dir", lambda: tmp_path)
         # Also patch TAYFA_DATA_DIR to point nowhere useful (so fallback doesn't interfere)
-        monkeypatch.setattr(app, "TAYFA_DATA_DIR", tmp_path / "nonexistent")
+        monkeypatch.setattr(app_state, "TAYFA_DATA_DIR", tmp_path / "nonexistent")
 
-        result = app._read_config_value(
+        result = app_state._read_config_value(
             "claude_api_startup_retries", 10,
             lambda v: isinstance(v, int) and v > 0,
         )

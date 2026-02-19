@@ -1,4 +1,5 @@
 from fastapi import FastAPI, HTTPException
+from fastapi.responses import StreamingResponse
 from typing import Optional
 from pydantic import BaseModel
 import subprocess
@@ -392,6 +393,114 @@ def _run_claude(prompt: str, workdir: str, allowed_tools: str,
             "error":      proc.stderr,
         }
 
+def _run_claude_stream(prompt: str, workdir: str, allowed_tools: str,
+                       system_prompt: Optional[str] = "", session_id: str = "",
+                       model: str = "", permission_mode: str = "bypassPermissions",
+                       budget_limit: Optional[float] = None,
+                       timeout: int = 0):
+    """Run claude CLI with streaming output. Yields JSON-line dicts as they arrive.
+    No timeout by default — agent runs until completion (budget_limit controls cost)."""
+    logger.info(f"_run_claude_stream: workdir={workdir!r}, model={model!r}, session_id={session_id!r}")
+
+    cmd_parts = _get_claude_cmd() + [
+        "-p",
+        "--verbose",
+        "--output-format", "stream-json",
+        "--permission-mode", permission_mode or "bypassPermissions",
+        "--allowedTools", allowed_tools,
+    ]
+
+    if model:
+        cmd_parts.extend(["--model", model])
+        fallback_map = {"opus": "sonnet", "sonnet": "haiku"}
+        if model in fallback_map:
+            cmd_parts.extend(["--fallback-model", fallback_map[model]])
+
+    if budget_limit is not None and budget_limit > 0:
+        cmd_parts.extend(["--max-budget-usd", str(budget_limit)])
+
+    if session_id:
+        cmd_parts.extend(["--resume", session_id])
+
+    # System prompt handling (same as _run_claude)
+    system_prompt_temp_path: Optional[str] = None
+    _SYSTEM_PROMPT_FILE_THRESHOLD = 2000
+    if system_prompt:
+        if len(system_prompt) > _SYSTEM_PROMPT_FILE_THRESHOLD:
+            fd, system_prompt_temp_path = tempfile.mkstemp(suffix=".txt", prefix="claude_system_", text=True)
+            try:
+                with os.fdopen(fd, "w", encoding="utf-8") as f:
+                    f.write(system_prompt)
+                with open(system_prompt_temp_path, "r", encoding="utf-8") as f:
+                    sp_content = f.read()
+                cmd_parts.extend(["--system-prompt", sp_content])
+            except Exception:
+                if system_prompt_temp_path and os.path.isfile(system_prompt_temp_path):
+                    try:
+                        os.unlink(system_prompt_temp_path)
+                    except Exception:
+                        pass
+                raise
+        else:
+            cmd_parts.extend(["--system-prompt", system_prompt])
+
+    try:
+        proc = subprocess.Popen(
+            cmd_parts,
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            cwd=workdir or None,
+            encoding="utf-8",
+            errors="replace",
+            shell=False,
+        )
+    except (OSError, FileNotFoundError) as e:
+        yield {"type": "error", "error": f"Failed to run Claude CLI: {e}"}
+        return
+    finally:
+        if system_prompt_temp_path and os.path.isfile(system_prompt_temp_path):
+            try:
+                os.unlink(system_prompt_temp_path)
+            except Exception:
+                pass
+
+    # Write prompt to stdin and close
+    try:
+        proc.stdin.write(prompt)
+        proc.stdin.close()
+    except Exception as e:
+        yield {"type": "error", "error": f"Failed to write prompt: {e}"}
+        proc.kill()
+        return
+
+    try:
+        # readline() reads one line at a time without prefetching.
+        # for line in proc.stdout would buffer ~8KB before yielding — no real-time streaming.
+        while True:
+            raw_line = proc.stdout.readline()
+            if not raw_line:
+                break  # EOF — process finished or pipe closed
+            line = raw_line.strip()
+            if not line:
+                continue
+            try:
+                event = json.loads(line)
+                yield event
+            except json.JSONDecodeError:
+                # Non-JSON output — yield as raw text
+                yield {"type": "raw", "content": line}
+
+        proc.wait()
+        stderr_text = proc.stderr.read() if proc.stderr else ""
+        logger.info(f"_run_claude_stream: finished, returncode={proc.returncode}, stderr_len={len(stderr_text)}")
+
+        if proc.returncode != 0 and stderr_text:
+            yield {"type": "error", "error": stderr_text}
+    except Exception as e:
+        yield {"type": "error", "error": str(e)}
+
+
 def _get_session_id(agent: dict, model: str) -> str:
     """Get session_id for a specific model from per-model dict or legacy string."""
     sid = agent.get("session_id")
@@ -624,6 +733,62 @@ def run(req: UnifiedRequest):
             _save_session(req.name, new_sid, project_path, model=run_model)
 
     return result
+
+# --- stream run (SSE) ---
+
+@app.post("/run-stream")
+def run_stream(req: UnifiedRequest):
+    """Run an agent with streaming output via SSE."""
+    if not req.name:
+        raise HTTPException(400, "Field 'name' is required")
+    if not req.prompt:
+        raise HTTPException(400, "Field 'prompt' is required for streaming")
+
+    project_path = req.project_path or ""
+    internal_key = _scoped_name(req.name, project_path)
+
+    agents = load_agents()
+    if internal_key not in agents:
+        raise HTTPException(404, f"Agent '{req.name}' not found")
+
+    agent = agents[internal_key]
+
+    # Migrate legacy string session_id → dict
+    if isinstance(agent.get("session_id"), str):
+        with _lock:
+            agents = load_agents()
+            if internal_key in agents and isinstance(agents[internal_key].get("session_id"), str):
+                agents[internal_key]["session_id"] = {}
+                save_agents(agents)
+        agent = agents[internal_key]
+
+    system_prompt = _resolve_system_prompt(agent)
+    run_model = req.model or agent.get("model", "")
+    model_session_id = _get_session_id(agent, run_model)
+
+    def event_generator():
+        last_session_id = None
+        for event in _run_claude_stream(
+            prompt=req.prompt,
+            workdir=agent["workdir"],
+            allowed_tools=agent.get("allowed_tools", "Read Edit Bash"),
+            system_prompt=system_prompt,
+            session_id=model_session_id,
+            model=run_model,
+            permission_mode=agent.get("permission_mode", "bypassPermissions"),
+            budget_limit=agent.get("budget_limit", 10.0),
+            timeout=req.timeout,
+        ):
+            # Track session_id from result events
+            if event.get("session_id"):
+                last_session_id = event["session_id"]
+            yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
+
+        # Save session after stream completes
+        if last_session_id:
+            _save_session(req.name, last_session_id, project_path, model=run_model)
+
+    return StreamingResponse(event_generator(), media_type="text/event-stream")
 
 # --- list agents ---
 

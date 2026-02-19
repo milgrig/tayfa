@@ -21,7 +21,7 @@ from pathlib import Path
 from datetime import date
 
 # Validation constants
-VALID_MODELS = {"opus", "sonnet", "haiku"}
+VALID_MODELS = {"opus", "sonnet", "haiku", "composer"}
 VALID_PERMISSION_MODES = {
     "acceptEdits", "bypassPermissions", "default",
     "delegate", "dontAsk", "plan"
@@ -146,6 +146,51 @@ def register_employee(
     }
 
 
+def update_employee(name: str, **fields) -> dict:
+    """
+    Update employee fields (model, fallback_model, etc.).
+    Returns {"status": "updated"|"not_found"|"error", ...}.
+    """
+    data = _load()
+    if name not in data["employees"]:
+        return {"status": "not_found", "name": name}
+
+    emp = data["employees"][name]
+
+    if "model" in fields:
+        model = fields["model"]
+        if model not in VALID_MODELS:
+            return {"status": "error", "message": f"Invalid model: {model}. Valid: {', '.join(VALID_MODELS)}"}
+        emp["model"] = model
+
+    if "fallback_model" in fields:
+        fb = fields["fallback_model"]
+        if fb and fb not in VALID_MODELS:
+            return {"status": "error", "message": f"Invalid fallback model: {fb}. Valid: {', '.join(VALID_MODELS)}"}
+        emp["fallback_model"] = fb
+
+    if "max_budget_usd" in fields:
+        budget = fields["max_budget_usd"]
+        if budget < 0:
+            return {"status": "error", "message": f"max_budget_usd must be >= 0, got: {budget}"}
+        emp["max_budget_usd"] = budget
+
+    if "permission_mode" in fields:
+        mode = fields["permission_mode"]
+        if mode not in VALID_PERMISSION_MODES:
+            return {"status": "error", "message": f"Invalid permission_mode: {mode}"}
+        emp["permission_mode"] = mode
+
+    if "allowed_tools" in fields:
+        tools = fields["allowed_tools"]
+        if not tools or not tools.strip():
+            return {"status": "error", "message": "allowed_tools cannot be empty"}
+        emp["allowed_tools"] = tools
+
+    _save(data)
+    return {"status": "updated", "name": name, **emp}
+
+
 def remove_employee(name: str) -> dict:
     """
     Remove employee from registry.
@@ -201,8 +246,8 @@ Examples:
     register_parser.add_argument("name", help="Employee name (latin, lowercase)")
     register_parser.add_argument("role", help="Employee role")
     register_parser.add_argument("--model", default="sonnet", choices=list(VALID_MODELS),
-                                  help="Claude model (default: sonnet)")
-    register_parser.add_argument("--fallback-model", default="", choices=["", "opus", "sonnet", "haiku"],
+                                  help="Model: opus, sonnet, haiku (Claude) or composer (Cursor). Default: sonnet")
+    register_parser.add_argument("--fallback-model", default="", choices=["", "opus", "sonnet", "haiku", "composer"],
                                   help="Fallback model on overload")
     register_parser.add_argument("--max-budget", type=float, default=0.0,
                                   help="Budget limit USD (0 = no limit)")
