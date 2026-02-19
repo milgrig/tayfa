@@ -130,5 +130,75 @@
     "cost_usd": 0,
     "duration_sec": 109.21,
     "num_turns": 7
+  },
+  {
+    "id": "msg_108",
+    "timestamp": "2026-02-18T16:41:36",
+    "direction": "to_agent",
+    "prompt": "Откуда ты знаешь про WSL?",
+    "result": "\n\nИз двух мест:\n\n1. **ID в HTML** — элемент называется `wslDot` и `wslStatus` (строки 1279-1280 в `index.html`), хотя отображает \"Claude API\". Значит раньше эта лампочка показывала статус WSL, потом переименовали текст, но ID остался старый.\n\n2. **Папка `OldTayfa/`** — в `OldTayfa/app.py` и `OldTayfa/claude_api.py` видна старая архитектура, где Claude запускался через WSL. Плюс в текущем `app.py` есть функция `_to_wsl_path()` (строка 593) с комментарием \"Used only for Cursor CLI\", и последний коммит называется \"Remove WSL Dependency\".",
+    "runtime": "claude",
+    "success": true,
+    "cost_usd": 0,
+    "duration_sec": 11.73,
+    "num_turns": 1
+  },
+  {
+    "id": "msg_109",
+    "timestamp": "2026-02-18T16:44:44",
+    "direction": "to_agent",
+    "prompt": "Task T036: Preserve chat input draft when navigating away\nDescription: Bug: When a user types a message to an employee but does not send it, then navigates to Settings and returns back to the employee chat - the typed text disappears. Expected: the unsent draft text should be preserved and restored when the user returns to the same employee chat.\nYour role: requester\nCurrent status: pending\n\nYou are the requester. Detail the task requirements. When done, call:\n  python common/task_manager.py result T036 \"<detailed description>\"\n  python common/task_manager.py status T036 in_progress",
+    "result": "Готово. Задача **T036** детализирована и передана разработчику:\n\n### Что сделано (роль requester):\n\n**Описана причина бага:**\n- Логика сохранения черновика существует только внутри `selectAgent()` — при переключении между сотрудниками в сайдбаре. Навигация в Settings/Tasks/Backlog вызывает `hideAllScreens()` без сохранения текста из textarea в `agentDrafts`.\n\n**Требования разработчику:**\n1. Вынести логику сохранения черновика из `selectAgent()` в отдельную функцию `saveCurrentDraft()`\n2. Вызывать её в `hideAllScreens()` — так все навигационные переходы будут автоматически сохранять черновик\n\n**7 критериев приёмки** — покрывают все 4 экрана навигации + обратную совместимость с переключением агентов, отправкой сообщений и пустым инпутом.\n\n**Файл:** `kok/static/index.html`\n\n📌 Статус: **in_progress** — задача ждёт developer'а.",
+    "runtime": "claude",
+    "success": true,
+    "cost_usd": 0,
+    "duration_sec": 139.17,
+    "task_id": "T036",
+    "role": "requester",
+    "num_turns": 8
+  },
+  {
+    "id": "msg_110",
+    "timestamp": "2026-02-18T16:48:44",
+    "direction": "to_agent",
+    "prompt": "Message to send",
+    "result": "",
+    "runtime": "claude",
+    "success": true,
+    "duration_sec": 0.96,
+    "num_turns": null
+  },
+  {
+    "id": "msg_111",
+    "timestamp": "2026-02-18T16:49:44",
+    "direction": "to_agent",
+    "prompt": "Message to send",
+    "result": "",
+    "runtime": "claude",
+    "success": true,
+    "duration_sec": 0.69,
+    "num_turns": null
+  },
+  {
+    "id": "msg_112",
+    "timestamp": "2026-02-18T16:50:07",
+    "direction": "to_agent",
+    "prompt": "Message to send",
+    "result": "",
+    "runtime": "claude",
+    "success": true,
+    "duration_sec": 0.7,
+    "num_turns": null
+  },
+  {
+    "id": "msg_113",
+    "timestamp": "2026-02-18T16:50:28",
+    "direction": "to_agent",
+    "prompt": "Message to send",
+    "result": "",
+    "runtime": "claude",
+    "success": true,
+    "duration_sec": 0.67,
+    "num_turns": null
   }
 ]

@@ -509,6 +509,9 @@ async def send_prompt_stream(data: dict):
 
     start_time = _time.time()
 
+    # Metadata-only event types to suppress (contain model, usage, service_tier)
+    _SKIP_TYPES = {"message_start", "message_delta", "message_stop", "system"}
+
     async def sse_generator():
         full_result = ""
         cost_usd = 0
@@ -518,35 +521,43 @@ async def send_prompt_stream(data: dict):
             try:
                 event = json.loads(chunk)
             except (json.JSONDecodeError, ValueError):
-                # Unparseable chunks — skip silently (don't leak raw data)
                 continue
 
             etype = event.get("type", "")
 
-            # Skip metadata-only lifecycle events — frontend ignores them
-            # and they contain raw API fields (model, usage, service_tier)
-            if etype in ("message_start", "message_delta", "message_stop"):
+            # Unwrap stream_event wrapper (Claude CLI stream-json format)
+            # {"type": "stream_event", "event": {"type": "content_block_delta", ...}}
+            if etype == "stream_event" and isinstance(event.get("event"), dict):
+                event = event["event"]
+                etype = event.get("type", "")
+                chunk = json.dumps(event, ensure_ascii=False)
+
+            # Skip metadata-only lifecycle events
+            if etype in _SKIP_TYPES:
                 continue
 
-            # For 'message' events: strip raw API metadata (model, usage,
-            # stop_reason, stop_sequence, context_management) — keep only
+            # For 'message' events: strip raw API metadata, keep only
             # fields the frontend needs for rendering.
             if etype == "message":
+                content = event.get("content", [])
+                # Skip empty messages (no content to show)
+                if not content:
+                    continue
                 filtered = {
                     "type": "message",
                     "id": event.get("id", ""),
                     "role": event.get("role", ""),
-                    "content": event.get("content", []),
+                    "content": content,
                 }
                 if event.get("stop_reason"):
                     filtered["stop_reason"] = event["stop_reason"]
                 yield f"data: {json.dumps(filtered)}\n\n"
                 # Track full result for chat history
-                for block in filtered.get("content", []):
+                for block in content:
                     if isinstance(block, dict) and block.get("type") == "text" and block.get("text"):
                         full_result = block["text"]
             else:
-                yield f"data: {chunk}\n\n"
+                yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
                 # Track result / cost for chat history
                 try:
                     if etype == "result":
@@ -555,6 +566,10 @@ async def send_prompt_stream(data: dict):
                         num_turns = event.get("num_turns", 0)
                     elif etype == "assistant" and event.get("subtype") == "text":
                         full_result = event.get("text", full_result)
+                    elif etype == "content_block_delta":
+                        delta = event.get("delta", {})
+                        if delta.get("type") == "text_delta" and delta.get("text"):
+                            full_result += delta["text"]
                 except KeyError:
                     pass
 

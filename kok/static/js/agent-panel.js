@@ -243,7 +243,11 @@ async function sendPromptStreaming() {
                 if (!jsonStr) continue;
 
                 try {
-                    const event = JSON.parse(jsonStr);
+                    let event = JSON.parse(jsonStr);
+                    // Unwrap stream_event wrapper before processing
+                    if (event.type === 'stream_event' && event.event) {
+                        event = event.event;
+                    }
                     processStreamEvent(event);
 
                     // Accumulate result
@@ -291,10 +295,17 @@ async function sendPromptStreaming() {
 }
 
 function processStreamEvent(event) {
+    // Unwrap stream_event wrapper (Claude CLI stream-json format)
+    // {"type": "stream_event", "event": {"type": "content_block_delta", ...}}
+    if (event.type === 'stream_event' && event.event) {
+        return processStreamEvent(event.event);
+    }
+
     const type = event.type || '';
     const subtype = event.subtype || '';
 
     // Claude CLI stream-json format uses these types:
+    // stream_event: wrapper around inner events (unwrapped above)
     // assistant: {subtype: "text"|"thinking", text/delta}
     // content_block_start: {content_block: {type: "text"|"thinking"|"tool_use"}}
     // content_block_delta: {delta: {type: "text_delta"|"thinking_delta", text}}

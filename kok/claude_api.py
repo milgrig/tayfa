@@ -406,6 +406,7 @@ def _run_claude_stream(prompt: str, workdir: str, allowed_tools: str,
         "-p",
         "--verbose",
         "--output-format", "stream-json",
+        "--include-partial-messages",
         "--permission-mode", permission_mode or "bypassPermissions",
         "--allowedTools", allowed_tools,
     ]
