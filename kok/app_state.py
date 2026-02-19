@@ -258,7 +258,8 @@ def init_agent_stream(agent_name: str) -> None:
 
 
 def push_agent_stream_event(agent_name: str, event: dict) -> None:
-    """Push a stream event to the agent's buffer and notify all subscribers."""
+    """Push a stream event to the agent's buffer and notify all subscribers.
+    Also checks for AskUserQuestion tool_use events and forwards them to Telegram."""
     buf = agent_stream_buffers.get(agent_name)
     if not buf:
         return
@@ -270,9 +271,91 @@ def push_agent_stream_event(agent_name: str, event: dict) -> None:
         except Exception:
             pass
 
+    # Check if this is an AskUserQuestion event — forward to Telegram bot
+    _maybe_send_telegram_question(agent_name, event)
+
+
+# Per-agent accumulator for streaming AskUserQuestion tool_use
+# { agent_name: { "name": "AskUserQuestion", "json": "..." } }
+_tg_pending_tools: dict[str, dict] = {}
+
+
+def _maybe_send_telegram_question(agent_name: str, event: dict) -> None:
+    """Detect AskUserQuestion in stream events and send to Telegram.
+    Handles both complete events (tool_use, message) and streaming
+    events (content_block_start → content_block_delta → content_block_stop)."""
+    try:
+        etype = event.get("type", "")
+
+        # ── Streaming format: accumulate tool_use fragments ──
+        if etype == "content_block_start":
+            block = event.get("content_block", {})
+            if block.get("type") == "tool_use" and block.get("name") == "AskUserQuestion":
+                _tg_pending_tools[agent_name] = {"name": "AskUserQuestion", "json": ""}
+            else:
+                _tg_pending_tools.pop(agent_name, None)
+            return
+
+        if etype == "content_block_delta":
+            pending = _tg_pending_tools.get(agent_name)
+            if pending and pending["name"] == "AskUserQuestion":
+                delta = event.get("delta", {})
+                if delta.get("type") == "input_json_delta":
+                    pending["json"] += delta.get("partial_json", "")
+            return
+
+        if etype == "content_block_stop":
+            pending = _tg_pending_tools.pop(agent_name, None)
+            if pending and pending["name"] == "AskUserQuestion" and pending["json"]:
+                try:
+                    full_input = json.loads(pending["json"])
+                    questions = full_input.get("questions", [])
+                    if questions:
+                        _fire_telegram_question(agent_name, questions)
+                except json.JSONDecodeError as e:
+                    logger.warning(f"[Telegram hook] JSON parse error: {e}")
+            return
+
+        # ── Complete event formats (non-streaming) ──
+
+        # Direct tool_use event
+        if etype == "tool_use" and event.get("name") == "AskUserQuestion":
+            input_data = event.get("input", {})
+            questions = input_data.get("questions", [])
+            if questions:
+                _fire_telegram_question(agent_name, questions)
+            return
+
+        # Full message with tool_use blocks
+        if etype == "message":
+            content = event.get("content", [])
+            if isinstance(content, list):
+                for block in content:
+                    if isinstance(block, dict) and block.get("type") == "tool_use" and block.get("name") == "AskUserQuestion":
+                        input_data = block.get("input", {})
+                        questions = input_data.get("questions", [])
+                        if questions:
+                            _fire_telegram_question(agent_name, questions)
+            return
+    except Exception as e:
+        logger.warning(f"[Telegram hook] Error checking event: {e}")
+
+
+def _fire_telegram_question(agent_name: str, questions: list[dict]) -> None:
+    """Send AskUserQuestion to Telegram bot (fire-and-forget via asyncio task)."""
+    try:
+        from telegram_bot import get_bot
+        bot = get_bot()
+        if bot:
+            asyncio.create_task(bot.send_question(agent_name, questions))
+    except Exception as e:
+        logger.warning(f"[Telegram hook] Failed to send question: {e}")
+
 
 def finish_agent_stream(agent_name: str) -> None:
-    """Mark the agent's stream as done and notify subscribers with a sentinel."""
+    """Mark the agent's stream as done and notify subscribers with a sentinel.
+    Buffer is kept so the frontend can replay it when switching to this agent.
+    It will be overwritten when the next task starts (init_agent_stream)."""
     buf = agent_stream_buffers.get(agent_name)
     if not buf:
         return

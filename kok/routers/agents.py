@@ -20,6 +20,7 @@ from app_state import (
     get_agent_timeout,
     running_tasks,
     subscribe_agent_stream, unsubscribe_agent_stream,
+    _maybe_send_telegram_question,
     TAYFA_DIR_NAME,
     TAYFA_ROOT_WIN, SKILLS_DIR,
     CURSOR_CLI_PROMPT_FILE, CURSOR_CHATS_FILE,
@@ -28,6 +29,7 @@ from app_state import (
     _debug_log_ensure,
     logger,
 )
+from telegram_bot import get_bot
 
 router = APIRouter(tags=["agents"])
 
@@ -399,6 +401,42 @@ def _agents_from_registry() -> dict:
     return result
 
 
+def _notify_telegram_answer_from_web(agent_name: str, answer_text: str):
+    """When user answers from the Web UI, mark agent as web-sourced and clean up pending."""
+    try:
+        bot = get_bot()
+        if not bot:
+            return
+        # Mark that this agent's last message is from Web, not Telegram
+        bot.mark_from_web(agent_name)
+        # Clean up pending questions for this agent
+        if bot._pending:
+            keys_to_remove = [
+                k for k, v in bot._pending.items()
+                if v.get("agent") == agent_name
+            ]
+            for k in keys_to_remove:
+                del bot._pending[k]
+    except Exception as e:
+        logger.warning(f"[Telegram] notify_answer_from_web error: {e}")
+
+
+def _maybe_forward_reply_to_telegram(agent_name: str, reply_text: str):
+    """If last message to this agent was from Telegram, forward the reply back."""
+    if not reply_text:
+        return
+    try:
+        bot = get_bot()
+        if not bot:
+            return
+        is_tg = bot.is_from_telegram(agent_name)
+        logger.info(f"[Telegram] forward check: agent={agent_name}, is_from_telegram={is_tg}, reply_len={len(reply_text)}")
+        if is_tg:
+            asyncio.create_task(bot.send_agent_reply(agent_name, reply_text))
+    except Exception as e:
+        logger.warning(f"[Telegram] forward reply error: {e}")
+
+
 # ── Agent routes ──────────────────────────────────────────────────────────────
 
 
@@ -488,6 +526,9 @@ async def send_prompt(data: dict):
             extra={"num_turns": api_result.get("num_turns")},
         )
 
+    # Forward agent's reply to Telegram if the prompt came from Telegram
+    _maybe_forward_reply_to_telegram(agent_name, api_result.get("result", ""))
+
     return api_result
 
 
@@ -498,9 +539,14 @@ async def send_prompt_stream(data: dict):
     prompt_text = data.get("prompt", "")
     task_id = data.get("task_id")
     runtime = data.get("runtime", "claude")
+    from_telegram = data.get("_from_telegram", False)
 
     if not agent_name or not prompt_text:
         raise HTTPException(400, "Fields 'name' and 'prompt' are required")
+
+    # Only mark as "from web" if the request is NOT from Telegram callback
+    if not from_telegram:
+        _notify_telegram_answer_from_web(agent_name, prompt_text)
 
     # Resolve model from runtime (same as send_prompt)
     if runtime in _MODEL_RUNTIMES:
@@ -532,19 +578,13 @@ async def send_prompt_stream(data: dict):
                 event = event["event"]
                 etype = event.get("type", "")
 
-            # DEBUG: Log all event types to understand what arrives (especially thinking)
-            _extra = ""
-            if etype == "content_block_start":
-                _extra = f" block_type={event.get('content_block', {}).get('type', '?')}"
-            elif etype == "content_block_delta":
-                _extra = f" delta_type={event.get('delta', {}).get('type', '?')}"
-            elif etype == "assistant":
-                _extra = f" subtype={event.get('subtype', '?')}"
-            logger.info(f"[STREAM_DEBUG] type={etype}{_extra}")
-
             # Skip metadata-only lifecycle events
             if etype in _SKIP_TYPES:
                 continue
+
+            # Check for AskUserQuestion — forward to Telegram
+            # (handles both streaming and non-streaming event formats)
+            _maybe_send_telegram_question(agent_name, event)
 
             # For 'message' events: strip raw API metadata, keep only
             # fields the frontend needs for rendering.
@@ -600,6 +640,9 @@ async def send_prompt_stream(data: dict):
                 success=True,
                 extra={"num_turns": num_turns},
             )
+
+        # Forward agent's reply to Telegram if the prompt came from Telegram
+        _maybe_forward_reply_to_telegram(agent_name, full_result)
 
     return StreamingResponse(sse_generator(), media_type="text/event-stream")
 

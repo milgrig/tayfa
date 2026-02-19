@@ -18,7 +18,7 @@ SETTINGS_FILE = Path(__file__).parent / "settings.json"
 SECRET_SETTINGS_FILE = Path(__file__).parent / "secret_settings.json"
 
 # List of secret fields (these fields are stored in secret_settings.json)
-SECRET_FIELDS = {"githubToken", "apiKeys", "secrets"}
+SECRET_FIELDS = {"githubToken", "apiKeys", "secrets", "telegramBotToken", "telegramChatId"}
 
 DEFAULT_SETTINGS = {
     "theme": "dark",
@@ -49,6 +49,8 @@ DEFAULT_SETTINGS = {
 DEFAULT_SECRET_SETTINGS = {
     "githubToken": "",
     "apiKeys": {},
+    "telegramBotToken": "",
+    "telegramChatId": "",
 }
 
 VALIDATORS = {
@@ -301,6 +303,23 @@ def save_version(version_str: str) -> dict:
     }
     save_settings(settings)
     return settings["version"]
+
+
+def get_telegram_settings() -> tuple[str, str]:
+    """
+    Gets Telegram bot settings.
+    Returns (bot_token: str, chat_id: str).
+    """
+    secrets = load_secret_settings()
+    return secrets.get("telegramBotToken", ""), secrets.get("telegramChatId", "")
+
+
+def set_telegram_settings(bot_token: str, chat_id: str) -> None:
+    """Saves Telegram bot settings to secret settings."""
+    secrets = load_secret_settings()
+    secrets["telegramBotToken"] = bot_token
+    secrets["telegramChatId"] = chat_id
+    _save_json(SECRET_SETTINGS_FILE, secrets)
 
 
 def get_auto_shutdown_settings() -> tuple[bool, int]:

@@ -43,6 +43,8 @@ from app_state import (
     _read_config_value,
     git_router,
 )
+from settings_manager import get_telegram_settings
+from telegram_bot import start_telegram_bot, stop_telegram_bot
 
 # ── Import routers ───────────────────────────────────────────────────────────
 from routers.server import router as server_router
@@ -115,6 +117,50 @@ def _init_files_for_current_project():
             print(f"  employees.json set: {employees_json_path}")
             print(f"  backlog.json set: {backlog_json_path}")
             print(f"  chat_history_dir set: {tayfa_path}")
+
+
+async def _telegram_answer_callback(agent_name: str, answer_text: str):
+    """Called when user answers a question via Telegram. Sends the answer as a prompt to the agent.
+    Uses streaming endpoint and fully reads the response to ensure sse_generator completes."""
+    try:
+        port = app_state.ACTUAL_ORCHESTRATOR_PORT
+        # IMPORTANT: Must fully consume the streaming response, otherwise
+        # sse_generator() gets killed early and save_chat_message / forward_to_telegram never run.
+        async with httpx.AsyncClient(timeout=httpx.Timeout(None, connect=10.0)) as client:
+            async with client.stream(
+                "POST",
+                f"http://localhost:{port}/api/send-prompt-stream",
+                json={
+                    "name": agent_name,
+                    "prompt": answer_text,
+                    "runtime": "opus",
+                    "_from_telegram": True,
+                },
+            ) as resp:
+                if resp.status_code == 200:
+                    logger.info(f"[Telegram] Answer forwarded to {agent_name}: {answer_text[:50]}")
+                    # Read through the entire stream so sse_generator runs to completion
+                    async for _chunk in resp.aiter_bytes():
+                        pass  # We don't need the content, just need to drain the stream
+                    logger.info(f"[Telegram] Stream completed for {agent_name}")
+                else:
+                    body = await resp.aread()
+                    logger.error(f"[Telegram] Failed to forward answer: {resp.status_code} {body[:200]}")
+    except Exception as e:
+        logger.error(f"[Telegram] Error forwarding answer to {agent_name}: {e}")
+
+
+async def _start_telegram_integration():
+    """Start Telegram bot if token and chat_id are configured."""
+    token, chat_id = get_telegram_settings()
+    if token and chat_id:
+        bot = await start_telegram_bot(token, chat_id, _telegram_answer_callback)
+        if bot:
+            logger.info(f"[Telegram] Bot started (chat_id={chat_id[:6]}...)")
+        else:
+            logger.warning("[Telegram] Bot failed to start")
+    else:
+        logger.info("[Telegram] Not configured (no token or chat_id in secret_settings.json)")
 
 
 async def _shutdown_check_loop():
@@ -199,10 +245,14 @@ async def lifespan(app: FastAPI):
     # Open browser automatically
     asyncio.create_task(_auto_open_browser())
 
+    # Start Telegram bot if configured
+    await _start_telegram_integration()
+
     yield
     # Shutdown
     health_task.cancel()
     shutdown_task.cancel()
+    await stop_telegram_bot()
     stop_claude_api()
 
 

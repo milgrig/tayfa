@@ -61,6 +61,9 @@ async function showSettingsScreen() {
     const settings = await loadSettings();
     updateSettingsScreen(settings);
 
+    // Load Telegram settings
+    loadTelegramSettings();
+
     // Add handlers for theme radio buttons
     document.querySelectorAll('input[name="settingsTheme"]').forEach(radio => {
         radio.onchange = async function() {
@@ -141,6 +144,85 @@ function updateComputedUrlDisplay() {
         }
     }
 }
+
+// ── Telegram ───────────────────────────────────────────────────────────────
+
+async function loadTelegramSettings() {
+    try {
+        const data = await api('GET', '/api/telegram-settings');
+        const tokenEl = document.getElementById('settingsTelegramToken');
+        const chatIdEl = document.getElementById('settingsTelegramChatId');
+        const statusEl = document.getElementById('telegramStatus');
+
+        if (chatIdEl) chatIdEl.value = data.chatId || '';
+        // Don't overwrite token field with masked value if user is editing
+        if (tokenEl && !tokenEl.value) {
+            tokenEl.placeholder = data.botToken || '123456:ABC-DEF1234ghIkl-zyx57W2v...';
+        }
+
+        if (statusEl) {
+            if (data.running) {
+                statusEl.textContent = '● Connected';
+                statusEl.style.background = 'rgba(52,211,153,0.15)';
+                statusEl.style.color = 'var(--success)';
+            } else if (data.configured) {
+                statusEl.textContent = '● Configured';
+                statusEl.style.background = 'rgba(251,191,36,0.15)';
+                statusEl.style.color = 'var(--warning)';
+            } else {
+                statusEl.textContent = '○ Not configured';
+                statusEl.style.background = 'rgba(248,113,113,0.1)';
+                statusEl.style.color = 'var(--text-dim)';
+            }
+        }
+    } catch (e) {
+        console.warn('Failed to load Telegram settings:', e);
+    }
+}
+
+async function saveTelegramSettings() {
+    const token = document.getElementById('settingsTelegramToken').value.trim();
+    const chatId = document.getElementById('settingsTelegramChatId').value.trim();
+
+    if (!token || !chatId) {
+        alert('Both Bot Token and Chat ID are required');
+        return;
+    }
+
+    try {
+        const result = await api('POST', '/api/telegram-settings', {
+            botToken: token,
+            chatId: chatId,
+        });
+        addSystemMessage('Telegram bot connected!');
+        loadTelegramSettings();
+    } catch (e) {
+        alert('Error connecting Telegram: ' + e.message);
+    }
+}
+
+async function testTelegram() {
+    try {
+        await api('POST', '/api/telegram-test');
+        addSystemMessage('Telegram test message sent!');
+    } catch (e) {
+        alert('Error: ' + e.message);
+    }
+}
+
+async function disconnectTelegram() {
+    if (!confirm('Disconnect Telegram bot?')) return;
+    try {
+        await api('POST', '/api/telegram-disconnect');
+        document.getElementById('settingsTelegramToken').value = '';
+        document.getElementById('settingsTelegramChatId').value = '';
+        addSystemMessage('Telegram bot disconnected');
+        loadTelegramSettings();
+    } catch (e) {
+        alert('Error: ' + e.message);
+    }
+}
+
 
 async function saveSettingMaxTasks(value) {
     const numValue = parseInt(value);
