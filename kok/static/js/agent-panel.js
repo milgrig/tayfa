@@ -7,9 +7,22 @@ let _lastMsgId = null;        // Track last message ID to avoid duplicate text
 let _msgTextNode = null;      // Dedicated node for message-type events
 let _activityPollTimer = null; // Polls agent activity while busy
 let _taskStreamAbort = null;  // Abort controller for task stream SSE connection
+let _streamOwner = null;      // Name of agent whose stream is currently displayed
+const _agentStreamCache = {}; // Per-agent stream HTML cache: { name: innerHTML }
+
+function _saveStreamCache() {
+    if (_streamOwner) {
+        const container = document.getElementById('streamContent');
+        if (container) _agentStreamCache[_streamOwner] = container.innerHTML;
+    }
+}
 
 function openAgentPanel(name) {
     if (!name) return;
+
+    // Save current agent's stream before switching
+    _saveStreamCache();
+
     panelAgent = name;
     panelOpen = true;
 
@@ -19,21 +32,36 @@ function openAgentPanel(name) {
 
     document.getElementById('agentPanelName').textContent = name;
 
-    // Clear previous stream
-    document.getElementById('streamContent').innerHTML = '';
-    document.getElementById('streamEmpty').style.display = 'flex';
+    // Disconnect previous agent's task stream and polling
+    _stopActivityPoll();
+    _disconnectTaskStream();
+
+    // Restore this agent's stream from cache (or start empty)
+    _streamOwner = name;
+    const container = document.getElementById('streamContent');
+    const cached = _agentStreamCache[name];
+    if (cached) {
+        container.innerHTML = cached;
+        document.getElementById('streamEmpty').style.display = 'none';
+    } else {
+        container.innerHTML = '';
+        document.getElementById('streamEmpty').style.display = 'flex';
+    }
+    _lastMsgId = null;
+    _msgTextNode = null;
+    _streamTextNode = null;
 
     // Load config
     loadAgentConfig(name);
 
     // Check if agent is busy with a task and show activity
-    _stopActivityPoll();
     _checkAgentActivity(name);
 }
 
 function closeAgentPanel() {
     panelOpen = false;
     panelAgent = null;
+    _streamOwner = null;
     _stopActivityPoll();
     _disconnectTaskStream();
 
@@ -171,10 +199,13 @@ function clearStream() {
     document.getElementById('streamEmpty').style.display = 'flex';
     _lastMsgId = null;
     _msgTextNode = null;
+    // Also clear cache for current agent
+    if (_streamOwner) delete _agentStreamCache[_streamOwner];
 }
 
 // Current text accumulator for streaming deltas
 let _streamTextNode = null;
+let _pendingTool = null;  // Tracks tool_use being streamed: { name, inputJson }
 
 async function sendPromptStreaming() {
     if (!currentAgent) return;
@@ -197,6 +228,7 @@ async function sendPromptStreaming() {
 
     // Clear stream panel and switch to stream tab
     clearStream();
+    _streamOwner = agentForRequest;
     if (panelOpen) switchPanelTab('stream');
 
     const runtime = getAgentRuntime(agentForRequest);
@@ -250,7 +282,10 @@ async function sendPromptStreaming() {
                     if (event.type === 'stream_event' && event.event) {
                         event = event.event;
                     }
-                    processStreamEvent(event);
+                    // Only render to stream panel if this agent is still selected
+                    if (_streamOwner === agentForRequest) {
+                        processStreamEvent(event);
+                    }
 
                     // Accumulate result
                     if (event.type === 'result') {
@@ -322,11 +357,18 @@ function processStreamEvent(event) {
 
     } else if (type === 'content_block_start') {
         _streamTextNode = null;
+        _pendingTool = null;
         const block = event.content_block || {};
         if (block.type === 'thinking') {
             appendStreamEvent('thinking', block.text || '');
         } else if (block.type === 'tool_use') {
-            appendStreamEvent('tool', `${block.name || 'tool'}(...)`);
+            const bName = block.name || 'tool';
+            // Track this tool — input will accumulate via input_json_delta
+            _pendingTool = { name: bName, inputJson: '' };
+            // Show tool label immediately (except AskUserQuestion — wait for full input)
+            if (bName !== 'AskUserQuestion') {
+                appendStreamEvent('tool', _formatToolUse(bName, block.input));
+            }
         }
         // text blocks — wait for deltas
 
@@ -337,7 +379,8 @@ function processStreamEvent(event) {
         } else if (delta.type === 'text_delta') {
             _appendTextDelta(delta.text || '');
         } else if (delta.type === 'input_json_delta') {
-            // tool input streaming — skip
+            // Accumulate tool input JSON fragments
+            if (_pendingTool) _pendingTool.inputJson += (delta.partial_json || '');
         } else {
             // Unknown delta type — only show if it has text content (never raw JSON)
             const val = delta.text || '';
@@ -346,12 +389,25 @@ function processStreamEvent(event) {
 
     } else if (type === 'content_block_stop') {
         _streamTextNode = null;
+        // If we accumulated a tool with deferred rendering — render now
+        if (_pendingTool && _pendingTool.name === 'AskUserQuestion' && _pendingTool.inputJson) {
+            try {
+                const fullInput = JSON.parse(_pendingTool.inputJson);
+                _renderAskUserQuestionButtons(fullInput);
+            } catch (e) {
+                appendStreamEvent('question', '❓ Agent is asking a question');
+            }
+        }
+        _pendingTool = null;
 
     } else if (type === 'tool_use') {
         _streamTextNode = null;
         const toolName = event.name || event.tool || 'tool';
-        const input = event.input ? JSON.stringify(event.input).substring(0, 100) : '';
-        appendStreamEvent('tool', `${toolName}(${input}${input.length >= 100 ? '...' : ''})`);
+        if (toolName === 'AskUserQuestion') {
+            _renderAskUserQuestionButtons(event.input);
+        } else {
+            appendStreamEvent('tool', _formatToolUse(toolName, event.input));
+        }
 
     } else if (type === 'tool_result') {
         let content = event.content || '';
@@ -414,9 +470,12 @@ function processStreamEvent(event) {
                     const empty = document.getElementById('streamEmpty');
                     if (empty) empty.style.display = 'none';
                 } else if (block.type === 'tool_use') {
-                    const toolName = block.name || 'tool';
-                    const input = block.input ? JSON.stringify(block.input).substring(0, 100) : '';
-                    appendStreamEvent('tool', `${toolName}(${input}${input.length >= 100 ? '...' : ''})`);
+                    const bName = block.name || 'tool';
+                    if (bName === 'AskUserQuestion') {
+                        _renderAskUserQuestionButtons(block.input);
+                    } else {
+                        appendStreamEvent('tool', _formatToolUse(bName, block.input));
+                    }
                 } else if (block.type === 'thinking' && block.text) {
                     appendStreamEvent('thinking', block.text);
                 }
@@ -462,6 +521,153 @@ function _appendTextDelta(text) {
     streamTab.scrollTop = streamTab.scrollHeight;
 }
 
+function _formatToolUse(toolName, input) {
+    if (!input || typeof input !== 'object') return toolName;
+
+    // Extract the most useful parameter for each known tool
+    switch (toolName) {
+        case 'Read':
+            return `Read → ${_shortPath(input.file_path)}`;
+        case 'Write':
+            return `Write → ${_shortPath(input.file_path)}`;
+        case 'Edit':
+            return `Edit → ${_shortPath(input.file_path)}`;
+        case 'Glob':
+            return `Glob → ${input.pattern || ''}${input.path ? '  in ' + _shortPath(input.path) : ''}`;
+        case 'Grep':
+            return `Grep → "${_truncStr(input.pattern || '', 40)}"${input.path ? '  in ' + _shortPath(input.path) : ''}`;
+        case 'Bash': {
+            const cmd = input.description || input.command || '';
+            return `Bash → ${_truncStr(cmd, 100)}`;
+        }
+        case 'Task':
+            return `Task → ${_truncStr(input.description || '', 60)}`;
+        case 'WebFetch':
+            return `WebFetch → ${_truncStr(input.url || '', 80)}`;
+        case 'WebSearch':
+            return `WebSearch → "${_truncStr(input.query || '', 60)}"`;
+        case 'TodoWrite':
+            return `TodoWrite (${(input.todos || []).length} items)`;
+        case 'NotebookEdit':
+            return `NotebookEdit → ${_shortPath(input.notebook_path)}`;
+        case 'AskUserQuestion': {
+            const q = (input.questions || [])[0];
+            return q ? `❓ ${_truncStr(q.question || '', 80)}` : '❓ Agent is asking a question';
+        }
+        default: {
+            // Generic: show first string value
+            const vals = Object.values(input);
+            const first = vals.find(v => typeof v === 'string' && v.length > 0);
+            if (first) return `${toolName} → ${_truncStr(first, 80)}`;
+            return `${toolName}(${Object.keys(input).join(', ')})`;
+        }
+    }
+}
+
+function _formatAskUserQuestion(input) {
+    if (!input || !input.questions || !Array.isArray(input.questions)) return '❓ Agent is asking a question';
+    const parts = ['❓ Agent is asking:'];
+    for (const q of input.questions) {
+        parts.push(q.question || '(no question text)');
+        if (Array.isArray(q.options)) {
+            for (const opt of q.options) {
+                parts.push(`  • ${opt.label}${opt.description ? ' — ' + opt.description : ''}`);
+            }
+        }
+    }
+    return parts.join('\n');
+}
+
+/**
+ * Render AskUserQuestion as interactive buttons in the Stream panel.
+ * Clicking a button sends the answer as a prompt directly to the agent
+ * that asked the question (uses panelAgent, not currentAgent).
+ */
+function _renderAskUserQuestionButtons(input) {
+    const container = document.getElementById('streamContent');
+    const empty = document.getElementById('streamEmpty');
+    if (empty) empty.style.display = 'none';
+
+    const div = document.createElement('div');
+    div.className = 'stream-event question';
+
+    if (!input || !input.questions || !Array.isArray(input.questions)) {
+        div.textContent = '❓ Agent is asking a question';
+        container.appendChild(div);
+        return;
+    }
+
+    // Capture which agent asked — use panelAgent (the agent whose stream we're viewing)
+    const askingAgent = panelAgent || currentAgent;
+
+    for (const q of input.questions) {
+        // Question text
+        const textEl = document.createElement('div');
+        textEl.className = 'question-text';
+        textEl.textContent = '❓ ' + (q.question || '(no question text)');
+        div.appendChild(textEl);
+
+        // Buttons container
+        if (Array.isArray(q.options) && q.options.length > 0) {
+            const btnsWrap = document.createElement('div');
+            btnsWrap.className = 'question-buttons';
+
+            for (const opt of q.options) {
+                const btn = document.createElement('button');
+                btn.className = 'question-btn';
+                btn.textContent = opt.label;
+                if (opt.description) btn.title = opt.description;
+
+                btn.addEventListener('click', () => {
+                    // Disable all buttons in this group
+                    btnsWrap.querySelectorAll('.question-btn').forEach(b => { b.disabled = true; });
+                    btn.classList.add('selected');
+
+                    // If the asking agent is the current chat agent, use full streaming flow
+                    if (askingAgent === currentAgent) {
+                        const promptInput = document.getElementById('promptInput');
+                        if (promptInput) {
+                            promptInput.value = opt.label;
+                            sendPromptStreaming();
+                        }
+                    } else {
+                        // Different agent — send via non-streaming API (fire-and-forget)
+                        const runtime = getAgentRuntime(askingAgent);
+                        api('POST', '/api/send-prompt', {
+                            name: askingAgent,
+                            prompt: opt.label,
+                            runtime: runtime
+                        }).catch(e => console.error('[QuestionBtn] Error:', e));
+                    }
+                });
+
+                btnsWrap.appendChild(btn);
+            }
+
+            div.appendChild(btnsWrap);
+        }
+    }
+
+    container.appendChild(div);
+
+    // Auto-scroll
+    const streamTab = document.getElementById('agentStreamTab');
+    if (streamTab) streamTab.scrollTop = streamTab.scrollHeight;
+}
+
+function _shortPath(p) {
+    if (!p) return '...';
+    const norm = p.replace(/\\/g, '/');
+    const parts = norm.split('/').filter(Boolean);
+    if (parts.length <= 2) return parts.join('/');
+    return '…/' + parts.slice(-2).join('/');
+}
+
+function _truncStr(s, max) {
+    if (!s) return '';
+    return s.length > max ? s.substring(0, max) + '…' : s;
+}
+
 // ── Agent Activity Indicator ────────────────────────────────────────────────
 
 function _stopActivityPoll() {
@@ -490,6 +696,10 @@ async function _checkAgentActivity(name) {
             // Start polling to update elapsed time and detect completion
             _stopActivityPoll();
             _activityPollTimer = setInterval(() => _pollAgentActivity(name), 2000);
+        } else if (!_agentStreamCache[name]) {
+            // Agent idle, no cached stream — try to load replay from backend buffer
+            // (last task execution). If backend has no buffer, SSE returns empty.
+            _connectTaskStream(name);
         }
     } catch (e) {
         console.warn('[AgentActivity] Error checking activity:', e.message);
@@ -608,6 +818,8 @@ async function _connectTaskStream(name) {
 
     const abortController = new AbortController();
     _taskStreamAbort = abortController;
+    // Capture owner at connection time — if panel switches, this connection stops rendering
+    const myOwner = name;
 
     _streamTextNode = null;
 
@@ -626,8 +838,14 @@ async function _connectTaskStream(name) {
         let buffer = '';
 
         while (true) {
+            // If this connection was superseded, stop immediately
+            if (_taskStreamAbort !== abortController) return;
+
             const { done, value } = await reader.read();
             if (done) break;
+
+            // Double-check: panel may have switched during read()
+            if (_streamOwner !== myOwner) return;
 
             buffer += decoder.decode(value, { stream: true });
             const lines = buffer.split('\n');
@@ -642,9 +860,7 @@ async function _connectTaskStream(name) {
                     const event = JSON.parse(jsonStr);
 
                     // Stream ended — stop
-                    if (event.type === 'stream_end') {
-                        return;
-                    }
+                    if (event.type === 'stream_end') return;
 
                     // Skip keep-alive heartbeats
                     if (event.type === 'keep_alive') continue;

@@ -21,6 +21,8 @@ from app_state import (
     get_current_project,
     load_settings, update_settings,
 )
+from settings_manager import get_telegram_settings, set_telegram_settings
+from telegram_bot import get_bot, start_telegram_bot, stop_telegram_bot
 
 router = APIRouter(tags=["server"])
 
@@ -145,3 +147,86 @@ async def start_server():
 async def stop_server():
     """Stop Claude API server."""
     return stop_claude_api()
+
+
+# ── Telegram Bot ─────────────────────────────────────────────────────────────
+
+
+@router.get("/api/telegram-settings")
+async def get_telegram_settings_api():
+    """Get Telegram bot settings (token is masked)."""
+    token, chat_id = get_telegram_settings()
+    bot = get_bot()
+    return {
+        "configured": bool(token and chat_id),
+        "botToken": (token[:10] + "..." + token[-5:]) if token and len(token) > 15 else ("***" if token else ""),
+        "chatId": chat_id,
+        "running": bot is not None,
+    }
+
+
+@router.post("/api/telegram-settings")
+async def post_telegram_settings(data: dict):
+    """Update Telegram bot settings and restart the bot."""
+    token = data.get("botToken", "").strip()
+    chat_id = data.get("chatId", "").strip()
+
+    if not token or not chat_id:
+        raise HTTPException(status_code=400, detail="Both botToken and chatId are required")
+
+    # Save to secret_settings.json
+    set_telegram_settings(token, chat_id)
+
+    # Restart bot with new settings
+    await stop_telegram_bot()
+
+    # Create answer callback (sends answer as prompt to agent via local HTTP)
+    # Must fully consume streaming response so sse_generator runs to completion
+    async def _answer_cb(agent_name: str, answer_text: str):
+        try:
+            port = app_state.ACTUAL_ORCHESTRATOR_PORT
+            async with httpx.AsyncClient(timeout=httpx.Timeout(None, connect=10.0)) as client:
+                async with client.stream(
+                    "POST",
+                    f"http://localhost:{port}/api/send-prompt-stream",
+                    json={"name": agent_name, "prompt": answer_text, "runtime": "opus", "_from_telegram": True},
+                ) as resp:
+                    async for _chunk in resp.aiter_bytes():
+                        pass
+        except Exception as e:
+            import logging
+            logging.getLogger("tayfa").error(f"[Telegram] answer callback error: {e}")
+
+    bot = await start_telegram_bot(token, chat_id, _answer_cb)
+
+    # Send a test message
+    if bot:
+        await bot.send_notification("✅ Tayfa Telegram bot connected!")
+
+    return {
+        "status": "updated",
+        "configured": True,
+        "running": bot is not None,
+    }
+
+
+@router.post("/api/telegram-test")
+async def telegram_test():
+    """Send a test message to Telegram."""
+    bot = get_bot()
+    if not bot:
+        raise HTTPException(status_code=400, detail="Telegram bot is not configured or not running")
+
+    success = await bot.send_notification("🧪 Test message from Tayfa!")
+    if success:
+        return {"status": "sent"}
+    else:
+        raise HTTPException(status_code=500, detail="Failed to send test message")
+
+
+@router.post("/api/telegram-disconnect")
+async def telegram_disconnect():
+    """Stop and disconnect the Telegram bot."""
+    await stop_telegram_bot()
+    set_telegram_settings("", "")
+    return {"status": "disconnected"}

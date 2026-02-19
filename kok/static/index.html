@@ -356,6 +356,37 @@
                             </div>
                         </div>
                     </div>
+
+                    <!-- Telegram -->
+                    <div style="background:var(--bg-card); border:1px solid var(--border); border-radius:var(--radius); padding:20px; margin-top:16px;">
+                        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
+                            <h3 style="font-size:14px; color:var(--text-bright);">✈️ Telegram</h3>
+                            <span id="telegramStatus" style="font-size:11px; padding:3px 10px; border-radius:12px; font-weight:600;"></span>
+                        </div>
+                        <p style="font-size:12px; color:var(--text-dim); margin-bottom:14px;">
+                            Receive agent questions (AskUserQuestion) in Telegram with clickable answer buttons.
+                        </p>
+                        <div style="display:flex; flex-direction:column; gap:12px;">
+                            <div>
+                                <label style="display:block; color:var(--text-dim); font-size:12px; margin-bottom:4px;">Bot Token (from @BotFather)</label>
+                                <input type="password" id="settingsTelegramToken" placeholder="123456:ABC-DEF1234ghIkl-zyx57W2v..."
+                                    style="width:100%; padding:8px 12px; background:var(--bg-input); border:1px solid var(--border); border-radius:6px; color:var(--text); font-family:var(--mono); font-size:12px;">
+                            </div>
+                            <div>
+                                <label style="display:block; color:var(--text-dim); font-size:12px; margin-bottom:4px;">Chat ID</label>
+                                <input type="text" id="settingsTelegramChatId" placeholder="12345678"
+                                    style="width:100%; padding:8px 12px; background:var(--bg-input); border:1px solid var(--border); border-radius:6px; color:var(--text); font-family:var(--mono); font-size:12px;">
+                                <div style="font-size:10px; color:var(--text-dim); margin-top:4px;">
+                                    Send /start to your bot, then get chat_id via <code style="background:var(--bg-input); padding:1px 4px; border-radius:3px;">https://api.telegram.org/bot&lt;TOKEN&gt;/getUpdates</code>
+                                </div>
+                            </div>
+                            <div style="display:flex; gap:8px; margin-top:4px;">
+                                <button class="btn primary" onclick="saveTelegramSettings()" style="font-size:12px;">Connect</button>
+                                <button class="btn" onclick="testTelegram()" style="font-size:12px;">🧪 Test</button>
+                                <button class="btn danger" onclick="disconnectTelegram()" style="font-size:12px;">Disconnect</button>
+                            </div>
+                        </div>
+                    </div>
                 </div>
             </div>
         </div>
@@ -402,7 +433,11 @@
                 <label>Permission Mode</label>
                 <select id="cfgPermissionMode">
                     <option value="bypassPermissions">Bypass Permissions</option>
-                    <option value="default">Default</option>
+                    <option value="acceptEdits">Accept Edits</option>
+                    <option value="default">Default (ask everything)</option>
+                    <option value="plan">Plan (read-only)</option>
+                    <option value="dontAsk">Don't Ask</option>
+                    <option value="delegate">Delegate</option>
                 </select>
             </div>
             <div class="config-group">

@@ -502,20 +502,26 @@ def _run_claude_stream(prompt: str, workdir: str, allowed_tools: str,
         yield {"type": "error", "error": str(e)}
 
 
-def _get_session_id(agent: dict, model: str) -> str:
-    """Get session_id for a specific model from per-model dict or legacy string."""
+def _get_session_id(agent: dict, model: str, permission_mode: str = "") -> str:
+    """Get session_id for a specific model and permission_mode from nested dict or legacy formats."""
     sid = agent.get("session_id")
     if isinstance(sid, dict):
-        return sid.get(model) or ""
-    # backward compat: old string format — return as-is
+        model_sessions = sid.get(model)
+        if isinstance(model_sessions, dict):
+            # New structure: { "opus": { "bypassPermissions": "sid1", ... } }
+            return model_sessions.get(permission_mode) or ""
+        # Old structure: { "opus": "sid1" } — backward compat
+        return model_sessions or ""
+    # Legacy string format — return as-is
     return sid or ""
 
 
-def _save_session(name: str, session_id: Optional[str], project_path: str = "", model: str = ""):
-    """Save session_id for an agent, scoped per model.
+def _save_session(name: str, session_id: Optional[str], project_path: str = "", model: str = "", permission_mode: str = ""):
+    """Save session_id for an agent, scoped per model and permission_mode.
 
-    session_id is stored as a dict: {"opus": "sid1", "sonnet": "sid2", ...}.
-    Backward compat: migrates old string/None format to dict on first write.
+    session_id is stored as a nested dict:
+      {"opus": {"bypassPermissions": "sid1", "default": "sid2"}, "sonnet": {...}}.
+    Backward compat: migrates old string/None and flat per-model formats on first write.
     """
     internal_key = _scoped_name(name, project_path)
     with _lock:
@@ -526,7 +532,14 @@ def _save_session(name: str, session_id: Optional[str], project_path: str = "", 
             if not isinstance(current, dict):
                 current = {}
             if model:
-                current[model] = session_id
+                if permission_mode:
+                    # New nested structure: { model: { permission_mode: sid } }
+                    if not isinstance(current.get(model), dict):
+                        current[model] = {}
+                    current[model][permission_mode] = session_id
+                else:
+                    # No permission_mode → clear all sessions for this model
+                    current[model] = {}
             else:
                 # No model specified → clear all sessions
                 current = {}
@@ -694,7 +707,8 @@ def run(req: UnifiedRequest):
 
     # Per-model sessions: each model has its own session_id, so no model-change guard needed.
     # Switching models simply resumes that model's own session (or starts fresh if none).
-    model_session_id = _get_session_id(agent, run_model)
+    run_permission_mode = agent.get("permission_mode", "bypassPermissions")
+    model_session_id = _get_session_id(agent, run_model, run_permission_mode)
     # #region agent log
     _debug_log_api("RUN resolve", {"internal_key": internal_key, "agent_prompt_len": len(agent.get("system_prompt") or ""), "resolved_prompt_len": len(system_prompt), "project_path": project_path, "run_model": run_model, "model_session_id": model_session_id[:8] if model_session_id else ""})
     # #endregion
@@ -706,7 +720,7 @@ def run(req: UnifiedRequest):
         system_prompt=system_prompt,
         session_id=model_session_id,
         model=run_model,
-        permission_mode=agent.get("permission_mode", "bypassPermissions"),
+        permission_mode=run_permission_mode,
         budget_limit=agent.get("budget_limit", 10.0),
         use_structured_output=req.use_structured_output,
         timeout=req.timeout,
@@ -714,24 +728,24 @@ def run(req: UnifiedRequest):
 
     new_sid = result.get("session_id")
     if new_sid:
-        _save_session(req.name, new_sid, project_path, model=run_model)
+        _save_session(req.name, new_sid, project_path, model=run_model, permission_mode=run_permission_mode)
     elif model_session_id and result.get("code") != 0:
         # Session stale — retry without resume (clear only this model's session)
-        _save_session(req.name, None, project_path, model=run_model)
+        _save_session(req.name, None, project_path, model=run_model, permission_mode=run_permission_mode)
         result = _run_claude(
             prompt=req.prompt,
             workdir=agent["workdir"],
             allowed_tools=agent.get("allowed_tools", "Read Edit Bash"),
             system_prompt=system_prompt,
             model=run_model,
-            permission_mode=agent.get("permission_mode", "bypassPermissions"),
+            permission_mode=run_permission_mode,
             budget_limit=agent.get("budget_limit", 10.0),
             use_structured_output=req.use_structured_output,
             timeout=req.timeout,
         )
         new_sid = result.get("session_id")
         if new_sid:
-            _save_session(req.name, new_sid, project_path, model=run_model)
+            _save_session(req.name, new_sid, project_path, model=run_model, permission_mode=run_permission_mode)
 
     return result
 
@@ -765,7 +779,8 @@ def run_stream(req: UnifiedRequest):
 
     system_prompt = _resolve_system_prompt(agent)
     run_model = req.model or agent.get("model", "")
-    model_session_id = _get_session_id(agent, run_model)
+    run_permission_mode = agent.get("permission_mode", "bypassPermissions")
+    model_session_id = _get_session_id(agent, run_model, run_permission_mode)
 
     def event_generator():
         last_session_id = None
@@ -776,7 +791,7 @@ def run_stream(req: UnifiedRequest):
             system_prompt=system_prompt,
             session_id=model_session_id,
             model=run_model,
-            permission_mode=agent.get("permission_mode", "bypassPermissions"),
+            permission_mode=run_permission_mode,
             budget_limit=agent.get("budget_limit", 10.0),
             timeout=req.timeout,
         ):
@@ -787,7 +802,7 @@ def run_stream(req: UnifiedRequest):
 
         # Save session after stream completes
         if last_session_id:
-            _save_session(req.name, last_session_id, project_path, model=run_model)
+            _save_session(req.name, last_session_id, project_path, model=run_model, permission_mode=run_permission_mode)
 
     return StreamingResponse(event_generator(), media_type="text/event-stream")
 

@@ -273,5 +273,17 @@
     "cost_usd": 0,
     "duration_sec": 18.11,
     "num_turns": 3
+  },
+  {
+    "id": "msg_120",
+    "timestamp": "2026-02-18T17:04:53",
+    "direction": "to_agent",
+    "prompt": "Да, а потом сдейлай новый спринт, и поставь туда задачу про автокоммит при закрытии спринта",
+    "result": "Готово! Вот итог:\n\n**Git-коммит** — `f5d6ca7` на ветке `sprint/S028` — сделан ✅\n\n**Новый спринт S029** — «Fix Sprint Auto-Commit on Windows» создан с задачей:\n\n| ID | Задача | Разработчик | Статус |\n|----|--------|-------------|--------|\n| T038 | Fix encoding error in sprint auto-commit on Windows | developer | pending |\n| T037 | Finalize sprint | boss | pending |\n\nСуть бага: `task_manager.py` при автокоммите читает вывод git через дефолтную кодировку Windows (cp1254), которая падает на UTF-8 символах. Нужно явно указать `encoding='utf-8'` в subprocess-вызовах.",
+    "runtime": "claude",
+    "success": true,
+    "cost_usd": 0,
+    "duration_sec": 59.98,
+    "num_turns": 10
   }
 ]
