@@ -4,7 +4,9 @@
 Chat history management for agents.
 
 Each agent has its own chat_history.json file in the .tayfa/{agent_name}/ folder.
-The file contains a list of messages (maximum 500 most recent) with metadata.
+The file contains a list of messages (maximum max_history_items most recent) with metadata.
+Older messages are automatically archived to .tayfa/{agent_name}/chat_history_archive/
+when the limit is exceeded (no data loss).
 
 Message format:
 {
@@ -52,8 +54,8 @@ from typing import Any
 # Path to .tayfa of the current project (set externally)
 _TAYFA_DIR: Path | None = None
 
-# Maximum number of messages in history (FIFO)
-MAX_HISTORY_SIZE = 500
+# Default maximum number of messages in history
+_DEFAULT_MAX_HISTORY_ITEMS = 100
 
 
 def set_tayfa_dir(path: str | Path) -> None:
@@ -65,6 +67,25 @@ def set_tayfa_dir(path: str | Path) -> None:
 def get_tayfa_dir() -> Path | None:
     """Get the path to .tayfa of the current project."""
     return _TAYFA_DIR
+
+
+def get_max_history_items(tayfa_dir: Path | None = None) -> int:
+    """Read max_history_items from .tayfa/config.json. Fresh on every call.
+    Falls back to _DEFAULT_MAX_HISTORY_ITEMS (100) if not configured or invalid."""
+    base = tayfa_dir if tayfa_dir is not None else _TAYFA_DIR
+    if base is None:
+        return _DEFAULT_MAX_HISTORY_ITEMS
+    try:
+        config_path = base / "config.json"
+        if not config_path.exists():
+            return _DEFAULT_MAX_HISTORY_ITEMS
+        data = json.loads(config_path.read_text(encoding="utf-8"))
+        v = data.get("max_history_items")
+        if isinstance(v, int) and v > 0:
+            return v
+    except Exception:
+        pass
+    return _DEFAULT_MAX_HISTORY_ITEMS
 
 
 def _get_history_file(agent_name: str) -> Path | None:
@@ -124,6 +145,54 @@ def _save_history(agent_name: str, messages: list[dict]) -> bool:
             raise
     except Exception:
         return False
+
+
+def _archive_messages(
+    agent_name: str,
+    messages_to_archive: list[dict],
+    tayfa_dir: Path,
+) -> None:
+    """
+    Append overflow messages to a date-based archive file.
+
+    Archive location: .tayfa/{agent_name}/chat_history_archive/archive_YYYY-MM-DD.json
+    If the archive file for today already exists, extend it; otherwise create it.
+    Uses atomic write (temp file + os.replace).
+    """
+    archive_dir = tayfa_dir / agent_name / "chat_history_archive"
+    archive_dir.mkdir(parents=True, exist_ok=True)
+
+    date_str = datetime.utcnow().strftime("%Y-%m-%d")
+    archive_file = archive_dir / f"archive_{date_str}.json"
+
+    # Load existing archive for today (if any)
+    existing: list[dict] = []
+    if archive_file.exists():
+        try:
+            data = json.loads(archive_file.read_text(encoding="utf-8"))
+            if isinstance(data, list):
+                existing = data
+        except Exception:
+            existing = []
+
+    existing.extend(messages_to_archive)
+
+    # Atomic write
+    fd, temp_path = tempfile.mkstemp(
+        suffix=".json",
+        prefix="archive_tmp_",
+        dir=str(archive_dir),
+    )
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            json.dump(existing, f, ensure_ascii=False, indent=2)
+        os.replace(temp_path, archive_file)
+    except Exception:
+        try:
+            os.unlink(temp_path)
+        except Exception:
+            pass
+        raise
 
 
 def _generate_message_id(messages: list[dict]) -> str:
@@ -205,9 +274,15 @@ def save_message(
 
     messages.append(message)
 
-    # FIFO: keep only the last MAX_HISTORY_SIZE messages
-    if len(messages) > MAX_HISTORY_SIZE:
-        messages = messages[-MAX_HISTORY_SIZE:]
+    # Archive overflow: move oldest messages to date-based archive file
+    max_items = get_max_history_items()
+    if len(messages) > max_items:
+        overflow = messages[:-max_items]  # oldest messages that exceed the limit
+        messages = messages[-max_items:]
+        try:
+            _archive_messages(agent_name, overflow, _TAYFA_DIR)
+        except Exception:
+            pass  # archiving failure must not block saving current history
 
     if _save_history(agent_name, messages):
         return message

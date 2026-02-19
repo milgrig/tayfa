@@ -231,7 +231,9 @@ def _read_prompt_from_file(workdir: str, system_prompt_file: str) -> str:
 def _resolve_system_prompt(agent: dict) -> str:
     """Read system prompt from file if system_prompt_file is set,
     otherwise return inline system_prompt.
-    File is re-read on every call so edits take effect immediately."""
+    File is re-read on every call so edits take effect immediately.
+    If the file cannot be read, falls back to inline system_prompt (if any)
+    so the agent always receives its role identity."""
     spf = agent.get("system_prompt_file", "")
     raw_workdir = agent.get("workdir", "")
     logger.info(f"_resolve_system_prompt: system_prompt_file={spf!r}, workdir={raw_workdir!r}")
@@ -249,7 +251,14 @@ def _resolve_system_prompt(agent: dict) -> str:
             logger.info(f"_resolve_system_prompt: read {len(content)} chars from file")
             return content
         except FileNotFoundError:
-            logger.error(f"_resolve_system_prompt: NOT FOUND: {full!r}")
+            inline = agent.get("system_prompt", "")
+            if inline:
+                logger.warning(
+                    f"_resolve_system_prompt: file NOT FOUND: {full!r} — "
+                    f"falling back to inline system_prompt ({len(inline)} chars)"
+                )
+                return inline
+            logger.error(f"_resolve_system_prompt: file NOT FOUND and no inline fallback: {full!r}")
             raise HTTPException(500, f"system_prompt_file not found: {full}")
     inline = agent.get("system_prompt", "")
     logger.info(f"_resolve_system_prompt: using inline system_prompt, len={len(inline)}")
@@ -471,12 +480,20 @@ def run(req: UnifiedRequest):
                     f"system_prompt_file={req.system_prompt_file!r}, "
                     f"workdir={req.workdir!r}, model={req.model!r}"
                 )
-                if req.system_prompt:
+                if req.system_prompt and req.system_prompt_file:
+                    # Both provided: store both so file is re-read on every run (live edits),
+                    # while inline acts as a reliable fallback for the very first session.
+                    # _resolve_system_prompt prefers file when set, falls back to inline.
+                    a["system_prompt"] = req.system_prompt
+                    a["system_prompt_file"] = req.system_prompt_file
+                    a["session_id"] = {}
+                    logger.info(f"UPDATE agent={req.name!r}: set BOTH system_prompt ({len(req.system_prompt)} chars) and system_prompt_file={req.system_prompt_file!r}")
+                elif req.system_prompt:
                     a["system_prompt"] = req.system_prompt
                     a["system_prompt_file"] = ""  # inline prompt takes priority, clear file ref
                     a["session_id"] = {}  # clear all model sessions — prompt changed
                     logger.info(f"UPDATE agent={req.name!r}: set inline system_prompt, cleared system_prompt_file")
-                if req.system_prompt_file:
+                elif req.system_prompt_file:
                     a["system_prompt_file"] = req.system_prompt_file
                     a["system_prompt"] = ""  # file prompt takes priority, clear inline
                     a["session_id"] = {}  # clear all model sessions — prompt changed
@@ -518,11 +535,13 @@ def run(req: UnifiedRequest):
                     f"allowed_tools={req.allowed_tools!r}"
                 )
                 if has_inline and has_file:
-                    logger.warning(f"CREATE agent={req.name!r}: BOTH system_prompt and system_prompt_file set! Using inline.")
-                # Store inline prompt when we have it (from request or from file); keep system_prompt_file as fallback for run
+                    # Both provided: store both. File is re-read on every run (live edits);
+                    # inline acts as reliable fallback if the file cannot be found.
+                    logger.info(f"CREATE agent={req.name!r}: BOTH system_prompt and system_prompt_file set — storing both (file preferred at runtime).")
+                # Store inline and/or file prompt; both can coexist for maximum reliability
                 agents[internal_key] = {
-                    "system_prompt":      inline_prompt if has_inline else "",
-                    "system_prompt_file": "" if has_inline else (req.system_prompt_file or ""),
+                    "system_prompt":      inline_prompt,
+                    "system_prompt_file": req.system_prompt_file or "",
                     "workdir":            req.workdir or "",
                     "allowed_tools":      req.allowed_tools or "Read Edit Bash",
                     "permission_mode":    req.permission_mode or "bypassPermissions",
@@ -541,6 +560,23 @@ def run(req: UnifiedRequest):
         raise HTTPException(404, f"Agent '{req.name}' not found. Create it first (send without 'prompt').")
 
     agent = agents[internal_key]
+
+    # Migrate legacy string session_id → per-model dict.
+    # Before S031 sessions were stored as a plain UUID string. With S031 per-model dict was
+    # introduced, but existing agents kept the old string. When Claude CLI is called with
+    # --resume <old_sid> it IGNORES --system-prompt (session already has its own context),
+    # so agents that were never migrated never receive their role prompt.
+    # Fix: if session_id is still a plain string, reset it to an empty dict so the next run
+    # starts a fresh session and picks up --system-prompt correctly.
+    if isinstance(agent.get("session_id"), str):
+        logger.info(f"RUN migrate legacy session_id for agent={internal_key!r}: resetting string sid → {{}}")
+        with _lock:
+            agents = load_agents()
+            if internal_key in agents and isinstance(agents[internal_key].get("session_id"), str):
+                agents[internal_key]["session_id"] = {}
+                save_agents(agents)
+        agent = agents[internal_key]
+
     system_prompt = _resolve_system_prompt(agent)
     # Transient model override: use req.model if provided (from UI model selector),
     # otherwise fall back to agent's stored model. Does NOT persist to agent config.

@@ -299,6 +299,17 @@ api_running: bool = False
 import time as _time
 running_tasks: dict[str, dict] = {}
 
+# Per-agent concurrency locks: only 1 task runs per agent at a time
+agent_locks: dict[str, asyncio.Semaphore] = {}
+
+
+def get_agent_lock(agent_name: str) -> asyncio.Semaphore:
+    """Return a Semaphore(1) for the given agent, creating it on first access."""
+    if agent_name not in agent_locks:
+        agent_locks[agent_name] = asyncio.Semaphore(1)
+    return agent_locks[agent_name]
+
+
 # Loop detection: per-task trigger counts by role
 # Structure: { "T001": { "developer": 3, "tester": 2 } }
 task_trigger_counts: dict[str, dict[str, int]] = {}
@@ -543,6 +554,30 @@ async def lifespan(app: FastAPI):
         print(f"  Claude API: already running (pid={result.get('pid')}, port={result.get('port')})")
     else:
         print(f"  Claude API: {result.get('status', 'error')} — {result.get('detail', '')}")
+
+    # Startup health check: wait for Claude API to become ready
+    startup_retries = _read_config_value(
+        "claude_api_startup_retries", 10,
+        lambda v: isinstance(v, int) and v > 0,
+    )
+    logger.info(f"Waiting for Claude API to become ready (max {startup_retries} retries)...")
+    claude_api_ready = False
+    for attempt in range(1, startup_retries + 1):
+        try:
+            async with httpx.AsyncClient(timeout=2.0) as client:
+                resp = await client.get(f"{CLAUDE_API_URL}/agents")
+                if resp.status_code == 200:
+                    logger.info("Claude API ready.")
+                    claude_api_ready = True
+                    break
+        except Exception:
+            pass
+        if attempt < startup_retries:
+            await asyncio.sleep(1)
+    if not claude_api_ready:
+        logger.critical(
+            f"Claude API did not become ready after {startup_retries} retries - tasks may fail"
+        )
 
     # Start background tasks
     health_task = asyncio.create_task(health_check_loop())
@@ -1070,6 +1105,26 @@ async def get_status():
     }
 
 
+@app.get("/api/health")
+async def get_health():
+    """Live health check: verifies Claude API reachability. Always returns HTTP 200."""
+    claude_api_ok = False
+    try:
+        async with httpx.AsyncClient(timeout=3.0) as client:
+            resp = await client.get(f"{CLAUDE_API_URL}/agents")
+            claude_api_ok = resp.status_code == 200
+    except Exception:
+        claude_api_ok = False
+    return JSONResponse(
+        status_code=200,
+        content={
+            "ok": claude_api_ok,
+            "claude_api": claude_api_ok,
+            "orchestrator": "ok",
+        },
+    )
+
+
 # ── Settings ─────────────────────────────────────────────────────────────────
 
 
@@ -1266,16 +1321,19 @@ if ($result -eq [System.Windows.Forms.DialogResult]::OK) {
             # WSL: call Windows PowerShell
             cmd = ["powershell.exe", "-NoProfile", "-Command", ps_script]
 
-        proc = subprocess.run(
-            cmd,
-            capture_output=True,
-            text=True,
-            timeout=120  # 2 minutes to select a folder
+        proc = await asyncio.create_subprocess_exec(
+            *cmd,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
         )
 
-        # Check stdout for None before strip()
-        output = (proc.stdout or "").strip()
-        stderr = (proc.stderr or "").strip()
+        # 2 minutes to select a folder
+        stdout_bytes, stderr_bytes = await asyncio.wait_for(
+            proc.communicate(), timeout=120
+        )
+
+        output = (stdout_bytes or b"").decode("utf-8", errors="replace").strip()
+        stderr = (stderr_bytes or b"").decode("utf-8", errors="replace").strip()
 
         # If there's a PowerShell error
         if proc.returncode != 0 and stderr:
@@ -1286,7 +1344,12 @@ if ($result -eq [System.Windows.Forms.DialogResult]::OK) {
 
         return {"path": output}
 
-    except subprocess.TimeoutExpired:
+    except asyncio.TimeoutError:
+        # Kill the process on timeout
+        try:
+            proc.kill()
+        except Exception:
+            pass
         return {"path": None, "error": "Dialog timed out"}
     except FileNotFoundError:
         return {"path": None, "error": "PowerShell not found"}
@@ -1413,6 +1476,9 @@ async def send_prompt(data: dict):
     task_id = data.get("task_id")
     runtime = data.get("runtime", "claude")  # Use runtime from request, fallback to "claude" for backward compat
 
+    # Resolve model from runtime (opus/sonnet/haiku) so claude_api uses correct per-model session
+    if runtime in _MODEL_RUNTIMES:
+        data["model"] = runtime
     # Inject project_path for scoping if not already present
     if "project_path" not in data:
         data["project_path"] = get_project_path_for_scoping()
@@ -1715,22 +1781,30 @@ async def ensure_agents(request: Request = None):
                 model_missing = not existing_model
                 logger.info(f"[ensure_agents] {emp_name}: already exists, has_inline_prompt={has_inline}, system_prompt_file={spf!r}, model={existing_model!r}")
 
-                # Migrate: if agent uses stale inline prompt, wrong file path, or missing model —
-                # update so prompt.md edits take effect immediately and model is always set
-                if has_inline or spf != expected_spf or model_missing:
+                # Migrate: if agent uses stale inline prompt, wrong file path, missing model,
+                # or old-style session_id (string UUID from pre-S031) — update so prompt.md
+                # edits take effect immediately, model is always set, and legacy sessions
+                # are reset so the agent receives --system-prompt on the next run.
+                legacy_session = isinstance((existing or {}).get("session_id"), str)
+                if has_inline or spf != expected_spf or model_missing or legacy_session:
                     try:
+                        fix_composed = compose_system_prompt(emp_name, personel_dir=personel_dir)
                         _fix_payload = {
                             "name": emp_name,
                             "system_prompt_file": expected_spf,
+                            "model": expected_model,  # always sync model from employees.json
                             "project_path": project_path_str or "",
                         }
-                        # Always ensure model is set from employees.json (fixes model="" agents)
+                        # Include inline prompt so agent knows role even on first run after reset
+                        if fix_composed:
+                            _fix_payload["system_prompt"] = fix_composed
                         if model_missing:
-                            _fix_payload["model"] = expected_model
                             logger.info(f"[ensure_agents] {emp_name}: fixing missing model → {expected_model!r}")
-                        _debug_log_ensure("ensure_agents prompt_to_file payload", {"path": "prompt_to_file", "emp_name": emp_name, "had_inline": has_inline, "old_spf": spf, "new_spf": expected_spf, "model_missing": model_missing, "expected_model": expected_model, "project_path": project_path_str or ""}, "Tayfa")
+                        if legacy_session:
+                            logger.info(f"[ensure_agents] {emp_name}: legacy string session_id detected, will be reset by claude_api")
+                        _debug_log_ensure("ensure_agents prompt_to_file payload", {"path": "prompt_to_file", "emp_name": emp_name, "had_inline": has_inline, "old_spf": spf, "new_spf": expected_spf, "model_missing": model_missing, "expected_model": expected_model, "legacy_session": legacy_session, "project_path": project_path_str or ""}, "Tayfa")
                         await call_claude_api("POST", "/run", json_data=_fix_payload)
-                        logger.info(f"[ensure_agents] {emp_name}: switched to system_prompt_file={expected_spf!r} (had_inline={has_inline}, old_spf={spf!r}, model_fixed={model_missing})")
+                        logger.info(f"[ensure_agents] {emp_name}: switched to system_prompt_file={expected_spf!r} (had_inline={has_inline}, old_spf={spf!r}, model_fixed={model_missing}, legacy_session_reset={legacy_session})")
                         results.append({"agent": emp_name, "status": "prompt_switched_to_file"})
                     except Exception as e:
                         logger.error(f"[ensure_agents] {emp_name}: prompt switch FAILED: {e}")
@@ -1769,10 +1843,17 @@ async def ensure_agents(request: Request = None):
             }
             # Always use system_prompt_file so edits to prompt.md take effect
             # immediately without needing to re-run ensure_agents.
+            # Pass system_prompt inline so the agent knows its role from the very first run,
+            # regardless of which model is selected. system_prompt_file is also set so that
+            # subsequent runs re-read prompt.md and pick up any edits automatically.
+            # When claude_api.py receives BOTH, inline takes priority (see CREATE logic).
+            if composed:
+                payload["system_prompt"] = composed
             payload["system_prompt_file"] = f"{TAYFA_DIR_NAME}/{emp_name}/prompt.md"
             logger.info(
                 f"[ensure_agents] {emp_name}: CREATE with system_prompt_file="
-                f"{payload['system_prompt_file']!r}, workdir={agent_workdir!r}, model={model!r}"
+                f"{payload['system_prompt_file']!r}, system_prompt_len={len(composed) if composed else 0}, "
+                f"workdir={agent_workdir!r}, model={model!r}"
             )
 
             # #region agent log
@@ -2430,126 +2511,128 @@ async def api_trigger_task(task_id: str, data: dict = Body(default_factory=dict)
     else:
         resolved_model = emp.get("model", "sonnet")
 
-    # Register task as 'running'
-    running_tasks[task_id] = {
-        "agent": agent_name,
-        "role": role_label,
-        "runtime": runtime,
-        "started_at": _time.time(),
-    }
+    # Acquire per-agent semaphore so only 1 task runs per agent at a time
+    async with get_agent_lock(agent_name):
+        # Register task as 'running'
+        running_tasks[task_id] = {
+            "agent": agent_name,
+            "role": role_label,
+            "runtime": runtime,
+            "started_at": _time.time(),
+        }
 
-    try:
-        last_error: Exception | None = None
-        for attempt in range(1, _MAX_RETRY_ATTEMPTS + 1):
-            start_time = _time.time()
-            try:
-                if runtime == "cursor":
-                    result = await run_cursor_cli(agent_name, full_prompt)
-                    duration_sec = _time.time() - start_time
+        try:
+            last_error: Exception | None = None
+            for attempt in range(1, _MAX_RETRY_ATTEMPTS + 1):
+                start_time = _time.time()
+                try:
+                    if runtime == "cursor":
+                        result = await run_cursor_cli(agent_name, full_prompt)
+                        duration_sec = _time.time() - start_time
 
-                    # Fix cursor timeout silent-success bug: check success flag
-                    if not result.get("success"):
-                        stderr = result.get("stderr", "")
-                        error_msg = stderr or result.get("result", "") or "Cursor CLI returned failure"
-                        raise HTTPException(status_code=502, detail=f"Cursor CLI error: {error_msg}")
+                        # Fix cursor timeout silent-success bug: check success flag
+                        if not result.get("success"):
+                            stderr = result.get("stderr", "")
+                            error_msg = stderr or result.get("result", "") or "Cursor CLI returned failure"
+                            raise HTTPException(status_code=502, detail=f"Cursor CLI error: {error_msg}")
 
-                    # Save to chat history
-                    save_chat_message(
-                        agent_name=agent_name,
-                        prompt=full_prompt,
-                        result=result.get("result", ""),
-                        runtime="cursor",
-                        cost_usd=None,
-                        duration_sec=duration_sec,
+                        # Save to chat history
+                        save_chat_message(
+                            agent_name=agent_name,
+                            prompt=full_prompt,
+                            result=result.get("result", ""),
+                            runtime="cursor",
+                            cost_usd=None,
+                            duration_sec=duration_sec,
+                            task_id=task_id,
+                            success=True,
+                            extra={"role": role_label, "stderr": result.get("stderr")} if result.get("stderr") else {"role": role_label},
+                        )
+
+                        return {
+                            "task_id": task_id,
+                            "agent": agent_name,
+                            "role": role_label,
+                            "runtime": "cursor",
+                            "success": True,
+                            "result": result.get("result", ""),
+                            "stderr": result.get("stderr", ""),
+                        }
+                    else:
+                        # Claude API — pass resolved model
+                        api_result = await call_claude_api("POST", "/run", json_data={
+                            "name": agent_name,
+                            "prompt": full_prompt,
+                            "project_path": get_project_path_for_scoping(),
+                            "model": resolved_model,
+                        }, timeout=get_agent_timeout())
+                        duration_sec = _time.time() - start_time
+
+                        # Save to chat history (actual model, not generic 'claude')
+                        save_chat_message(
+                            agent_name=agent_name,
+                            prompt=full_prompt,
+                            result=api_result.get("result", ""),
+                            runtime=resolved_model,
+                            cost_usd=api_result.get("cost_usd"),
+                            duration_sec=duration_sec,
+                            task_id=task_id,
+                            success=True,
+                            extra={"role": role_label, "num_turns": api_result.get("num_turns")},
+                        )
+
+                        # ── Artifact size check ──────────────────────────
+                        _check_artifact_size(task_id, agent_name, api_result.get("result", ""))
+
+                        return {
+                            "task_id": task_id,
+                            "agent": agent_name,
+                            "role": role_label,
+                            "runtime": resolved_model,
+                            "success": True,
+                            "result": api_result.get("result", ""),
+                            "cost_usd": api_result.get("cost_usd"),
+                            "num_turns": api_result.get("num_turns"),
+                        }
+
+                except Exception as exc:
+                    last_error = exc
+                    error_type = _classify_error(exc)
+                    error_msg = str(getattr(exc, "detail", None) or exc)
+
+                    # Log every attempt
+                    log_agent_failure(
                         task_id=task_id,
-                        success=True,
-                        extra={"role": role_label, "stderr": result.get("stderr")} if result.get("stderr") else {"role": role_label},
+                        agent=agent_name,
+                        role=role_label,
+                        runtime=runtime,
+                        error_type=error_type,
+                        message=error_msg,
+                        attempt=attempt,
                     )
 
-                    return {
-                        "task_id": task_id,
-                        "agent": agent_name,
-                        "role": role_label,
-                        "runtime": "cursor",
-                        "success": True,
-                        "result": result.get("result", ""),
-                        "stderr": result.get("stderr", ""),
-                    }
-                else:
-                    # Claude API — pass resolved model
-                    api_result = await call_claude_api("POST", "/run", json_data={
-                        "name": agent_name,
-                        "prompt": full_prompt,
-                        "project_path": get_project_path_for_scoping(),
-                        "model": resolved_model,
-                    }, timeout=get_agent_timeout())
-                    duration_sec = _time.time() - start_time
+                    # Non-retryable errors: return immediately
+                    if error_type not in _RETRYABLE_ERRORS:
+                        break
 
-                    # Save to chat history (actual model, not generic 'claude')
-                    save_chat_message(
-                        agent_name=agent_name,
-                        prompt=full_prompt,
-                        result=api_result.get("result", ""),
-                        runtime=resolved_model,
-                        cost_usd=api_result.get("cost_usd"),
-                        duration_sec=duration_sec,
-                        task_id=task_id,
-                        success=True,
-                        extra={"role": role_label, "num_turns": api_result.get("num_turns")},
-                    )
+                    # Retryable but last attempt: give up
+                    if attempt >= _MAX_RETRY_ATTEMPTS:
+                        logger.warning(f"[Trigger] {task_id}: all {_MAX_RETRY_ATTEMPTS} attempts exhausted ({error_type})")
+                        break
 
-                    # ── Artifact size check ──────────────────────────
-                    _check_artifact_size(task_id, agent_name, api_result.get("result", ""))
+                    # Wait before retry
+                    logger.info(f"[Trigger] {task_id}: attempt {attempt} failed ({error_type}), retrying in {_RETRY_DELAY_SEC}s...")
+                    await asyncio.sleep(_RETRY_DELAY_SEC)
 
-                    return {
-                        "task_id": task_id,
-                        "agent": agent_name,
-                        "role": role_label,
-                        "runtime": resolved_model,
-                        "success": True,
-                        "result": api_result.get("result", ""),
-                        "cost_usd": api_result.get("cost_usd"),
-                        "num_turns": api_result.get("num_turns"),
-                    }
+            # All attempts failed — re-raise last error
+            if last_error is not None:
+                if isinstance(last_error, HTTPException):
+                    raise last_error
+                raise HTTPException(status_code=500, detail=str(last_error))
 
-            except Exception as exc:
-                last_error = exc
-                error_type = _classify_error(exc)
-                error_msg = str(getattr(exc, "detail", None) or exc)
-
-                # Log every attempt
-                log_agent_failure(
-                    task_id=task_id,
-                    agent=agent_name,
-                    role=role_label,
-                    runtime=runtime,
-                    error_type=error_type,
-                    message=error_msg,
-                    attempt=attempt,
-                )
-
-                # Non-retryable errors: return immediately
-                if error_type not in _RETRYABLE_ERRORS:
-                    break
-
-                # Retryable but last attempt: give up
-                if attempt >= _MAX_RETRY_ATTEMPTS:
-                    logger.warning(f"[Trigger] {task_id}: all {_MAX_RETRY_ATTEMPTS} attempts exhausted ({error_type})")
-                    break
-
-                # Wait before retry
-                logger.info(f"[Trigger] {task_id}: attempt {attempt} failed ({error_type}), retrying in {_RETRY_DELAY_SEC}s...")
-                await asyncio.sleep(_RETRY_DELAY_SEC)
-
-        # All attempts failed — re-raise last error
-        if last_error is not None:
-            if isinstance(last_error, HTTPException):
-                raise last_error
-            raise HTTPException(status_code=500, detail=str(last_error))
-
-    finally:
-        # Remove task from 'running' regardless of outcome
-        running_tasks.pop(task_id, None)
+        finally:
+            # Remove task from 'running' regardless of outcome
+            running_tasks.pop(task_id, None)
 
 
 @app.post("/api/tasks-list/{task_id}/reset-loop-counter")
