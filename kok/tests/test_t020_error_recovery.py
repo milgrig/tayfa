@@ -29,9 +29,9 @@ def tmp_failures(tmp_path, monkeypatch):
     """Redirect agent_failures.json to a temp directory."""
     common_dir = tmp_path / "common"
     common_dir.mkdir()
-    # Patch get_personel_dir to return tmp_path (so common/ is under it)
-    import app
-    monkeypatch.setattr(app, "get_personel_dir", lambda: tmp_path)
+    # Patch get_personel_dir where it's used (routers.tasks imports it from app_state)
+    import routers.tasks
+    monkeypatch.setattr(routers.tasks, "get_personel_dir", lambda: tmp_path)
     return common_dir / "agent_failures.json"
 
 
@@ -67,8 +67,8 @@ class TestLogAgentFailure:
         assert e3["id"] == "F0003"
 
     def test_fifo_limit(self, tmp_failures, monkeypatch):
-        import app
-        monkeypatch.setattr(app, "MAX_FAILURE_LOG_ENTRIES", 5)
+        import routers.tasks as tasks_mod
+        monkeypatch.setattr(tasks_mod, "MAX_FAILURE_LOG_ENTRIES", 5)
         from app import log_agent_failure, _load_failures
         for i in range(8):
             log_agent_failure(f"T{i:03d}", "dev", "developer", "claude", "timeout", "err", 1)
@@ -288,19 +288,20 @@ class TestAgentFailuresAPI:
 @pytest.fixture
 def mock_task_env(tmp_failures, monkeypatch):
     """Mock out dependencies of api_trigger_task for isolated testing."""
-    import app
+    import routers.tasks as tasks_mod
+    from app_state import task_trigger_counts
     # Reset loop-detection counters so tests don't leak state
-    app.task_trigger_counts.pop("T001", None)
+    task_trigger_counts.pop("T001", None)
     mock_task = {
         "id": "T001", "title": "Test task", "description": "desc",
         "status": "in_progress", "result": "",
     }
-    monkeypatch.setattr(app, "get_next_agent", lambda tid: {
+    monkeypatch.setattr(tasks_mod, "get_next_agent", lambda tid: {
         "agent": "dev1", "role": "developer", "task": mock_task,
     })
-    monkeypatch.setattr(app, "get_employee", lambda name: {"name": name})
-    monkeypatch.setattr(app, "save_chat_message", lambda **kw: None)
-    monkeypatch.setattr(app, "get_project_path_for_scoping", lambda: "/mock")
+    monkeypatch.setattr(tasks_mod, "get_employee", lambda name: {"name": name})
+    monkeypatch.setattr(tasks_mod, "save_chat_message", lambda **kw: None)
+    monkeypatch.setattr(tasks_mod, "get_project_path_for_scoping", lambda: "/mock")
     return mock_task
 
 
@@ -308,8 +309,8 @@ def mock_task_env(tmp_failures, monkeypatch):
 class TestApiTriggerTaskRetry:
 
     async def test_success_no_retry(self, mock_task_env, tmp_failures, monkeypatch):
-        import app
-        monkeypatch.setattr(app, "call_claude_api", AsyncMock(return_value={
+        import routers.tasks as tasks_mod
+        monkeypatch.setattr(tasks_mod, "call_claude_api", AsyncMock(return_value={
             "result": "Done", "cost_usd": 0.01, "num_turns": 5,
         }))
         from app import api_trigger_task
@@ -319,14 +320,14 @@ class TestApiTriggerTaskRetry:
         assert len(get_agent_failures()) == 0
 
     async def test_non_retryable_no_retry(self, mock_task_env, tmp_failures, monkeypatch):
-        import app
+        import routers.tasks as tasks_mod
         from fastapi import HTTPException
         call_count = 0
         async def mock_call(*a, **kw):
             nonlocal call_count
             call_count += 1
             raise HTTPException(status_code=400, detail="Context length overflow")
-        monkeypatch.setattr(app, "call_claude_api", mock_call)
+        monkeypatch.setattr(tasks_mod, "call_claude_api", mock_call)
         from app import api_trigger_task
         with pytest.raises(HTTPException):
             await api_trigger_task("T001", {"runtime": "claude"})
@@ -337,15 +338,15 @@ class TestApiTriggerTaskRetry:
         assert failures[0]["error_type"] == "context_overflow"
 
     async def test_timeout_retries_3_times(self, mock_task_env, tmp_failures, monkeypatch):
-        import app
+        import routers.tasks as tasks_mod
         from fastapi import HTTPException
         call_count = 0
         async def mock_call(*a, **kw):
             nonlocal call_count
             call_count += 1
             raise HTTPException(status_code=504, detail="Timeout")
-        monkeypatch.setattr(app, "call_claude_api", mock_call)
-        monkeypatch.setattr(app, "_RETRY_DELAY_SEC", 0)
+        monkeypatch.setattr(tasks_mod, "call_claude_api", mock_call)
+        monkeypatch.setattr(tasks_mod, "_RETRY_DELAY_SEC", 0)
         from app import api_trigger_task
         with pytest.raises(HTTPException):
             await api_trigger_task("T001", {"runtime": "claude"})
@@ -357,7 +358,7 @@ class TestApiTriggerTaskRetry:
             assert f["attempt"] == i
 
     async def test_retry_succeeds_on_second(self, mock_task_env, tmp_failures, monkeypatch):
-        import app
+        import routers.tasks as tasks_mod
         from fastapi import HTTPException
         call_count = 0
         async def mock_call(*a, **kw):
@@ -366,8 +367,8 @@ class TestApiTriggerTaskRetry:
             if call_count == 1:
                 raise HTTPException(status_code=503, detail="Unavailable")
             return {"result": "OK", "cost_usd": 0.02, "num_turns": 3}
-        monkeypatch.setattr(app, "call_claude_api", mock_call)
-        monkeypatch.setattr(app, "_RETRY_DELAY_SEC", 0)
+        monkeypatch.setattr(tasks_mod, "call_claude_api", mock_call)
+        monkeypatch.setattr(tasks_mod, "_RETRY_DELAY_SEC", 0)
         from app import api_trigger_task
         result = await api_trigger_task("T001", {"runtime": "claude"})
         assert result["success"] is True
@@ -375,38 +376,39 @@ class TestApiTriggerTaskRetry:
         assert len(get_agent_failures()) == 1
 
     async def test_running_tasks_cleared_on_error(self, mock_task_env, tmp_failures, monkeypatch):
-        import app
+        import routers.tasks as tasks_mod
+        from app_state import running_tasks
         from fastapi import HTTPException
         async def mock_call(*a, **kw):
             raise HTTPException(status_code=500, detail="Internal")
-        monkeypatch.setattr(app, "call_claude_api", mock_call)
+        monkeypatch.setattr(tasks_mod, "call_claude_api", mock_call)
         from app import api_trigger_task
         with pytest.raises(HTTPException):
             await api_trigger_task("T001", {"runtime": "claude"})
-        assert "T001" not in app.running_tasks
+        assert "T001" not in running_tasks
 
     async def test_duplicate_task_rejected(self, mock_task_env, tmp_failures, monkeypatch):
-        import app
+        from app_state import running_tasks
         from fastapi import HTTPException
-        app.running_tasks["T001"] = {"agent": "dev1", "role": "developer",
-                                      "runtime": "claude", "started_at": time.time()}
+        running_tasks["T001"] = {"agent": "dev1", "role": "developer",
+                                  "runtime": "claude", "started_at": time.time()}
         try:
             from app import api_trigger_task
             with pytest.raises(HTTPException) as exc_info:
                 await api_trigger_task("T001", {"runtime": "claude"})
             assert exc_info.value.status_code == 409
         finally:
-            app.running_tasks.pop("T001", None)
+            running_tasks.pop("T001", None)
 
     async def test_budget_error_no_retry(self, mock_task_env, tmp_failures, monkeypatch):
-        import app
+        import routers.tasks as tasks_mod
         from fastapi import HTTPException
         call_count = 0
         async def mock_call(*a, **kw):
             nonlocal call_count
             call_count += 1
             raise HTTPException(status_code=400, detail="Budget exceeded")
-        monkeypatch.setattr(app, "call_claude_api", mock_call)
+        monkeypatch.setattr(tasks_mod, "call_claude_api", mock_call)
         from app import api_trigger_task
         with pytest.raises(HTTPException):
             await api_trigger_task("T001", {"runtime": "claude"})
@@ -423,12 +425,13 @@ class TestApiTriggerTaskRetry:
 class TestCursorSilentSuccessBug:
 
     async def test_cursor_failure_detected(self, mock_task_env, tmp_failures, monkeypatch):
-        import app
+        import routers.tasks as tasks_mod
+        import routers.agents as agents_mod
         from fastapi import HTTPException
         async def mock_cursor(agent, prompt, use_chat=True, model=None):
             return {"success": False, "stderr": "Cursor timed out", "result": ""}
-        monkeypatch.setattr(app, "run_cursor_cli", mock_cursor)
-        monkeypatch.setattr(app, "_RETRY_DELAY_SEC", 0)
+        monkeypatch.setattr(agents_mod, "run_cursor_cli", mock_cursor)
+        monkeypatch.setattr(tasks_mod, "_RETRY_DELAY_SEC", 0)
         from app import api_trigger_task
         with pytest.raises(HTTPException) as exc_info:
             await api_trigger_task("T001", {"runtime": "cursor"})
@@ -437,10 +440,10 @@ class TestCursorSilentSuccessBug:
         assert len(get_agent_failures()) >= 1
 
     async def test_cursor_success_passes(self, mock_task_env, tmp_failures, monkeypatch):
-        import app
+        import routers.agents as agents_mod
         async def mock_cursor(agent, prompt, use_chat=True, model=None):
             return {"success": True, "result": "All done", "stderr": ""}
-        monkeypatch.setattr(app, "run_cursor_cli", mock_cursor)
+        monkeypatch.setattr(agents_mod, "run_cursor_cli", mock_cursor)
         from app import api_trigger_task
         result = await api_trigger_task("T001", {"runtime": "cursor"})
         assert result["success"] is True

@@ -21,16 +21,16 @@ Additional team rules:
 ## Task Role
 
 You are the **Developer** in the task workflow:
-1. Analyst (Customer) writes requirements → task status `новая`
-2. **You implement** → task status `в_работе`
-3. Tester verifies → task status `на_проверке`
+1. Analyst (Customer) writes requirements → task status `pending`
+2. **You implement** → task status `in_progress`
+3. Tester verifies → task status `in_review`
 
 ## Working Process
 
 ### 1. Start Work
 ```bash
 # Check tasks assigned to you
-python .tayfa/common/task_manager.py list --status в_работе
+python .tayfa/common/task_manager.py list --status in_progress
 
 # Read task details
 python .tayfa/common/task_manager.py get T003
@@ -55,7 +55,7 @@ cat .tayfa/common/discussions/T003.md
 python .tayfa/common/task_manager.py result T003 "Implemented [feature]. Tests passing."
 
 # Change status to verification
-python .tayfa/common/task_manager.py status T003 на_проверке
+python .tayfa/common/task_manager.py status T003 in_review
 ```
 
 ## Code Quality Standards
@@ -68,11 +68,11 @@ python .tayfa/common/task_manager.py status T003 на_проверке
 
 ## If Tester Returns Task
 
-If tester finds issues and returns task to `в_работе`:
+If tester finds issues and returns task to `in_progress`:
 1. Read discussion to understand what failed
 2. Fix the issues
 3. Test again thoroughly
-4. Return to `на_проверке` when fixed
+4. Return to `in_review` when fixed
 
 ## Communication
 

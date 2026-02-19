@@ -38,10 +38,10 @@ class TestEnsureAgentsWithProjectPath:
         """POST with project_path uses it instead of get_current_project()."""
         fake_project = "C:\\Cursor\\TayfaWindows"
 
-        with patch("app._get_employees", return_value={}), \
-             patch("app.call_claude_api", new_callable=AsyncMock, return_value={}), \
-             patch("app.get_personel_dir") as mock_gpd, \
-             patch("app.get_agent_workdir") as mock_gaw:
+        with patch("routers.agents._get_employees", return_value={}), \
+             patch("routers.agents.call_claude_api", new_callable=AsyncMock, return_value={}), \
+             patch("routers.agents.get_personel_dir") as mock_gpd, \
+             patch("routers.agents.get_agent_workdir") as mock_gaw:
 
             async with _build_client() as client:
                 resp = await client.post(
@@ -62,9 +62,9 @@ class TestEnsureAgentsWithProjectPath:
         emp_name = "developer"
 
         # Create a temporary prompt.md so it "exists"
-        with patch("app._get_employees", return_value={emp_name: {"model": "sonnet"}}), \
-             patch("app.call_claude_api", new_callable=AsyncMock) as mock_api, \
-             patch("app.compose_system_prompt", return_value="system prompt"), \
+        with patch("routers.agents._get_employees", return_value={emp_name: {"model": "sonnet"}}), \
+             patch("routers.agents.call_claude_api", new_callable=AsyncMock) as mock_api, \
+             patch("routers.agents.compose_system_prompt", return_value="system prompt"), \
              patch.object(Path, "exists", return_value=True):
 
             mock_api.return_value = {}
@@ -105,10 +105,10 @@ class TestEnsureAgentsWithoutProjectPath:
     @pytest.mark.asyncio
     async def test_tc2_empty_body_uses_current_project(self):
         """POST with empty JSON body {} falls back to get_current_project()."""
-        with patch("app._get_employees", return_value={}), \
-             patch("app.call_claude_api", new_callable=AsyncMock, return_value={}), \
-             patch("app.get_personel_dir") as mock_gpd, \
-             patch("app.get_agent_workdir") as mock_gaw:
+        with patch("routers.agents._get_employees", return_value={}), \
+             patch("routers.agents.call_claude_api", new_callable=AsyncMock, return_value={}), \
+             patch("routers.agents.get_personel_dir") as mock_gpd, \
+             patch("routers.agents.get_agent_workdir") as mock_gaw:
 
             mock_gpd.return_value = Path("C:/fallback/.tayfa")
             mock_gaw.return_value = "C:\\fallback"
@@ -132,10 +132,10 @@ class TestEnsureAgentsEmptyBody:
     @pytest.mark.asyncio
     async def test_tc3_empty_bytes_no_error(self):
         """POST with empty body (b'') does not cause 422/500."""
-        with patch("app._get_employees", return_value={}), \
-             patch("app.call_claude_api", new_callable=AsyncMock, return_value={}), \
-             patch("app.get_personel_dir", return_value=Path("C:/x/.tayfa")), \
-             patch("app.get_agent_workdir", return_value="C:\\x"):
+        with patch("routers.agents._get_employees", return_value={}), \
+             patch("routers.agents.call_claude_api", new_callable=AsyncMock, return_value={}), \
+             patch("routers.agents.get_personel_dir", return_value=Path("C:/x/.tayfa")), \
+             patch("routers.agents.get_agent_workdir", return_value="C:\\x"):
 
             async with _build_client() as client:
                 resp = await client.post(
@@ -155,9 +155,9 @@ class TestEnsureAgentsNonexistentPath:
     @pytest.mark.asyncio
     async def test_tc4_nonexistent_path_returns_empty_results(self):
         """POST with nonexistent project_path returns results=[], no exceptions."""
-        with patch("app._get_employees", return_value={"dev": {"model": "sonnet"}}), \
-             patch("app.call_claude_api", new_callable=AsyncMock, return_value={}), \
-             patch("app.compose_system_prompt", return_value=None):
+        with patch("routers.agents._get_employees", return_value={"dev": {"model": "sonnet"}}), \
+             patch("routers.agents.call_claude_api", new_callable=AsyncMock, return_value={}), \
+             patch("routers.agents.compose_system_prompt", return_value=None):
 
             async with _build_client() as client:
                 resp = await client.post(
