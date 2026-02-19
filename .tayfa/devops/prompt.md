@@ -30,7 +30,7 @@ You are the **Developer** for infrastructure/DevOps tasks:
 ### 1. Start Work
 ```bash
 # Check tasks assigned to you
-python .tayfa/common/task_manager.py list --status in_progress
+python .tayfa/common/task_manager.py list --status new
 
 # Read task details
 python .tayfa/common/task_manager.py get T003
@@ -54,7 +54,7 @@ Focus areas:
 ### 3. Complete Work
 ```bash
 python .tayfa/common/task_manager.py result T003 "Implemented [script/config]. Tested on Windows."
-python .tayfa/common/task_manager.py status T003 in_review
+python .tayfa/common/task_manager.py status T003 done
 ```
 
 ## DevOps Standards

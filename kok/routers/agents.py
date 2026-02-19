@@ -19,6 +19,7 @@ from app_state import (
     save_chat_message,
     get_agent_timeout,
     running_tasks,
+    subscribe_agent_stream, unsubscribe_agent_stream,
     TAYFA_DIR_NAME,
     TAYFA_ROOT_WIN, SKILLS_DIR,
     CURSOR_CLI_PROMPT_FILE, CURSOR_CHATS_FILE,
@@ -510,7 +511,7 @@ async def send_prompt_stream(data: dict):
     start_time = _time.time()
 
     # Metadata-only event types to suppress (contain model, usage, service_tier)
-    _SKIP_TYPES = {"message_start", "message_delta", "message_stop", "system"}
+    _SKIP_TYPES = {"message_start", "message_delta", "message_stop", "system", "keep_alive"}
 
     async def sse_generator():
         full_result = ""
@@ -530,7 +531,16 @@ async def send_prompt_stream(data: dict):
             if etype == "stream_event" and isinstance(event.get("event"), dict):
                 event = event["event"]
                 etype = event.get("type", "")
-                chunk = json.dumps(event, ensure_ascii=False)
+
+            # DEBUG: Log all event types to understand what arrives (especially thinking)
+            _extra = ""
+            if etype == "content_block_start":
+                _extra = f" block_type={event.get('content_block', {}).get('type', '?')}"
+            elif etype == "content_block_delta":
+                _extra = f" delta_type={event.get('delta', {}).get('type', '?')}"
+            elif etype == "assistant":
+                _extra = f" subtype={event.get('subtype', '?')}"
+            logger.info(f"[STREAM_DEBUG] type={etype}{_extra}")
 
             # Skip metadata-only lifecycle events
             if etype in _SKIP_TYPES:
@@ -570,6 +580,9 @@ async def send_prompt_stream(data: dict):
                         delta = event.get("delta", {})
                         if delta.get("type") == "text_delta" and delta.get("text"):
                             full_result += delta["text"]
+                    elif etype == "streamlined_text":
+                        # Claude CLI v2: final text content
+                        full_result = event.get("text", full_result)
                 except KeyError:
                     pass
 
@@ -719,6 +732,50 @@ async def get_agent_activity(name: str):
                 "elapsed_seconds": round(now - info.get("started_at", now)),
             }
     return {"busy": False}
+
+
+@router.get("/api/agent-stream/{name}")
+async def get_agent_stream(name: str):
+    """SSE endpoint: replay buffered stream events and follow live ones for an agent.
+    Used by the frontend to show agent's live thoughts during task execution."""
+
+    past_events, queue = subscribe_agent_stream(name)
+
+    # Metadata-only event types to suppress (same filter as send_prompt_stream)
+    _SKIP_TYPES = {"message_start", "message_delta", "message_stop", "system", "keep_alive"}
+
+    async def sse_generator():
+        try:
+            # 1. Replay buffered past events
+            for event in past_events:
+                etype = event.get("type", "")
+                if etype in _SKIP_TYPES:
+                    continue
+                yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
+
+            # 2. Follow live events if stream is still active
+            if queue is not None:
+                while True:
+                    try:
+                        event = await asyncio.wait_for(queue.get(), timeout=30.0)
+                    except asyncio.TimeoutError:
+                        # Send keep-alive to prevent connection drop
+                        yield f"data: {json.dumps({'type': 'keep_alive'})}\n\n"
+                        continue
+
+                    if event is None:
+                        # Stream finished sentinel
+                        break
+
+                    etype = event.get("type", "")
+                    if etype in _SKIP_TYPES:
+                        continue
+                    yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
+        finally:
+            if queue is not None:
+                unsubscribe_agent_stream(name, queue)
+
+    return StreamingResponse(sse_generator(), media_type="text/event-stream")
 
 
 @router.get("/api/agent-config/{name}")

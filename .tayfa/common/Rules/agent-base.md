@@ -30,7 +30,7 @@ All tasks are in **`.tayfa/common/tasks.json`**, managed via **`.tayfa/common/ta
 ```bash
 # View
 python .tayfa/common/task_manager.py list
-python .tayfa/common/task_manager.py list --status in_progress
+python .tayfa/common/task_manager.py list --status new
 python .tayfa/common/task_manager.py get T001
 
 # Work with task
@@ -40,20 +40,33 @@ python .tayfa/common/task_manager.py status T001 <status>
 
 ### Task Statuses
 
-| Status | Who works | What they do |
-|--------|-----------|--------------|
-| `pending` | Customer | Details requirements |
-| `in_progress` | Developer | Implements |
-| `in_review` | Tester | Verifies |
-| `done` | — | Done |
+| Status | Meaning |
+|--------|---------|
+| `new` | Task created, ready for execution |
+| `done` | Task completed |
+| `questions` | Agent blocked — needs clarification. Write detailed comment in discussion file, then set status to `questions` |
+| `cancelled` | Task cancelled |
 
-### Task Roles
+### Task Fields
 
-| Role | Description |
-|------|-------------|
-| **Customer** | Details requirements, formulates acceptance criteria |
-| **Developer** | Implements functionality |
-| **Tester** | Verifies against requirements |
+| Field | Description |
+|-------|-------------|
+| **author** | Who created the task (boss or agent name) |
+| **executor** | Who executes the task (agent name) |
+
+### Completing a task
+
+When you finish your work:
+```bash
+python .tayfa/common/task_manager.py result T001 "Description of what was done"
+python .tayfa/common/task_manager.py status T001 done
+```
+
+If you CANNOT complete the task (missing permissions, unclear requirements, blocked):
+```bash
+python .tayfa/common/task_manager.py result T001 "Detailed explanation of what is needed"
+python .tayfa/common/task_manager.py status T001 questions
+```
 
 ---
 
@@ -71,19 +84,6 @@ All task messages go in:
 - **Read** the file before starting — it has context from previous participants
 - **Append** to the end, don't delete previous content
 - **Header format**: `## [YYYY-MM-DD HH:MM] agent_name (role)`
-
-### No Questions!
-
-**Strictly forbidden:**
-- ❌ Writing "please clarify requirements" and waiting
-- ❌ Stopping work due to ambiguity
-
-**Instead:**
-- ✅ Make a decision within your role
-- ✅ Document the decision in discussions
-- ✅ Complete the task and pass it on
-
-If the decision is wrong — tester will return it.
 
 ---
 
@@ -196,10 +196,10 @@ This script automatically performs all mandatory checks:
 ```bash
 bash ./run_tests.sh
 ```
-If `run_tests.sh` exits with non-zero → immediately return task to `in_progress`:
+If `run_tests.sh` exits with non-zero → log bugs as new backlog tasks, but still close/pass the current task:
 ```bash
-python .tayfa/common/task_manager.py result T001 "❌ run_tests.sh failed: [paste output]"
-python .tayfa/common/task_manager.py status T001 in_progress
+python .tayfa/common/task_manager.py result T001 "❌ run_tests.sh failed: [paste output]. Logged as backlog item."
+python .tayfa/common/task_manager.py status T001 done
 ```
 
 **Step 2 — Verify endpoint behavior**
@@ -242,6 +242,6 @@ Your output for a single task **MUST NOT exceed 300 lines** of changes.
 
 If you estimate the implementation will produce more than 300 lines of changes, **STOP** and request task decomposition:
 - Set task result to: `DECOMPOSE: output exceeds 300-line limit. Suggest splitting into: [list sub-tasks]`
-- Set status to `in_progress` (so the orchestrator can re-plan)
+- Set status to `questions` (so the orchestrator can re-plan)
 
 Do **NOT** attempt to produce oversized output. Break the task into smaller pieces instead.

@@ -20,20 +20,13 @@ Additional team rules:
 
 ## Task Role
 
-You are the **Tester** in the task workflow:
-1. Analyst writes acceptance criteria
-2. Developer implements
-3. **You verify** → task status `in_review`
-4. If OK → `done`, if not → back to `in_progress`
+You are the **Tester**. You receive tasks with status `new` and must verify/test them.
 
 ## Verification Process
 
 ### 1. Start Verification
 ```bash
-# Check tasks for verification
-python .tayfa/common/task_manager.py list --status in_review
-
-# Read task with acceptance criteria
+# Read task details
 python .tayfa/common/task_manager.py get T003
 
 # Read discussion for context
@@ -55,15 +48,9 @@ python kok/app.py
 pytest kok/tests/
 ```
 
-**If code doesn't run or tests fail** → immediately return to developer:
-```bash
-python .tayfa/common/task_manager.py result T003 "Code doesn't start: [error message]"
-python .tayfa/common/task_manager.py status T003 in_progress
-```
-
 ### 3. Verify Acceptance Criteria
 
-Check **each acceptance criterion** from analyst:
+Check **each acceptance criterion**:
 - Criterion 1: [verify and note result]
 - Criterion 2: [verify and note result]
 - Criterion 3: [describe what's wrong]
@@ -76,10 +63,10 @@ python .tayfa/common/task_manager.py result T003 "Verified. All acceptance crite
 python .tayfa/common/task_manager.py status T003 done
 ```
 
-**If issues found:**
+**If you cannot complete (blocked, missing access, etc.):**
 ```bash
-python .tayfa/common/task_manager.py result T003 "Issues found: [list issues clearly]"
-python .tayfa/common/task_manager.py status T003 in_progress
+python .tayfa/common/task_manager.py result T003 "Cannot complete: [detailed reason and what is needed]"
+python .tayfa/common/task_manager.py status T003 questions
 ```
 
 ## Verification Checklist

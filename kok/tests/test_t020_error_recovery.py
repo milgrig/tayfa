@@ -294,10 +294,10 @@ def mock_task_env(tmp_failures, monkeypatch):
     task_trigger_counts.pop("T001", None)
     mock_task = {
         "id": "T001", "title": "Test task", "description": "desc",
-        "status": "in_progress", "result": "",
+        "status": "new", "result": "",
     }
     monkeypatch.setattr(tasks_mod, "get_next_agent", lambda tid: {
-        "agent": "dev1", "role": "developer", "task": mock_task,
+        "agent": "dev1", "role": "executor", "task": mock_task,
     })
     monkeypatch.setattr(tasks_mod, "get_employee", lambda name: {"name": name})
     monkeypatch.setattr(tasks_mod, "save_chat_message", lambda **kw: None)

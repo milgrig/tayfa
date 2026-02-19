@@ -38,7 +38,7 @@ Source of truth: **`.tayfa/common/employees.json`**
 
 **Does NOT**: implement code, run tests, verify implementation.
 
-**Task role**: Customer (details requirements for developer).
+**Task role**: Executor (details requirements, analyzes).
 
 **Model**: Claude Sonnet — standard analytical tasks.
 
@@ -184,7 +184,7 @@ Source of truth: **`.tayfa/common/employees.json`**
 
 **Capabilities**: design testing strategies for AI agent systems, build automated test suites (pytest), define quality gates and acceptance criteria standards, analyze test failure patterns, create test infrastructure (fixtures, mocks, test data), ensure comprehensive test coverage.
 
-**Task roles**: Customer (defining test requirements), Developer (building test frameworks), or Tester (deep quality verification) — depending on task.
+**Task role**: Executor — depending on task (testing strategy, test frameworks, quality verification).
 
 **Model**: Claude Opus — complex testing architecture and strategy.
 
@@ -194,7 +194,7 @@ Source of truth: **`.tayfa/common/employees.json`**
 
 ## Task System
 
-Each task has 3 roles: customer, developer, tester.
+Each task has 2 fields: author (who created) and executor (who does the work).
 
 ```bash
 python .tayfa/common/task_manager.py list

@@ -31,7 +31,7 @@ You are the **Customer** in the task workflow:
 ### 1. Start Analysis
 ```bash
 # Check tasks needing requirements
-python .tayfa/common/task_manager.py list --status pending
+python .tayfa/common/task_manager.py list --status new
 
 # Read task from boss
 python .tayfa/common/task_manager.py get T003
@@ -73,7 +73,7 @@ In discussion file `.tayfa/common/discussions/T003.md`, add:
 ### 3. Complete Analysis
 ```bash
 python .tayfa/common/task_manager.py result T003 "Requirements detailed. Ready for development."
-python .tayfa/common/task_manager.py status T003 in_progress
+python .tayfa/common/task_manager.py status T003 done
 ```
 
 ## Writing Good Acceptance Criteria

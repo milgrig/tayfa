@@ -225,14 +225,12 @@ async function runAllSprintTasks(sprintId) {
                 break;
             }
 
-            // Find actionable tasks (not finished)
-            const actionable = sprintTasks.filter(t =>
-                ['pending', 'in_progress', 'in_review'].includes(t.status)
-            );
+            // Find actionable tasks (only 'new' status is actionable)
+            const actionable = sprintTasks.filter(t => t.status === 'new');
 
             if (actionable.length === 0) break;
 
-            // Find ready tasks: not currently running, dependencies met, have valid next step
+            // Find ready tasks: not currently running, dependencies met
             const ready = actionable.filter(t => {
                 // Skip already running
                 if (runningTasks[t.id]) return false;
@@ -240,21 +238,12 @@ async function runAllSprintTasks(sprintId) {
                 // Skip tasks with unresolved failures (don't retry automatically)
                 if (taskFailures[t.id] && taskFailures[t.id].length > 0) return false;
 
-                // Must have a valid next step
-                const next = STATUS_NEXT_ROLE[t.status];
-                if (!next) return false;
-
-                // For 'pending' tasks, check all dependencies are done
-                if (t.status === 'pending') {
-                    const deps = t.depends_on || [];
-                    return deps.every(depId => {
-                        const depTask = allTasksFresh.find(x => x.id === depId);
-                        return depTask && (depTask.status === 'done' || depTask.status === 'cancelled');
-                    });
-                }
-
-                // in_progress and in_review are always ready to continue
-                return true;
+                // Check all dependencies are done/cancelled
+                const deps = t.depends_on || [];
+                return deps.every(depId => {
+                    const depTask = allTasksFresh.find(x => x.id === depId);
+                    return depTask && (depTask.status === 'done' || depTask.status === 'cancelled');
+                });
             });
 
             // Sort by task number (lower number = higher priority)
@@ -293,8 +282,7 @@ async function runAllSprintTasks(sprintId) {
             // Fire-and-forget: launch batch tasks without waiting for all to complete.
             // Each task clears its runningTasks entry on completion and signals the loop.
             batch.forEach(t => {
-                const next = STATUS_NEXT_ROLE[t.status];
-                const agentName = t[next.role] || '';
+                const { agent: agentName } = _getTaskAgent(t);
                 const runtime = getAgentRuntime(agentName);
                 triggerTaskAutoRun(t.id, runtime);
             });
@@ -399,12 +387,8 @@ function showCreateTaskModal() {
         <input type="text" id="newTaskTitle" placeholder="Brief task name">
         <label>Description</label>
         <textarea id="newTaskDesc" rows="3" placeholder="Detailed description (optional)"></textarea>
-        <label>Customer</label>
-        <select id="newTaskCustomer">${empOptions}</select>
-        <label>Developer</label>
-        <select id="newTaskDeveloper">${empOptions}</select>
-        <label>Tester</label>
-        <select id="newTaskTester">${empOptions}</select>
+        <label>Executor</label>
+        <select id="newTaskExecutor">${empOptions}</select>
         <label>Depends on tasks (Ctrl+Click for multiple selection)</label>
         <select id="newTaskDeps" multiple size="4" style="min-height:80px;">${taskOptions}</select>
     `;
@@ -421,9 +405,8 @@ async function createTaskFromModal() {
     const data = {
         title,
         description: document.getElementById('newTaskDesc').value.trim(),
-        customer: document.getElementById('newTaskCustomer').value,
-        developer: document.getElementById('newTaskDeveloper').value,
-        tester: document.getElementById('newTaskTester').value,
+        author: 'boss',
+        executor: document.getElementById('newTaskExecutor').value,
         sprint_id: document.getElementById('newTaskSprint').value,
         depends_on: depends_on.length > 0 ? depends_on : undefined,
     };
@@ -447,16 +430,15 @@ function showCreateBacklogModal() {
         <label>Sprint for all backlog tasks</label>
         <select id="backlogSprint">${sprintOptions}</select>
         <p style="font-size:13px;color:var(--text-dim);margin-bottom:12px; margin-top:12px;">
-            Paste a JSON array of tasks. Each task: { "title", "description", "customer", "developer", "tester" }.
+            Paste a JSON array of tasks. Each task: { "title", "description", "author", "executor" }.
             The sprint_id field will be added automatically from the selected sprint.
         </p>
         <textarea id="backlogJson" rows="12" style="font-family:var(--mono); font-size:12px;" placeholder='[
   {
     "title": "Task name",
     "description": "Description",
-    "customer": "boss",
-    "developer": "developer_frontend",
-    "tester": "qa_tester"
+    "author": "boss",
+    "executor": "developer"
   }
 ]'></textarea>
     `;

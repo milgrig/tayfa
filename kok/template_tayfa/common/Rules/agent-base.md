@@ -30,7 +30,7 @@ All tasks are in **`.tayfa/common/tasks.json`**, managed via **`.tayfa/common/ta
 ```bash
 # View
 python .tayfa/common/task_manager.py list
-python .tayfa/common/task_manager.py list --status in_progress
+python .tayfa/common/task_manager.py list --status new
 python .tayfa/common/task_manager.py get T001
 
 # Work with task
@@ -40,20 +40,36 @@ python .tayfa/common/task_manager.py status T001 <status>
 
 ### Task Statuses
 
-| Status | Who works | What they do |
-|--------|-----------|--------------|
-| `new` | Customer | Details requirements |
-| `in_progress` | Developer | Implements |
-| `in_review` | Tester | Verifies |
-| `done` | — | Done |
+| Status | Meaning |
+|--------|---------|
+| `new` | Task created, ready for execution |
+| `done` | Task completed |
+| `questions` | Agent blocked — needs clarification. Write detailed comment in discussion file, then set status to `questions` |
+| `cancelled` | Task cancelled |
 
 ### Task Roles
+
+Boss assigns roles freely when creating tasks. Any combination is possible.
 
 | Role | Description |
 |------|-------------|
 | **Customer** | Details requirements, formulates acceptance criteria |
 | **Developer** | Implements functionality |
 | **Tester** | Verifies against requirements |
+
+### Completing a task
+
+When you finish your work:
+```bash
+python .tayfa/common/task_manager.py result T001 "Description of what was done"
+python .tayfa/common/task_manager.py status T001 done
+```
+
+If you CANNOT complete the task (missing permissions, unclear requirements, blocked):
+```bash
+python .tayfa/common/task_manager.py result T001 "Detailed explanation of what is needed"
+python .tayfa/common/task_manager.py status T001 questions
+```
 
 ---
 
@@ -71,19 +87,6 @@ All task messages go in:
 - **Read** the file before starting — it has context from previous participants
 - **Append** to the end, don't delete previous content
 - **Header format**: `## [YYYY-MM-DD HH:MM] agent_name (role)`
-
-### No Questions!
-
-**Strictly forbidden:**
-- ❌ Writing "please clarify requirements" and waiting
-- ❌ Stopping work due to ambiguity
-
-**Instead:**
-- ✅ Make a decision within your role
-- ✅ Document the decision in discussions
-- ✅ Complete the task and pass it on
-
-If the decision is wrong — tester will return it.
 
 ---
 
@@ -121,7 +124,7 @@ Before starting work, study:
 
 This is not a recommendation — it's a requirement. Task without running = incomplete task.
 
-### What you MUST do:
+### For developers — what you MUST do:
 
 **1. INSTALL ALL DEPENDENCIES**
 ```bash
@@ -165,17 +168,59 @@ mypy kok/
 - ❌ Tests fail
 - ❌ Dependencies not installed
 
-### For testers:
+---
 
-**First thing you do — run the code.**
+### For testers: EXECUTION-ONLY verification
 
-If code doesn't run → immediately return to `in_progress`:
+**⛔ FORBIDDEN: Reading source code as primary verification.**
+
+Testers MUST NOT:
+- ❌ Read source files to "check the code"
+- ❌ Review implementation by reading files
+- ❌ Write "code looks correct" or "reviewed the source"
+- ❌ Base PASS/FAIL verdict on code reading alone
+
+**✅ REQUIRED: Run the test suite script.**
+
+The single command testers execute:
 ```bash
-python .tayfa/common/task_manager.py result T001 "❌ Code doesn't run: [error]"
-python .tayfa/common/task_manager.py status T001 in_progress
+bash ./run_tests.sh
 ```
 
-Don't waste time checking functionality if basic startup fails.
+This script automatically performs all mandatory checks:
+1. Installs dependencies
+2. Runs `pytest kok/tests/`
+3. Starts the server and performs a health check via HTTP
+4. Reports PASS/FAIL with exit code (0 = success, non-zero = failure)
+
+### Tester mandatory steps:
+
+**Step 1 — Run the test suite**
+```bash
+bash ./run_tests.sh
+```
+If `run_tests.sh` exits with non-zero → log bugs as new backlog tasks, but still close/pass the current task:
+```bash
+python .tayfa/common/task_manager.py result T001 "❌ run_tests.sh failed: [paste output]. Logged as backlog item."
+python .tayfa/common/task_manager.py status T001 done
+```
+
+**Step 2 — Verify endpoint behavior**
+
+After `run_tests.sh` passes, manually hit at least one real endpoint to confirm the feature works:
+```bash
+curl -sf http://localhost:8008/api/status
+# or use httpx:
+python -c "import httpx; print(httpx.get('http://localhost:8008/api/status').status_code)"
+```
+
+**Step 3 — Fill in the tester checklist**
+
+Copy the checklist template from `.tayfa/common/tester_checklist.md` into the task discussion file and fill in every checkbox. The checklist is MANDATORY evidence — a task cannot be marked `done` without it.
+
+**Step 4 — Record verdict**
+
+Post the completed checklist and verdict (PASS or FAIL) in the discussion file, then update task status accordingly.
 
 ---
 
@@ -191,3 +236,15 @@ python .tayfa/common/backlog_manager.py add "Proposal description" \
 ```
 
 Boss will review during sprint planning.
+
+---
+
+## 8. Output Size Limit
+
+Your output for a single task **MUST NOT exceed 300 lines** of changes.
+
+If you estimate the implementation will produce more than 300 lines of changes, **STOP** and request task decomposition:
+- Set task result to: `DECOMPOSE: output exceeds 300-line limit. Suggest splitting into: [list sub-tasks]`
+- Set status to `questions` (so the orchestrator can re-plan)
+
+Do **NOT** attempt to produce oversized output. Break the task into smaller pieces instead.

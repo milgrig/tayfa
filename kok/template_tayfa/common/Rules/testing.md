@@ -22,7 +22,7 @@ Autotests are **mandatory part of Definition of Done**. Task is not complete if:
 
 **When to run:**
 - ✅ On every commit (CI/CD)
-- ✅ Before moving task to `in_review`
+- ✅ Before marking task as `done`
 - ✅ During local development
 
 **Command:** `npm test` / `pytest` / project-specific
@@ -125,7 +125,7 @@ Tests that pass/fail randomly:
 
 ## Checklist for qa_tester
 
-When checking task (`in_review`):
+When checking task:
 
 - [ ] Fast tests pass (`npm test` / `pytest`)
 - [ ] New code covered by tests (if applicable)

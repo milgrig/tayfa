@@ -1,17 +1,20 @@
 // ── Tasks Board (NEW — kanban with sprints) ────────────────────────────────
 
 const STATUS_LABELS = {
-    'pending': 'Pending',
-    'in_progress': 'In Progress',
-    'in_review': 'In Review',
+    'new': 'New',
     'done': 'Done',
+    'questions': 'Questions',
     'cancelled': 'Cancelled',
 };
 
+// For 'new' tasks: resolve executor from task
+function _getTaskAgent(task) {
+    if (task.executor) return { agent: task.executor, role: 'executor' };
+    return { agent: '—', role: 'executor' };
+}
+
 const STATUS_NEXT_ROLE = {
-    'pending': { role: 'customer', label: 'Customer details requirements', btnClass: 'primary' },
-    'in_progress': { role: 'developer', label: 'Developer implements', btnClass: 'primary' },
-    'in_review': { role: 'tester', label: 'Tester verifies', btnClass: 'warning' },
+    'new': { label: 'Execute', btnClass: 'primary' },
 };
 
 let boardAutoRefreshTimer = null;
@@ -222,12 +225,12 @@ async function refreshTasksBoardNew() {
 }
 
 function renderKanbanBoard(tasks) {
-    const statuses = ['pending', 'in_progress', 'in_review', 'done', 'cancelled'];
+    const statuses = ['new', 'done', 'questions', 'cancelled'];
     const grouped = {};
     statuses.forEach(s => grouped[s] = []);
     tasks.forEach(t => {
         if (grouped[t.status]) grouped[t.status].push(t);
-        else grouped['pending'].push(t);
+        else grouped['new'].push(t);
     });
 
     let html = '<div class="tasks-columns">';
@@ -254,17 +257,17 @@ function renderTaskCard(t) {
     if (isRunning) {
         actionsHtml += `<button class="btn sm running" disabled title="Agent ${escapeHtml(runInfo.agent || '?')} is running...">${escapeHtml(runInfo.agent || 'Agent')} thinking...</button>`;
     } else if (next) {
-        const agentName = t[next.role] || '—';
+        const { agent: agentName, role: agentRole } = _getTaskAgent(t);
         const agentRuntime = getAgentRuntime(agentName);
         const runtimeLabel = isAgentCursor(agentName) ? 'Via Cursor CLI' : 'Via Claude API';
-        actionsHtml += `<button class="btn sm ${next.btnClass}" onclick="triggerTask('${t.id}','${agentRuntime}')" title="${runtimeLabel}">${escapeHtml(next.label)} (${escapeHtml(agentName)})</button>`;
+        actionsHtml += `<button class="btn sm ${next.btnClass}" onclick="triggerTask('${t.id}','${agentRuntime}')" title="${runtimeLabel}">${escapeHtml(next.label)} · ${escapeHtml(agentRole)} (${escapeHtml(agentName)})</button>`;
     }
 
     if (!isRunning && t.status !== 'done' && t.status !== 'cancelled') {
         actionsHtml += `<button class="btn sm danger" onclick="cancelTask('${t.id}')" title="Cancel task">Cancel</button>`;
     }
-    if (!isRunning && t.status === 'in_review') {
-        actionsHtml += `<button class="btn sm" onclick="rejectTask('${t.id}')" title="Return to developer">Reject</button>`;
+    if (!isRunning && t.status === 'questions') {
+        actionsHtml += `<button class="btn sm" onclick="returnToNew('${t.id}')" title="Return task to New for re-execution">↩ Return to New</button>`;
     }
 
     let resultHtml = '';
@@ -317,9 +320,8 @@ function renderTaskCard(t) {
         <div class="task-card-title">${escapeHtml(t.title)}</div>
         ${t.description && !isFinalize ? `<div style="font-size:12px;color:var(--text-dim);margin-bottom:6px;">${escapeHtml(t.description.slice(0, 120))}${t.description.length > 120 ? '...' : ''}</div>` : ''}
         <div class="task-card-roles">
-            <strong>Customer:</strong> ${escapeHtml(t.customer || '—')} &nbsp;
-            <strong>Developer:</strong> ${escapeHtml(t.developer || '—')} &nbsp;
-            <strong>Tester:</strong> ${escapeHtml(t.tester || '—')}
+            <strong>Executor:</strong> ${escapeHtml(t.executor || '—')} &nbsp;
+            <strong>Author:</strong> ${escapeHtml(t.author || '—')}
         </div>
         ${depsHtml}
         ${resultHtml}
@@ -376,9 +378,9 @@ async function cancelTask(taskId) {
     } catch (e) { alert('Error: ' + e.message); }
 }
 
-async function rejectTask(taskId) {
+async function returnToNew(taskId) {
     try {
-        await api('PUT', `/api/tasks-list/${taskId}/status`, { status: 'in_progress' });
+        await api('PUT', `/api/tasks-list/${taskId}/status`, { status: 'new' });
         await refreshTasksBoardNew();
     } catch (e) { alert('Error: ' + e.message); }
 }
@@ -392,8 +394,7 @@ async function retryFailedTask(taskId) {
     } catch {}
     // Determine runtime from the task's agent
     const task = allTasks.find(t => t.id === taskId);
-    const next = task ? STATUS_NEXT_ROLE[task.status] : null;
-    const agentName = next ? (task[next.role] || '') : '';
+    const { agent: agentName } = task ? _getTaskAgent(task) : { agent: '' };
     const runtime = getAgentRuntime(agentName);
     triggerTask(taskId, runtime);
 }

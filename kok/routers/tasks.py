@@ -20,9 +20,10 @@ from app_state import (
     get_personel_dir, get_project_path_for_scoping,
     get_employee,
     get_agent_timeout, get_max_role_triggers, get_artifact_max_lines,
-    call_claude_api,
+    call_claude_api, stream_claude_api,
     save_chat_message,
     running_tasks, task_trigger_counts, get_agent_lock,
+    init_agent_stream, push_agent_stream_event, finish_agent_stream,
     _MODEL_RUNTIMES, _CURSOR_MODELS,
     _RETRYABLE_ERRORS, _MAX_RETRY_ATTEMPTS, _RETRY_DELAY_SEC,
     TASKS_FILE,
@@ -218,7 +219,7 @@ def _get_files_changed_count() -> int:
 
 def _perform_auto_commit(task_id: str, task: dict) -> dict:
     """
-    Performs automatic git commit when moving task to review.
+    Performs automatic git commit when task is marked done.
 
     Returns dict with result:
     - success: bool
@@ -255,13 +256,13 @@ def _perform_auto_commit(task_id: str, task: dict) -> dict:
 
     # 3. Compose commit message
     task_title = task.get("title", "Task completed")
-    developer = task.get("developer", "")
+    executor = task.get("executor", "")
 
     commit_message = f"{task_id}: {task_title}"
-    if developer:
-        commit_message += f"\n\nStatus: in_review\nDeveloper: {developer}"
+    if executor:
+        commit_message += f"\n\nStatus: done\nExecutor: {executor}"
     else:
-        commit_message += f"\n\nStatus: in_review"
+        commit_message += f"\n\nStatus: done"
 
     # 4. git add -A
     add_result = run_git_command(["add", "-A"])
@@ -351,7 +352,7 @@ async def api_create_tasks(data: dict):
     """
     Create task or task backlog.
     If data contains "tasks" (list) — creates backlog.
-    Otherwise — a single task from fields title, description, customer, developer, tester, sprint_id, depends_on.
+    Otherwise — a single task from fields title, description, author, executor, sprint_id, depends_on.
     """
     if "tasks" in data and isinstance(data["tasks"], list):
         results = create_backlog(data["tasks"])
@@ -364,9 +365,8 @@ async def api_create_tasks(data: dict):
     task = create_task(
         title=title,
         description=data.get("description", ""),
-        customer=data.get("customer", "boss"),
-        developer=data.get("developer", ""),
-        tester=data.get("tester", ""),
+        author=data.get("author", "boss"),
+        executor=data.get("executor", ""),
         sprint_id=data.get("sprint_id", ""),
         depends_on=data.get("depends_on"),
     )
@@ -376,13 +376,13 @@ async def api_create_tasks(data: dict):
 @router.put("/api/tasks-list/{task_id}/status")
 async def api_update_task_status(task_id: str, data: dict):
     """
-    Change task status. Body: {"status": "in_progress"}.
+    Change task status. Body: {"status": "done"}.
 
     Automatic git actions:
-    - "in_review": git add -A && git commit "TXXX: Title"
-    - "completed" (finalizing): merge into main + tag + push (via task_manager)
+    - "done": git add -A && git commit "TXXX: Title"
+    - "done" (finalizing): merge into main + tag + push (via task_manager)
 
-    On transition to "in_review" returns git_commit:
+    On transition to "done" returns git_commit:
     {
         "success": true,
         "hash": "abc1234",
@@ -403,8 +403,8 @@ async def api_update_task_status(task_id: str, data: dict):
     if "error" in result:
         raise HTTPException(status_code=400, detail=result["error"])
 
-    # Auto-commit on transition to "in_review"
-    if new_status == "in_review":
+    # Auto-commit on transition to "done"
+    if new_status == "done":
         task = get_task(task_id)
         if task:
             git_commit_result = _perform_auto_commit(task_id, task)
@@ -468,9 +468,7 @@ async def api_trigger_task(task_id: str, data: dict = Body(default_factory=dict)
         )
 
     agent_name = next_info["agent"]
-    role_label = {"customer": "requester", "developer": "developer", "tester": "tester"}.get(
-        next_info["role"], next_info["role"]
-    )
+    role_label = next_info["role"]
     task = next_info["task"]
 
     if not agent_name:
@@ -503,9 +501,10 @@ async def api_trigger_task(task_id: str, data: dict = Body(default_factory=dict)
         )
         logger.warning(f"[Loop] {loop_msg}")
 
-        # Set task result and status to pending (frozen for human decision)
+        # Reset task to new and clear counter so it can be re-triggered after review
         set_task_result(task_id, loop_msg)
-        update_task_status(task_id, "pending")
+        update_task_status(task_id, "new")
+        task_trigger_counts.pop(task_id, None)
 
         # Create backlog item suggesting decomposition
         try:
@@ -541,30 +540,15 @@ async def api_trigger_task(task_id: str, data: dict = Body(default_factory=dict)
         prompt_parts.append(f"Previous result: {task['result']}")
 
     prompt_parts.append("")
-    if next_info["role"] == "customer":
-        prompt_parts.append(
-            "You are the requester. Detail the task requirements. "
-            "When done, call:\n"
-            f"  python common/task_manager.py result {task['id']} \"<detailed description>\"\n"
-            f"  python common/task_manager.py status {task['id']} in_progress"
-        )
-    elif next_info["role"] == "developer":
-        prompt_parts.append(
-            "You are the developer. Complete the task according to the description. "
-            "When done, call:\n"
-            f"  python common/task_manager.py result {task['id']} \"<description of what was done>\"\n"
-            f"  python common/task_manager.py status {task['id']} in_review"
-        )
-    elif next_info["role"] == "tester":
-        prompt_parts.append(
-            "You are the tester. Review the work result. "
-            "If everything is good, call:\n"
-            f"  python common/task_manager.py result {task['id']} \"<review result>\"\n"
-            f"  python common/task_manager.py status {task['id']} done\n"
-            "If there are issues:\n"
-            f"  python common/task_manager.py result {task['id']} \"<description of issues>\"\n"
-            f"  python common/task_manager.py status {task['id']} in_progress"
-        )
+    prompt_parts.append(
+        f"You are the {role_label}. Complete the task according to the description.\n"
+        "When done successfully, call:\n"
+        f"  python common/task_manager.py result {task['id']} \"<description of what was done>\"\n"
+        f"  python common/task_manager.py status {task['id']} done\n\n"
+        "If you CANNOT complete the task (missing permissions, unclear requirements, blocked), call:\n"
+        f"  python common/task_manager.py result {task['id']} \"<detailed explanation of what is needed>\"\n"
+        f"  python common/task_manager.py status {task['id']} questions"
+    )
 
     full_prompt = "\n".join(p for p in prompt_parts if p is not None)
 
@@ -631,30 +615,67 @@ async def api_trigger_task(task_id: str, data: dict = Body(default_factory=dict)
                             "stderr": result.get("stderr", ""),
                         }
                     else:
-                        # Claude API — pass resolved model
-                        api_result = await call_claude_api("POST", "/run", json_data={
-                            "name": agent_name,
-                            "prompt": full_prompt,
-                            "project_path": get_project_path_for_scoping(),
-                            "model": resolved_model,
-                        }, timeout=get_agent_timeout())
+                        # Claude API — use STREAMING so frontend can see agent's thoughts live
+                        init_agent_stream(agent_name)
+                        full_result = ""
+                        cost_usd = 0
+                        num_turns = 0
+
+                        try:
+                            async for chunk in stream_claude_api("/run-stream", json_data={
+                                "name": agent_name,
+                                "prompt": full_prompt,
+                                "project_path": get_project_path_for_scoping(),
+                                "model": resolved_model,
+                            }):
+                                # Parse chunk and buffer for subscribers
+                                try:
+                                    event = json.loads(chunk)
+                                except (json.JSONDecodeError, ValueError):
+                                    continue
+
+                                etype = event.get("type", "")
+
+                                # Unwrap stream_event wrapper
+                                if etype == "stream_event" and isinstance(event.get("event"), dict):
+                                    event = event["event"]
+                                    etype = event.get("type", "")
+
+                                # Push to subscribers (frontend)
+                                push_agent_stream_event(agent_name, event)
+
+                                # Extract result/cost from stream events
+                                if etype == "result":
+                                    full_result = event.get("result", full_result)
+                                    cost_usd = event.get("cost_usd", 0)
+                                    num_turns = event.get("num_turns", 0)
+                                elif etype == "assistant" and event.get("subtype") == "text":
+                                    full_result = event.get("text", full_result)
+                                elif etype == "streamlined_text":
+                                    full_result = event.get("text", full_result)
+                                elif etype == "error":
+                                    error_text = event.get("error", "Stream error")
+                                    raise HTTPException(status_code=502, detail=error_text)
+                        finally:
+                            finish_agent_stream(agent_name)
+
                         duration_sec = _time.time() - start_time
 
                         # Save to chat history (actual model, not generic 'claude')
                         save_chat_message(
                             agent_name=agent_name,
                             prompt=full_prompt,
-                            result=api_result.get("result", ""),
+                            result=full_result,
                             runtime=resolved_model,
-                            cost_usd=api_result.get("cost_usd"),
+                            cost_usd=cost_usd,
                             duration_sec=duration_sec,
                             task_id=task_id,
                             success=True,
-                            extra={"role": role_label, "num_turns": api_result.get("num_turns")},
+                            extra={"role": role_label, "num_turns": num_turns},
                         )
 
                         # ── Artifact size check ──────────────────────────
-                        _check_artifact_size(task_id, agent_name, api_result.get("result", ""))
+                        _check_artifact_size(task_id, agent_name, full_result)
 
                         return {
                             "task_id": task_id,
@@ -662,9 +683,9 @@ async def api_trigger_task(task_id: str, data: dict = Body(default_factory=dict)
                             "role": role_label,
                             "runtime": resolved_model,
                             "success": True,
-                            "result": api_result.get("result", ""),
-                            "cost_usd": api_result.get("cost_usd"),
-                            "num_turns": api_result.get("num_turns"),
+                            "result": full_result,
+                            "cost_usd": cost_usd,
+                            "num_turns": num_turns,
                         }
 
                 except Exception as exc:

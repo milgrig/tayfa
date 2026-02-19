@@ -32,7 +32,7 @@ You are the **Reviewer** in the task workflow. When assigned as tester:
 ### 1. Start Review
 ```bash
 # Check tasks assigned to you for review
-python .tayfa/common/task_manager.py list --status in_review
+python .tayfa/common/task_manager.py list --status new
 
 # Read task details
 python .tayfa/common/task_manager.py get T003
@@ -63,7 +63,7 @@ python .tayfa/common/task_manager.py status T003 done
 **If issues found:**
 ```bash
 python .tayfa/common/task_manager.py result T003 "Code review FAIL: [list specific issues]"
-python .tayfa/common/task_manager.py status T003 in_progress
+python .tayfa/common/task_manager.py status T003 done
 ```
 
 ## Review Style

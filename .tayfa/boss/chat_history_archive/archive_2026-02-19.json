@@ -200,5 +200,78 @@
     "success": true,
     "duration_sec": 0.67,
     "num_turns": null
+  },
+  {
+    "id": "msg_114",
+    "timestamp": "2026-02-18T16:51:36",
+    "direction": "to_agent",
+    "prompt": "Message to send",
+    "result": "",
+    "runtime": "claude",
+    "success": true,
+    "duration_sec": 0.66,
+    "num_turns": null
+  },
+  {
+    "id": "msg_115",
+    "timestamp": "2026-02-18T16:51:59",
+    "direction": "to_agent",
+    "prompt": "Message to send",
+    "result": "",
+    "runtime": "claude",
+    "success": true,
+    "duration_sec": 0.68,
+    "num_turns": null
+  },
+  {
+    "id": "msg_116",
+    "timestamp": "2026-02-18T16:53:02",
+    "direction": "to_agent",
+    "prompt": "Message to send",
+    "result": "",
+    "runtime": "claude",
+    "success": true,
+    "duration_sec": 0.67,
+    "num_turns": null
+  },
+  {
+    "id": "msg_117",
+    "timestamp": "2026-02-18T16:55:29",
+    "direction": "to_agent",
+    "prompt": "Task T036: Preserve chat input draft when navigating away\nDescription: Bug: When a user types a message to an employee but does not send it, then navigates to Settings and returns back to the employee chat - the typed text disappears. Expected: the unsent draft text should be preserved and restored when the user returns to the same employee chat.\nYour role: tester\nCurrent status: in_review\nPrevious result: Extracted draft-saving logic from selectAgent() into a reusable saveCurrentDraft() function. Added saveCurrentDraft() call at the top of hideAllScreens(), so every navigation away from chat (Settings, Task Board, Backlog, Tasks, agent deletion) now saves the current textarea value to agentDrafts[currentAgent] before hiding screens. The selectAgent() function was updated to call saveCurrentDraft() before changing currentAgent to preserve drafts when switching between agents. Draft restoration on return already worked via selectAgent(). All ACs met: drafts preserved across Settings/TaskBoard/Backlog/Tasks navigation, agent switching still works, sending clears draft, empty input creates no draft entry.\n\nYou are the tester. Review the work result. If everything is good, call:\n  python common/task_manager.py result T036 \"<review result>\"\n  python common/task_manager.py status T036 done\nIf there are issues:\n  python common/task_manager.py result T036 \"<description of issues>\"\n  python common/task_manager.py status T036 in_progress",
+    "result": "**T036 — PASS ✅**\n\nImplementation is clean and correct:\n\n- **`saveCurrentDraft()`** — reusable function that saves textarea content to `agentDrafts[currentAgent]`, with a visibility guard to prevent accidental clearing\n- **All navigation paths covered** — Settings, TaskBoard, Backlog, Tasks all call `saveCurrentDraft()` before `hideAllScreens()`\n- **Agent switching** — `selectAgent()` saves the old agent's draft, then restores the new agent's draft\n- **Send clears draft** — `delete agentDrafts[currentAgent]` in `sendPrompt()`\n- **No junk entries** — empty/whitespace inputs are cleaned up via `delete`\n- **E2E tests** cover all 7 acceptance criteria\n\nTask closed as **done**.",
+    "runtime": "claude",
+    "success": true,
+    "cost_usd": 0,
+    "duration_sec": 543.87,
+    "task_id": "T036",
+    "role": "tester",
+    "num_turns": 4
+  },
+  {
+    "id": "msg_118",
+    "timestamp": "2026-02-18T16:56:01",
+    "direction": "to_agent",
+    "prompt": "Task T035: Finalize sprint: Chat Draft Persistence Fix\nDescription: Final task of sprint S028. Depends on all other tasks in the sprint. When all sprint tasks are done — review results and close the sprint.\nYour role: requester\nCurrent status: pending\n\nYou are the requester. Detail the task requirements. When done, call:\n  python common/task_manager.py result T035 \"<detailed description>\"\n  python common/task_manager.py status T035 in_progress",
+    "result": "**Sprint S028 — \"Chat Draft Persistence Fix\" — Complete ✅**\n\n### Sprint Summary\n| Metric | Value |\n|--------|-------|\n| Tasks | 1 of 1 completed |\n| Tester returns | 0 (passed on first review) |\n| Total duration | 13 minutes |\n\n**T036** — Preserve chat input draft when navigating away — **DONE ✅**\n- Implementation adds a reusable `saveCurrentDraft()` function called on every navigation away from chat\n- Drafts restored automatically when returning to an agent via `selectAgent()`\n- Sending a message clears the draft\n- All acceptance criteria met, E2E tests in place\n\nSprint goal achieved: users' unsent chat drafts are now preserved across navigation.",
+    "runtime": "claude",
+    "success": true,
+    "cost_usd": 0,
+    "duration_sec": 32.83,
+    "task_id": "T035",
+    "role": "requester",
+    "num_turns": 6
+  },
+  {
+    "id": "msg_119",
+    "timestamp": "2026-02-18T17:02:49",
+    "direction": "to_agent",
+    "prompt": "Попал ли он в git?",
+    "result": "Нет, изменения не попали в git. Автокоммит при закрытии спринта упал из-за ошибки кодировки на Windows. Все файлы остались unstaged. \n\nЗакоммитить сейчас?",
+    "runtime": "claude",
+    "success": true,
+    "cost_usd": 0,
+    "duration_sec": 18.11,
+    "num_turns": 3
   }
 ]

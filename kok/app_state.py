@@ -221,6 +221,12 @@ running_tasks: dict[str, dict] = {}
 agent_locks: dict[str, asyncio.Semaphore] = {}
 task_trigger_counts: dict[str, dict[str, int]] = {}
 
+# ── Per-agent stream buffers ─────────────────────────────────────────────
+# When a task trigger runs with streaming, events are buffered here so that
+# the frontend can connect at any time and replay + follow the live stream.
+# Structure: { agent_name: { "events": [dict, ...], "done": bool, "subscribers": [asyncio.Queue, ...] } }
+agent_stream_buffers: dict[str, dict] = {}
+
 last_ping_time: float = _time.time()
 SHUTDOWN_TIMEOUT = 120.0
 
@@ -240,6 +246,63 @@ def get_agent_lock(agent_name: str) -> asyncio.Semaphore:
     if agent_name not in agent_locks:
         agent_locks[agent_name] = asyncio.Semaphore(1)
     return agent_locks[agent_name]
+
+
+def init_agent_stream(agent_name: str) -> None:
+    """Initialize a stream buffer for an agent (called when task trigger starts)."""
+    agent_stream_buffers[agent_name] = {
+        "events": [],
+        "done": False,
+        "subscribers": [],
+    }
+
+
+def push_agent_stream_event(agent_name: str, event: dict) -> None:
+    """Push a stream event to the agent's buffer and notify all subscribers."""
+    buf = agent_stream_buffers.get(agent_name)
+    if not buf:
+        return
+    buf["events"].append(event)
+    # Notify all waiting subscribers
+    for q in buf["subscribers"]:
+        try:
+            q.put_nowait(event)
+        except Exception:
+            pass
+
+
+def finish_agent_stream(agent_name: str) -> None:
+    """Mark the agent's stream as done and notify subscribers with a sentinel."""
+    buf = agent_stream_buffers.get(agent_name)
+    if not buf:
+        return
+    buf["done"] = True
+    for q in buf["subscribers"]:
+        try:
+            q.put_nowait(None)  # sentinel: stream finished
+        except Exception:
+            pass
+
+
+def subscribe_agent_stream(agent_name: str) -> tuple[list[dict], asyncio.Queue | None]:
+    """Subscribe to an agent's stream. Returns (past_events, queue_for_new_events).
+    If no stream is active, returns ([], None)."""
+    buf = agent_stream_buffers.get(agent_name)
+    if not buf:
+        return [], None
+    past = list(buf["events"])  # snapshot of buffered events
+    if buf["done"]:
+        return past, None  # stream already finished, no queue needed
+    q: asyncio.Queue = asyncio.Queue()
+    buf["subscribers"].append(q)
+    return past, q
+
+
+def unsubscribe_agent_stream(agent_name: str, q: asyncio.Queue) -> None:
+    """Remove a subscriber queue from the agent's stream buffer."""
+    buf = agent_stream_buffers.get(agent_name)
+    if buf and q in buf["subscribers"]:
+        buf["subscribers"].remove(q)
 
 
 # ── Port helpers ──────────────────────────────────────────────────────────

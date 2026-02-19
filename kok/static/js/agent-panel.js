@@ -6,6 +6,7 @@ let activeStreamAbort = null;
 let _lastMsgId = null;        // Track last message ID to avoid duplicate text
 let _msgTextNode = null;      // Dedicated node for message-type events
 let _activityPollTimer = null; // Polls agent activity while busy
+let _taskStreamAbort = null;  // Abort controller for task stream SSE connection
 
 function openAgentPanel(name) {
     if (!name) return;
@@ -34,6 +35,7 @@ function closeAgentPanel() {
     panelOpen = false;
     panelAgent = null;
     _stopActivityPoll();
+    _disconnectTaskStream();
 
     const panel = document.getElementById('agentPanel');
     panel.style.display = 'none';
@@ -266,6 +268,8 @@ async function sendPromptStreaming() {
                         fullResult += (event.delta || event.text || '');
                     } else if (event.type === 'content_block_delta' && event.delta?.type === 'text_delta') {
                         fullResult += (event.delta.text || '');
+                    } else if (event.type === 'streamlined_text' && event.text) {
+                        fullResult = event.text;
                     }
                 } catch (parseErr) {
                     // Skip unparseable lines
@@ -303,16 +307,6 @@ function processStreamEvent(event) {
 
     const type = event.type || '';
     const subtype = event.subtype || '';
-
-    // Claude CLI stream-json format uses these types:
-    // stream_event: wrapper around inner events (unwrapped above)
-    // assistant: {subtype: "text"|"thinking", text/delta}
-    // content_block_start: {content_block: {type: "text"|"thinking"|"tool_use"}}
-    // content_block_delta: {delta: {type: "text_delta"|"thinking_delta", text}}
-    // content_block_stop
-    // message_start, message_delta, message_stop
-    // tool_use, tool_result
-    // result: final summary with cost/turns/session_id
 
     if (type === 'assistant') {
         if (subtype === 'text_delta' || subtype === 'text') {
@@ -433,8 +427,22 @@ function processStreamEvent(event) {
         const streamTab = document.getElementById('agentStreamTab');
         streamTab.scrollTop = streamTab.scrollHeight;
 
-    } else if (type === 'system' || type === 'user' || type === 'message_start' || type === 'message_delta' || type === 'message_stop') {
-        // Internal metadata / message lifecycle — skip
+    } else if (type === 'streamlined_text') {
+        // Claude CLI v2: final text content (replaces assistant message in streamlined output)
+        _streamTextNode = null;
+        if (event.text) {
+            appendStreamEvent('text', event.text);
+        }
+
+    } else if (type === 'streamlined_tool_use_summary') {
+        // Claude CLI v2: summary of tool calls (e.g. "Read 2 files, wrote 1 file")
+        _streamTextNode = null;
+        if (event.tool_summary) {
+            appendStreamEvent('tool', event.tool_summary);
+        }
+
+    } else if (type === 'system' || type === 'user' || type === 'message_start' || type === 'message_delta' || type === 'message_stop' || type === 'keep_alive') {
+        // Internal metadata / lifecycle / heartbeat — skip
 
     } else {
         // Unknown event type — log only, don't pollute stream
@@ -477,6 +485,8 @@ async function _checkAgentActivity(name) {
 
         if (activity.busy) {
             _showAgentBusy(activity);
+            // Connect to live stream to show agent's thoughts
+            _connectTaskStream(name);
             // Start polling to update elapsed time and detect completion
             _stopActivityPoll();
             _activityPollTimer = setInterval(() => _pollAgentActivity(name), 2000);
@@ -495,8 +505,9 @@ async function _pollAgentActivity(name) {
         if (activity.busy) {
             _updateAgentBusy(activity);
         } else {
-            // Agent finished — clear indicator and stop polling
+            // Agent finished — clear indicator, stop polling, disconnect stream
             _stopActivityPoll();
+            _disconnectTaskStream();
             _clearAgentBusy();
         }
     } catch (e) {
@@ -580,4 +591,78 @@ function _getTaskTitle(taskId) {
         if (task) return task.title;
     }
     return '';
+}
+
+// ── Live Task Stream (SSE connection to agent's task execution) ──────────────
+
+function _disconnectTaskStream() {
+    if (_taskStreamAbort) {
+        _taskStreamAbort.abort();
+        _taskStreamAbort = null;
+    }
+}
+
+async function _connectTaskStream(name) {
+    // Disconnect any previous task stream
+    _disconnectTaskStream();
+
+    const abortController = new AbortController();
+    _taskStreamAbort = abortController;
+
+    _streamTextNode = null;
+
+    try {
+        const response = await fetch(`/api/agent-stream/${name}`, {
+            signal: abortController.signal
+        });
+
+        if (!response.ok) {
+            console.warn('[TaskStream] Failed to connect:', response.status);
+            return;
+        }
+
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = '';
+
+        while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+
+            buffer += decoder.decode(value, { stream: true });
+            const lines = buffer.split('\n');
+            buffer = lines.pop(); // Keep incomplete line in buffer
+
+            for (const line of lines) {
+                if (!line.startsWith('data: ')) continue;
+                const jsonStr = line.substring(6).trim();
+                if (!jsonStr) continue;
+
+                try {
+                    const event = JSON.parse(jsonStr);
+
+                    // Stream ended — stop
+                    if (event.type === 'stream_end') {
+                        return;
+                    }
+
+                    // Skip keep-alive heartbeats
+                    if (event.type === 'keep_alive') continue;
+
+                    // Process the event (reuse the same handler as manual chat streaming)
+                    processStreamEvent(event);
+                } catch (parseErr) {
+                    // Skip unparseable lines
+                }
+            }
+        }
+    } catch (e) {
+        if (e.name !== 'AbortError') {
+            console.warn('[TaskStream] Connection error:', e.message);
+        }
+    } finally {
+        if (_taskStreamAbort === abortController) {
+            _taskStreamAbort = null;
+        }
+    }
 }

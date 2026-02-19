@@ -29,7 +29,7 @@
 - [ ] **FAIL** — one or more checks failed (details below)
 
 **Failure details (if FAIL):**
-_(Describe what failed, paste error output, explain why task is returned to in_progress)_
+_(Describe what failed, paste error output, explain what needs fixing)_
 
 ---
 

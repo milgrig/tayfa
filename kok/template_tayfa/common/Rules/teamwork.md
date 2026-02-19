@@ -31,21 +31,22 @@ python .tayfa/common/task_manager.py sprints
 
 ### Task Statuses
 
-| Status | Description |
-|--------|-------------|
-| `new` | Created, not started |
-| `in_progress` | Developer working |
-| `in_review` | Tester verifying |
-| `done` | Done |
-| `cancelled` | Cancelled |
+| Status | Meaning |
+|--------|---------|
+| `new` | Task created, ready for execution |
+| `done` | Task completed |
+| `questions` | Agent blocked — needs clarification |
+| `cancelled` | Task cancelled |
 
 ### Task Roles
 
+Boss assigns roles freely. Any combination is possible.
+
 | Role | Action |
 |------|--------|
-| **Customer** | `new` → details requirements → `in_progress` |
-| **Developer** | `in_progress` → implements → `in_review` |
-| **Tester** | `in_review` → verifies → `done` or back to `in_progress` |
+| **Customer** | Details requirements → `done` or `questions` |
+| **Developer** | Implements → `done` or `questions` |
+| **Tester** | Verifies → `done` or `questions` |
 
 ### Creating Tasks
 
@@ -204,5 +205,5 @@ Source of truth: **`.tayfa/common/employees.json`**
 | Event | Orchestrator Action |
 |-------|---------------------|
 | Create sprint | Create branch `sprint/S001` |
-| Task → `in_review` | `git add -A && git commit` |
+| Task → `done` | `git add -A && git commit` |
 | Finalize sprint | Merge to main + tag + push |

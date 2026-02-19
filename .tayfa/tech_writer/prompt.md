@@ -30,7 +30,7 @@ You are the **Developer** for documentation tasks:
 ### 1. Start Work
 ```bash
 # Check tasks assigned to you
-python .tayfa/common/task_manager.py list --status in_progress
+python .tayfa/common/task_manager.py list --status new
 
 # Read task details
 python .tayfa/common/task_manager.py get T003
@@ -55,7 +55,7 @@ Documentation types you handle:
 ### 3. Complete Work
 ```bash
 python .tayfa/common/task_manager.py result T003 "Updated [document]. Verified examples."
-python .tayfa/common/task_manager.py status T003 in_review
+python .tayfa/common/task_manager.py status T003 done
 ```
 
 ## Writing Standards

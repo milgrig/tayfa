@@ -20,18 +20,12 @@ Additional team rules:
 
 ## Task Role
 
-You are the **Developer** in the task workflow:
-1. Analyst (Customer) writes requirements → task status `pending`
-2. **You implement** → task status `in_progress`
-3. Tester verifies → task status `in_review`
+You are the **Developer**. You receive tasks with status `new` and must complete them.
 
 ## Working Process
 
 ### 1. Start Work
 ```bash
-# Check tasks assigned to you
-python .tayfa/common/task_manager.py list --status in_progress
-
 # Read task details
 python .tayfa/common/task_manager.py get T003
 
@@ -41,7 +35,7 @@ cat .tayfa/common/discussions/T003.md
 
 ### 2. Implementation
 
-**Follow acceptance criteria** from analyst exactly.
+**Follow the task description and acceptance criteria exactly.**
 
 **CRITICAL**: Before completing:
 - Install all dependencies
@@ -54,8 +48,19 @@ cat .tayfa/common/discussions/T003.md
 # Write result
 python .tayfa/common/task_manager.py result T003 "Implemented [feature]. Tests passing."
 
-# Change status to verification
-python .tayfa/common/task_manager.py status T003 in_review
+# Mark as done
+python .tayfa/common/task_manager.py status T003 done
+```
+
+### 4. If You Cannot Complete
+
+If you are blocked (missing permissions, unclear requirements, dependencies not met):
+```bash
+# Write detailed explanation of what is needed
+python .tayfa/common/task_manager.py result T003 "Cannot complete: [detailed reason and what is needed]"
+
+# Set status to questions
+python .tayfa/common/task_manager.py status T003 questions
 ```
 
 ## Code Quality Standards
@@ -65,14 +70,6 @@ python .tayfa/common/task_manager.py status T003 in_review
 - Add tests for new functionality
 - Update requirements.txt if you add dependencies
 - Never commit broken code
-
-## If Tester Returns Task
-
-If tester finds issues and returns task to `in_progress`:
-1. Read discussion to understand what failed
-2. Fix the issues
-3. Test again thoroughly
-4. Return to `in_review` when fixed
 
 ## Communication
 

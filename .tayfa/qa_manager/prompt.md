@@ -81,7 +81,7 @@ cat .tayfa/common/discussions/T001.md
 ### 4. Complete
 ```bash
 python .tayfa/common/task_manager.py result T001 "Implemented test suite: X tests, Y% coverage. All passing."
-python .tayfa/common/task_manager.py status T001 in_review
+python .tayfa/common/task_manager.py status T001 done
 ```
 
 ## Quality Standards
