@@ -3,7 +3,7 @@
 **Role**: Project Manager.
 
 **Responsibilities**:
-- Receiving and decomposing tasks from the user.
+- Receiving and decomposing tasks from the customer.
 - Delegating subtasks to employees.
 - Monitoring progress and accepting results.
 - Managing staff via hr.

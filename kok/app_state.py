@@ -97,7 +97,8 @@ from settings_manager import (  # noqa: E402
 )
 from project_manager import (  # noqa: E402
     list_projects, get_project, add_project, remove_project,
-    get_current_project, set_current_project, init_project,
+    get_current_project as _pm_get_current_project,
+    set_current_project, init_project,
     open_project, get_tayfa_dir, has_tayfa, TAYFA_DIR_NAME,
     is_new_user, get_project_repo_name, set_project_repo_name,
 )
@@ -234,6 +235,29 @@ SHUTDOWN_TIMEOUT = 120.0
 # When set via --project CLI flag, this instance is locked to a single project.
 # POST /api/projects/open will return 403 while locked.
 LOCKED_PROJECT_PATH: str | None = None
+
+
+def get_current_project() -> dict | None:
+    """Return the current project for this instance.
+
+    If the instance is locked to a specific project (--project flag),
+    return that project's info directly from the projects list,
+    bypassing the shared ``current`` field in projects.json.
+    This prevents multiple instances from interfering with each other.
+    """
+    if LOCKED_PROJECT_PATH:
+        project = get_project(LOCKED_PROJECT_PATH)
+        if project:
+            return project
+        # Fallback: construct a minimal project dict so the instance
+        # can still operate even if the project wasn't added yet.
+        from project_manager import _normalize_path
+        norm = _normalize_path(LOCKED_PROJECT_PATH)
+        path_str = norm.replace("\\", "/").rstrip("/")
+        name = path_str.split("/")[-1] if "/" in path_str else path_str
+        return {"path": norm, "name": name, "last_opened": ""}
+    return _pm_get_current_project()
+
 
 MAX_FAILURE_LOG_ENTRIES = 1000
 

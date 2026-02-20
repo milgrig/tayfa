@@ -202,14 +202,17 @@ async def lifespan(app: FastAPI):
     """Start and stop background tasks."""
     app_state.last_ping_time = _time.time()
 
-    # If --project was passed, open that project before initializing files
+    # If --project was passed, init + register the project but do NOT change
+    # the global "current" field in projects.json.  The locked instance
+    # resolves its own project via get_current_project() override in app_state.
     if app_state.LOCKED_PROJECT_PATH:
-        from app_state import open_project as _open_project
-        result = _open_project(app_state.LOCKED_PROJECT_PATH)
-        if result.get("status") == "error":
-            logger.error(f"Failed to open locked project {app_state.LOCKED_PROJECT_PATH!r}: {result.get('error')}")
+        from app_state import init_project as _init_project, add_project as _add_project
+        init_result = _init_project(app_state.LOCKED_PROJECT_PATH)
+        if init_result.get("status") == "error":
+            logger.error(f"Failed to init locked project {app_state.LOCKED_PROJECT_PATH!r}: {init_result.get('error')}")
         else:
-            logger.info(f"Locked project opened: {app_state.LOCKED_PROJECT_PATH!r}")
+            _add_project(app_state.LOCKED_PROJECT_PATH)
+            logger.info(f"Locked project registered (current NOT changed): {app_state.LOCKED_PROJECT_PATH!r}")
 
     # Set paths to tasks.json and employees.json for current project
     _init_files_for_current_project()

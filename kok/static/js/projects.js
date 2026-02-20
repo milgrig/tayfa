@@ -15,6 +15,7 @@ function updateCurrentProjectBadge(project) {
 
 let projectsList = [];
 let hasCurrentProject = false; // Flag: is there an open project
+let pickerMode = 'switch'; // 'switch' | 'newWindow'
 
 async function showProjectPicker() {
     // Check if there is a current project
@@ -34,6 +35,12 @@ async function showProjectPicker() {
     }
     if (cancelBtn) {
         cancelBtn.style.display = hasCurrentProject ? '' : 'none';
+    }
+
+    // Update title based on mode
+    const pickerTitle = document.querySelector('#projectPicker .project-picker-card h2');
+    if (pickerTitle) {
+        pickerTitle.textContent = pickerMode === 'newWindow' ? 'Open in New Window' : 'Select project';
     }
 
     document.getElementById('projectPicker').classList.add('show');
@@ -108,8 +115,10 @@ function renderProjectsList() {
         return;
     }
 
+    const clickHandler = pickerMode === 'newWindow' ? 'launchInstanceForProject' : 'openProject';
+
     const html = projectsList.map(project => `
-        <div class="project-item" onclick="openProject('${escapeHtml(project.path.replace(/\\/g, '\\\\').replace(/'/g, "\\'"))}')">
+        <div class="project-item" onclick="${clickHandler}('${escapeHtml(project.path.replace(/\\/g, '\\\\').replace(/'/g, "\\'"))}')">
             <div class="project-item-icon">📁</div>
             <div class="project-item-info">
                 <div class="project-item-name">${escapeHtml(project.name)}</div>
@@ -221,8 +230,12 @@ async function openFolderDialog() {
             return; // User cancelled selection
         }
 
-        // Open selected project
-        await openProject(result.path);
+        // Open selected project (or launch in new window)
+        if (pickerMode === 'newWindow') {
+            await launchInstanceForProject(result.path);
+        } else {
+            await openProject(result.path);
+        }
 
     } catch (error) {
         console.error('[openFolderDialog] Error:', error);
@@ -270,12 +283,17 @@ async function submitManualPath() {
 
     console.log('[submitManualPath] Path:', path);
     closeModal();
-    await openProject(path);
+    if (pickerMode === 'newWindow') {
+        await launchInstanceForProject(path);
+    } else {
+        await openProject(path);
+    }
 }
 
 // Function to show project-picker from settings or header
 function switchProject() {
     closeSettingsDropdown();
+    pickerMode = 'switch';
     showProjectPicker();
 }
 
@@ -312,52 +330,16 @@ function disableProjectSwitching() {
 
 async function openProjectInNewWindow() {
     closeSettingsDropdown();
-
-    // Load projects list for the modal
-    let projects = [];
-    try {
-        const data = await api('GET', '/api/projects');
-        projects = data.projects || [];
-    } catch (error) {
-        alert('Error loading projects: ' + error.message);
-        return;
-    }
-
-    if (projects.length === 0) {
-        alert('No projects available. Add a project first.');
-        return;
-    }
-
-    // Build project list HTML for modal
-    const listHtml = projects.map(p => `
-        <div class="project-item" style="cursor:pointer; padding:10px 14px; border:1px solid var(--border); border-radius:8px; margin-bottom:8px; background:var(--bg-input); transition:background 0.15s;"
-             onmouseover="this.style.background='var(--bg-hover)'"
-             onmouseout="this.style.background='var(--bg-input)'"
-             onclick="launchInstanceForProject('${escapeHtml(p.path.replace(/\\/g, '\\\\').replace(/'/g, "\\'"))}')">
-            <div style="font-weight:600; color:var(--text-bright); font-size:14px;">📁 ${escapeHtml(p.name)}</div>
-            <div style="font-size:12px; color:var(--text-dim); margin-top:2px; font-family:var(--mono);">${escapeHtml(p.path)}</div>
-        </div>
-    `).join('');
-
-    const body = `
-        <p style="font-size:13px; color:var(--text-dim); margin-bottom:14px;">
-            Select a project to open in a new browser window. A new Tayfa instance will be launched for it.
-        </p>
-        <div style="max-height:350px; overflow-y:auto;">
-            ${listHtml}
-        </div>
-    `;
-
-    openModal('Open in New Window', body,
-        `<button class="btn" onclick="closeModal()">Cancel</button>`);
+    pickerMode = 'newWindow';
+    showProjectPicker();
 }
 
 
 async function launchInstanceForProject(path) {
-    closeModal();
+    hideProjectPicker();
 
     // Show loading notification
-    const loadingMsg = addSystemMessage(`Launching new instance for project...`);
+    addSystemMessage(`Launching new instance for project...`);
 
     try {
         const result = await api('POST', '/api/launch-instance', { path });
