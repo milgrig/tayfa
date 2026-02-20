@@ -96,6 +96,15 @@ function updateStatusUI(s) {
     // Update current project badge
     if (s.current_project) {
         updateCurrentProjectBadge(s.current_project);
+        // Update document.title
+        if (s.current_project.name) {
+            document.title = s.current_project.name + ' — Tayfa';
+        }
+    }
+
+    // Disable project switching when locked
+    if (s.locked_project) {
+        disableProjectSwitching();
     }
 }
 

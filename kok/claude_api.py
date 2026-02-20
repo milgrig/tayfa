@@ -7,8 +7,8 @@ import json
 import os
 import shutil
 import tempfile
-import threading
 import logging
+from file_lock import locked_read_json, locked_write_json, locked_update_json
 
 _LOG_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "claude_api.log")
 logging.basicConfig(
@@ -24,7 +24,6 @@ logger = logging.getLogger("claude_api")
 app = FastAPI(title="Claude Code API")
 
 AGENTS_FILE = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "claude_agents.json")
-_lock = threading.Lock()
 
 # #region debug log (prompt storage vs run)
 def _debug_log_api(message: str, data: dict):
@@ -206,14 +205,10 @@ def _agents_for_project(agents: dict, project_path: str) -> dict:
 # --------------- helpers ---------------
 
 def load_agents() -> dict:
-    if os.path.exists(AGENTS_FILE):
-        with open(AGENTS_FILE, encoding='utf-8') as f:
-            return json.load(f)
-    return {}
+    return locked_read_json(AGENTS_FILE, default={})
 
 def save_agents(agents: dict):
-    with open(AGENTS_FILE, "w", encoding='utf-8') as f:
-        json.dump(agents, f, indent=2, ensure_ascii=False)
+    locked_write_json(AGENTS_FILE, agents)
 
 
 def _read_prompt_from_file(workdir: str, system_prompt_file: str) -> str:
@@ -524,8 +519,8 @@ def _save_session(name: str, session_id: Optional[str], project_path: str = "", 
     Backward compat: migrates old string/None and flat per-model formats on first write.
     """
     internal_key = _scoped_name(name, project_path)
-    with _lock:
-        agents = load_agents()
+
+    def _updater(agents):
         if internal_key in agents:
             current = agents[internal_key].get("session_id")
             # Migrate legacy string/None → dict
@@ -544,7 +539,9 @@ def _save_session(name: str, session_id: Optional[str], project_path: str = "", 
                 # No model specified → clear all sessions
                 current = {}
             agents[internal_key]["session_id"] = current
-            save_agents(agents)
+        return agents
+
+    locked_update_json(AGENTS_FILE, _updater, default=dict)
 
 # --------------- single endpoint ---------------
 
@@ -589,10 +586,10 @@ def run(req: UnifiedRequest):
 
     # --- create / update agent (no prompt) ---
     if not req.prompt:
-        with _lock:
-            agents = load_agents()
-            exists = internal_key in agents
-            if exists:
+        _create_update_result = [None]  # mutable container for updater result
+
+        def _create_or_update_agent(agents):
+            if internal_key in agents:
                 # update
                 a = agents[internal_key]
                 prompt_preview_upd = (req.system_prompt[:120] + "...") if req.system_prompt and len(req.system_prompt) > 120 else req.system_prompt
@@ -604,22 +601,19 @@ def run(req: UnifiedRequest):
                     f"workdir={req.workdir!r}, model={req.model!r}"
                 )
                 if req.system_prompt and req.system_prompt_file:
-                    # Both provided: store both so file is re-read on every run (live edits),
-                    # while inline acts as a reliable fallback for the very first session.
-                    # _resolve_system_prompt prefers file when set, falls back to inline.
                     a["system_prompt"] = req.system_prompt
                     a["system_prompt_file"] = req.system_prompt_file
                     a["session_id"] = {}
                     logger.info(f"UPDATE agent={req.name!r}: set BOTH system_prompt ({len(req.system_prompt)} chars) and system_prompt_file={req.system_prompt_file!r}")
                 elif req.system_prompt:
                     a["system_prompt"] = req.system_prompt
-                    a["system_prompt_file"] = ""  # inline prompt takes priority, clear file ref
-                    a["session_id"] = {}  # clear all model sessions — prompt changed
+                    a["system_prompt_file"] = ""
+                    a["session_id"] = {}
                     logger.info(f"UPDATE agent={req.name!r}: set inline system_prompt, cleared system_prompt_file")
                 elif req.system_prompt_file:
                     a["system_prompt_file"] = req.system_prompt_file
-                    a["system_prompt"] = ""  # file prompt takes priority, clear inline
-                    a["session_id"] = {}  # clear all model sessions — prompt changed
+                    a["system_prompt"] = ""
+                    a["session_id"] = {}
                     logger.info(f"UPDATE agent={req.name!r}: set system_prompt_file={req.system_prompt_file!r}, cleared inline")
                 if req.workdir:
                     a["workdir"] = req.workdir
@@ -633,11 +627,10 @@ def run(req: UnifiedRequest):
                     a["budget_limit"] = req.budget_limit
                 # Always clear session on update so next run starts a new session (e.g. after Kill + Ensure)
                 a["session_id"] = {}
-                save_agents(agents)
                 # #region agent log
                 _debug_log_api("UPDATE saved", {"internal_key": internal_key, "stored_prompt_len": len(a["system_prompt"])})
                 # #endregion
-                return {"status": "updated", "agent": req.name}
+                _create_update_result[0] = {"status": "updated", "agent": req.name}
             else:
                 # create
                 # #region agent log
@@ -646,7 +639,6 @@ def run(req: UnifiedRequest):
                 inline_prompt = (req.system_prompt or "").strip()
                 has_inline = bool(inline_prompt)
                 has_file = bool(req.system_prompt_file)
-                workdir = (req.workdir or "").strip()
                 prompt_preview = (inline_prompt[:120] + "...") if inline_prompt and len(inline_prompt) > 120 else (inline_prompt or "")
                 logger.info(
                     f"CREATE agent={req.name!r} (key={internal_key!r}), "
@@ -658,10 +650,7 @@ def run(req: UnifiedRequest):
                     f"allowed_tools={req.allowed_tools!r}"
                 )
                 if has_inline and has_file:
-                    # Both provided: store both. File is re-read on every run (live edits);
-                    # inline acts as reliable fallback if the file cannot be found.
                     logger.info(f"CREATE agent={req.name!r}: BOTH system_prompt and system_prompt_file set — storing both (file preferred at runtime).")
-                # Store inline and/or file prompt; both can coexist for maximum reliability
                 agents[internal_key] = {
                     "system_prompt":      inline_prompt,
                     "system_prompt_file": req.system_prompt_file or "",
@@ -670,13 +659,16 @@ def run(req: UnifiedRequest):
                     "permission_mode":    req.permission_mode or "bypassPermissions",
                     "model":              req.model or "",
                     "budget_limit":       req.budget_limit if req.budget_limit is not None else 10.0,
-                    "session_id":         {},  # per-model: {"opus": sid, "sonnet": sid, ...}
+                    "session_id":         {},
                 }
-                save_agents(agents)
                 # #region agent log
                 _debug_log_api("CREATE saved", {"internal_key": internal_key, "stored_prompt_len": len(agents[internal_key]["system_prompt"]), "req_prompt_len": len(req.system_prompt or "")})
                 # #endregion
-                return {"status": "created", "agent": req.name}
+                _create_update_result[0] = {"status": "created", "agent": req.name}
+            return agents
+
+        locked_update_json(AGENTS_FILE, _create_or_update_agent, default=dict)
+        return _create_update_result[0]
 
     # --- run agent ---
     if not exists:
@@ -693,11 +685,13 @@ def run(req: UnifiedRequest):
     # starts a fresh session and picks up --system-prompt correctly.
     if isinstance(agent.get("session_id"), str):
         logger.info(f"RUN migrate legacy session_id for agent={internal_key!r}: resetting string sid → {{}}")
-        with _lock:
-            agents = load_agents()
+
+        def _migrate_session(agents):
             if internal_key in agents and isinstance(agents[internal_key].get("session_id"), str):
                 agents[internal_key]["session_id"] = {}
-                save_agents(agents)
+            return agents
+
+        agents = locked_update_json(AGENTS_FILE, _migrate_session, default=dict)
         agent = agents[internal_key]
 
     system_prompt = _resolve_system_prompt(agent)
@@ -770,11 +764,13 @@ def run_stream(req: UnifiedRequest):
 
     # Migrate legacy string session_id → dict
     if isinstance(agent.get("session_id"), str):
-        with _lock:
-            agents = load_agents()
+
+        def _migrate_session_stream(agents):
             if internal_key in agents and isinstance(agents[internal_key].get("session_id"), str):
                 agents[internal_key]["session_id"] = {}
-                save_agents(agents)
+            return agents
+
+        agents = locked_update_json(AGENTS_FILE, _migrate_session_stream, default=dict)
         agent = agents[internal_key]
 
     system_prompt = _resolve_system_prompt(agent)
@@ -823,10 +819,16 @@ def list_agents(project_path: str = ""):
 def delete_agent(name: str, project_path: str = ""):
     """Delete an agent. If project_path is provided, deletes the scoped agent."""
     internal_key = _scoped_name(name, project_path)
-    with _lock:
-        agents = load_agents()
+    _deleted = [False]
+
+    def _delete_updater(agents):
         if internal_key not in agents:
-            raise HTTPException(404, f"Agent '{name}' not found")
+            return agents  # not found — don't modify
         del agents[internal_key]
-        save_agents(agents)
+        _deleted[0] = True
+        return agents
+
+    locked_update_json(AGENTS_FILE, _delete_updater, default=dict)
+    if not _deleted[0]:
+        raise HTTPException(404, f"Agent '{name}' not found")
     return {"status": "deleted", "agent": name}

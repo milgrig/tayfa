@@ -176,6 +176,7 @@ async function openProject(path) {
 
             // Project name in result.project.name or fallback to path
             const projectName = result.project?.name || path.split(/[\\\/]/).pop() || path;
+            document.title = projectName + ' — Tayfa';
             addSystemMessage(`Project "${projectName}" opened`);
             console.log('[openProject] Done!');
         } else {
@@ -276,4 +277,101 @@ async function submitManualPath() {
 function switchProject() {
     closeSettingsDropdown();
     showProjectPicker();
+}
+
+
+// ── Disable project switching when instance is locked ─────────────────────
+
+function disableProjectSwitching() {
+    // Disable the project badge click
+    const badge = document.getElementById('currentProjectBadge');
+    if (badge) {
+        badge.onclick = null;
+        badge.style.cursor = 'default';
+        badge.title = 'Project locked (instance mode)';
+    }
+
+    // Disable "Switch project" in settings dropdown
+    const settingsDropdown = document.getElementById('settingsDropdown');
+    if (settingsDropdown) {
+        const items = settingsDropdown.querySelectorAll('.settings-item');
+        items.forEach(item => {
+            if (item.textContent.includes('Switch project')) {
+                item.onclick = null;
+                item.style.opacity = '0.4';
+                item.style.cursor = 'default';
+                item.style.pointerEvents = 'none';
+                item.title = 'Project locked (instance mode)';
+            }
+        });
+    }
+}
+
+
+// ── Open Project in New Window ────────────────────────────────────────────
+
+async function openProjectInNewWindow() {
+    closeSettingsDropdown();
+
+    // Load projects list for the modal
+    let projects = [];
+    try {
+        const data = await api('GET', '/api/projects');
+        projects = data.projects || [];
+    } catch (error) {
+        alert('Error loading projects: ' + error.message);
+        return;
+    }
+
+    if (projects.length === 0) {
+        alert('No projects available. Add a project first.');
+        return;
+    }
+
+    // Build project list HTML for modal
+    const listHtml = projects.map(p => `
+        <div class="project-item" style="cursor:pointer; padding:10px 14px; border:1px solid var(--border); border-radius:8px; margin-bottom:8px; background:var(--bg-input); transition:background 0.15s;"
+             onmouseover="this.style.background='var(--bg-hover)'"
+             onmouseout="this.style.background='var(--bg-input)'"
+             onclick="launchInstanceForProject('${escapeHtml(p.path.replace(/\\/g, '\\\\').replace(/'/g, "\\'"))}')">
+            <div style="font-weight:600; color:var(--text-bright); font-size:14px;">📁 ${escapeHtml(p.name)}</div>
+            <div style="font-size:12px; color:var(--text-dim); margin-top:2px; font-family:var(--mono);">${escapeHtml(p.path)}</div>
+        </div>
+    `).join('');
+
+    const body = `
+        <p style="font-size:13px; color:var(--text-dim); margin-bottom:14px;">
+            Select a project to open in a new browser window. A new Tayfa instance will be launched for it.
+        </p>
+        <div style="max-height:350px; overflow-y:auto;">
+            ${listHtml}
+        </div>
+    `;
+
+    openModal('Open in New Window', body,
+        `<button class="btn" onclick="closeModal()">Cancel</button>`);
+}
+
+
+async function launchInstanceForProject(path) {
+    closeModal();
+
+    // Show loading notification
+    const loadingMsg = addSystemMessage(`Launching new instance for project...`);
+
+    try {
+        const result = await api('POST', '/api/launch-instance', { path });
+
+        if (result.status === 'already_running') {
+            addSystemMessage(`Instance already running. Opening: ${result.url}`);
+            window.open(result.url, '_blank');
+        } else if (result.status === 'launched') {
+            addSystemMessage(`New instance launched on port ${result.port}. Opening: ${result.url}`);
+            window.open(result.url, '_blank');
+        } else {
+            addSystemMessage(`Unexpected response: ${JSON.stringify(result)}`, true);
+        }
+    } catch (error) {
+        addSystemMessage('Error launching instance: ' + error.message, true);
+    }
 }

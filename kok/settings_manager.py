@@ -14,6 +14,8 @@ import json
 from pathlib import Path
 from typing import Any
 
+from file_lock import locked_read_json, locked_write_json
+
 SETTINGS_FILE = Path(__file__).parent / "settings.json"
 SECRET_SETTINGS_FILE = Path(__file__).parent / "secret_settings.json"
 
@@ -65,22 +67,15 @@ VALIDATORS = {
 
 
 def _load_json(path: Path, defaults: dict) -> dict:
-    """Loads a JSON file. If the file does not exist, returns default values."""
-    if not path.exists():
-        return dict(defaults)
-    try:
-        data = json.loads(path.read_text(encoding="utf-8"))
-        return {**defaults, **data}
-    except Exception:
-        return dict(defaults)
+    """Loads a JSON file with cross-process file locking.
+    If the file does not exist, returns default values."""
+    data = locked_read_json(str(path), default=dict(defaults))
+    return {**defaults, **data} if isinstance(data, dict) else dict(defaults)
 
 
 def _save_json(path: Path, data: dict) -> None:
-    """Saves data to a JSON file."""
-    path.write_text(
-        json.dumps(data, ensure_ascii=False, indent=2),
-        encoding="utf-8"
-    )
+    """Saves data to a JSON file with cross-process file locking."""
+    locked_write_json(str(path), data)
 
 
 def _migrate_secrets_from_settings() -> None:

@@ -230,6 +230,11 @@ agent_stream_buffers: dict[str, dict] = {}
 last_ping_time: float = _time.time()
 SHUTDOWN_TIMEOUT = 120.0
 
+# ── Instance locking ────────────────────────────────────────────────────
+# When set via --project CLI flag, this instance is locked to a single project.
+# POST /api/projects/open will return 403 while locked.
+LOCKED_PROJECT_PATH: str | None = None
+
 MAX_FAILURE_LOG_ENTRIES = 1000
 
 _MODEL_RUNTIMES = ["opus", "sonnet", "haiku"]

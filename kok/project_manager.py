@@ -12,6 +12,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+from file_lock import locked_read_json, locked_write_json
+
 PROJECTS_FILE = Path(__file__).parent / "projects.json"
 TEMPLATE_DIR = Path(__file__).parent / "template_tayfa"
 TAYFA_DIR_NAME = ".tayfa"
@@ -95,26 +97,21 @@ def _normalize_path(path: str) -> str:
 
 
 def _load_data() -> dict[str, Any]:
-    """Loads data from projects.json. Creates the file if it does not exist."""
-    if not PROJECTS_FILE.exists():
-        # Create an empty file with a basic structure
-        default_data = {"current": None, "projects": []}
-        _save_data(default_data)
-        return default_data
-    try:
-        return json.loads(PROJECTS_FILE.read_text(encoding="utf-8"))
-    except Exception:
-        return {"current": None, "projects": []}
+    """Loads data from projects.json with cross-process file locking."""
+    PROJECTS_FILE.parent.mkdir(parents=True, exist_ok=True)
+    data = locked_read_json(
+        str(PROJECTS_FILE),
+        default={"current": None, "projects": []},
+    )
+    if not data or not isinstance(data, dict):
+        data = {"current": None, "projects": []}
+    return data
 
 
 def _save_data(data: dict[str, Any]) -> None:
-    """Saves data to projects.json."""
-    # Create the parent directory if it doesn't exist
+    """Saves data to projects.json with cross-process file locking."""
     PROJECTS_FILE.parent.mkdir(parents=True, exist_ok=True)
-    PROJECTS_FILE.write_text(
-        json.dumps(data, ensure_ascii=False, indent=2),
-        encoding="utf-8"
-    )
+    locked_write_json(str(PROJECTS_FILE), data)
 
 
 def _now_iso() -> str:

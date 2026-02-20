@@ -13,6 +13,16 @@
             showProjectPicker();
             return;
         }
+
+        // Set document.title to project name
+        if (status.current_project && status.current_project.name) {
+            document.title = status.current_project.name + ' — Tayfa';
+        }
+
+        // Disable project switching UI when locked_project is set
+        if (status.locked_project) {
+            disableProjectSwitching();
+        }
     } catch (e) {
         console.warn('Failed to check project status:', e.message);
         // On error show project-picker

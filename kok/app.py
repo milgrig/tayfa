@@ -5,6 +5,7 @@ Launches Claude API server (uvicorn), manages agents,
 and provides a web interface.
 """
 
+import argparse
 import asyncio
 import logging
 import os
@@ -201,6 +202,15 @@ async def lifespan(app: FastAPI):
     """Start and stop background tasks."""
     app_state.last_ping_time = _time.time()
 
+    # If --project was passed, open that project before initializing files
+    if app_state.LOCKED_PROJECT_PATH:
+        from app_state import open_project as _open_project
+        result = _open_project(app_state.LOCKED_PROJECT_PATH)
+        if result.get("status") == "error":
+            logger.error(f"Failed to open locked project {app_state.LOCKED_PROJECT_PATH!r}: {result.get('error')}")
+        else:
+            logger.info(f"Locked project opened: {app_state.LOCKED_PROJECT_PATH!r}")
+
     # Set paths to tasks.json and employees.json for current project
     _init_files_for_current_project()
 
@@ -345,6 +355,21 @@ from routers.agents import (  # noqa: E402, F401
 if __name__ == "__main__":
     import uvicorn
 
+    # Parse CLI arguments
+    parser = argparse.ArgumentParser(description="Tayfa Orchestrator")
+    parser.add_argument(
+        "--project",
+        type=str,
+        default=None,
+        help="Path to project folder. Locks this instance to the given project.",
+    )
+    args = parser.parse_args()
+
+    if args.project:
+        project_path = str(Path(args.project).resolve())
+        app_state.LOCKED_PROJECT_PATH = project_path
+        logger.info(f"Instance locked to project: {project_path}")
+
     # Find free port for orchestrator
     port = find_free_port(DEFAULT_ORCHESTRATOR_PORT)
     app_state.ACTUAL_ORCHESTRATOR_PORT = port
@@ -354,6 +379,8 @@ if __name__ == "__main__":
     print(f"  http://localhost:{port}")
     if port != DEFAULT_ORCHESTRATOR_PORT:
         print(f"  (port {DEFAULT_ORCHESTRATOR_PORT} busy, using {port})")
+    if app_state.LOCKED_PROJECT_PATH:
+        print(f"  Project: {app_state.LOCKED_PROJECT_PATH}")
     print()
 
     try:

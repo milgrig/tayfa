@@ -51,6 +51,7 @@
             <span class="project-icon">📁</span>
             <span class="project-name" id="currentProjectName">—</span>
         </div>
+        <button class="btn sm" id="btnNewWindow" onclick="openProjectInNewWindow()" title="Open project in new window">🪟 New Window</button>
     </div>
     <div class="status-bar">
         <div class="status-item">
@@ -89,6 +90,9 @@
         <div class="settings-dropdown" id="settingsDropdown">
             <div class="settings-item" onclick="switchProject()">
                 <span>📁</span> Switch project
+            </div>
+            <div class="settings-item" onclick="openProjectInNewWindow()">
+                <span>🪟</span> New Window
             </div>
             <div class="settings-item" onclick="showSettingsScreen()">
                 <span>🎨</span> Appearance

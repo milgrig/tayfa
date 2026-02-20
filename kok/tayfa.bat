@@ -17,6 +17,12 @@ echo.
 echo   ========================================
 echo.
 
+REM === Capture optional project path argument ===
+set "PROJECT_ARG="
+if not "%~1"=="" (
+    set "PROJECT_ARG=--project "%~1""
+)
+
 cd /d "%~dp0"
 
 REM === Create shortcut on first run ===
@@ -89,13 +95,17 @@ echo.
 echo     Browser will open automatically.
 echo     Port is selected dynamically (8008, 8009, ...).
 echo     WSL + Claude API will start on launch.
+if not "%PROJECT_ARG%"=="" (
+echo.
+echo     Project: %~1
+)
 echo.
 echo     Press Ctrl+C to stop.
 echo.
 echo   =========================================
 echo.
 
-python app.py
+python app.py %PROJECT_ARG%
 
 if %errorlevel% neq 0 (
     echo.

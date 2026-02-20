@@ -1,10 +1,13 @@
 """
-Server management routes (ping, shutdown, status, health, settings, start/stop) — extracted from app.py.
+Server management routes (ping, shutdown, status, health, settings, start/stop, launch-instance) — extracted from app.py.
 """
 
 import asyncio
 import os
+import subprocess
+import sys
 import time as _time
+from pathlib import Path
 
 import httpx
 from fastapi import APIRouter, HTTPException
@@ -17,9 +20,14 @@ from app_state import (
     ACTUAL_ORCHESTRATOR_PORT,
     ACTUAL_CLAUDE_API_PORT,
     TAYFA_ROOT_WIN,
+    KOK_DIR,
+    DEFAULT_ORCHESTRATOR_PORT,
     start_claude_api, stop_claude_api,
     get_current_project,
     load_settings, update_settings,
+    is_port_in_use,
+    list_projects,
+    logger,
 )
 from settings_manager import get_telegram_settings, set_telegram_settings
 from telegram_bot import get_bot, start_telegram_bot, stop_telegram_bot
@@ -67,6 +75,7 @@ async def get_status():
         "claude_api_port": app_state.ACTUAL_CLAUDE_API_PORT,
         "current_project": project,
         "has_project": project is not None,
+        "locked_project": app_state.LOCKED_PROJECT_PATH,
     }
 
 
@@ -147,6 +156,124 @@ async def start_server():
 async def stop_server():
     """Stop Claude API server."""
     return stop_claude_api()
+
+
+# ── Launch Instance ──────────────────────────────────────────────────────
+
+# Port range for orchestrator instances
+_INSTANCE_PORT_MIN = 8008
+_INSTANCE_PORT_MAX = 8017
+
+
+@router.post("/api/launch-instance")
+async def launch_instance(data: dict):
+    """
+    Launch a new Tayfa Orchestrator instance for a given project.
+
+    Body: {"path": "C:\\Projects\\MyApp"}
+
+    Validates the path, checks for existing instances on ports 8008-8017,
+    spawns a subprocess with --project flag, discovers the port, returns URL.
+    """
+    path = data.get("path")
+    if not path:
+        raise HTTPException(status_code=400, detail="path is required")
+
+    # Validate that the path exists and is a directory
+    project_path = Path(path).resolve()
+    if not project_path.exists():
+        raise HTTPException(status_code=400, detail=f"Path does not exist: {path}")
+    if not project_path.is_dir():
+        raise HTTPException(status_code=400, detail=f"Path is not a directory: {path}")
+
+    project_path_str = str(project_path)
+
+    # Check if there is already a running instance for this project
+    # by scanning orchestrator ports 8008-8017
+    for port in range(_INSTANCE_PORT_MIN, _INSTANCE_PORT_MAX + 1):
+        if not is_port_in_use(port):
+            continue
+        try:
+            async with httpx.AsyncClient(timeout=2.0) as client:
+                resp = await client.get(f"http://localhost:{port}/api/status")
+                if resp.status_code == 200:
+                    status = resp.json()
+                    existing_locked = status.get("locked_project")
+                    if existing_locked and str(Path(existing_locked).resolve()) == project_path_str:
+                        # Instance already running for this project
+                        return {
+                            "status": "already_running",
+                            "url": f"http://localhost:{port}",
+                            "port": port,
+                            "project": project_path_str,
+                        }
+        except Exception:
+            continue
+
+    # Spawn a new subprocess
+    app_py = KOK_DIR / "app.py"
+    try:
+        proc = subprocess.Popen(
+            [sys.executable, str(app_py), "--project", project_path_str],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            cwd=str(TAYFA_ROOT_WIN),
+            creationflags=getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0),
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to spawn instance: {e}")
+
+    # Wait for the new instance to start (poll ports for up to 15 seconds)
+    discovered_port = None
+    for attempt in range(30):
+        await asyncio.sleep(0.5)
+
+        # Check if the process died
+        if proc.poll() is not None:
+            raise HTTPException(
+                status_code=500,
+                detail=f"Instance process exited with code {proc.returncode}"
+            )
+
+        # Scan ports to find the new instance
+        for port in range(_INSTANCE_PORT_MIN, _INSTANCE_PORT_MAX + 1):
+            if not is_port_in_use(port):
+                continue
+            try:
+                async with httpx.AsyncClient(timeout=1.0) as client:
+                    resp = await client.get(f"http://localhost:{port}/api/status")
+                    if resp.status_code == 200:
+                        status = resp.json()
+                        locked = status.get("locked_project")
+                        if locked and str(Path(locked).resolve()) == project_path_str:
+                            discovered_port = port
+                            break
+            except Exception:
+                continue
+
+        if discovered_port:
+            break
+
+    if not discovered_port:
+        # Kill the process if we couldn't discover it
+        try:
+            proc.terminate()
+        except Exception:
+            pass
+        raise HTTPException(
+            status_code=500,
+            detail="Instance started but could not discover its port within 15 seconds"
+        )
+
+    logger.info(f"[launch-instance] New instance for {project_path_str} on port {discovered_port} (pid={proc.pid})")
+
+    return {
+        "status": "launched",
+        "url": f"http://localhost:{discovered_port}",
+        "port": discovered_port,
+        "pid": proc.pid,
+        "project": project_path_str,
+    }
 
 
 # ── Telegram Bot ─────────────────────────────────────────────────────────────

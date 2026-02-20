@@ -8,6 +8,7 @@ from pathlib import Path
 
 from fastapi import APIRouter, HTTPException
 
+import app_state
 from app_state import (
     list_projects, get_current_project, is_new_user,
     get_project_repo_name, set_project_repo_name,
@@ -54,6 +55,14 @@ async def api_open_project(data: dict):
     Recreates agents with the new workdir.
     Body: {"path": "C:\\Projects\\App"}
     """
+    # Guard: if instance is locked to a project, reject switching
+    if app_state.LOCKED_PROJECT_PATH:
+        raise HTTPException(
+            status_code=403,
+            detail=f"This instance is locked to project: {app_state.LOCKED_PROJECT_PATH}. "
+                   f"Cannot switch projects."
+        )
+
     path = data.get("path")
     print(f"[api_open_project] Request: path={path}")
 
