@@ -328,7 +328,10 @@ function disableProjectSwitching() {
 
 // ── Open Project in New Window ────────────────────────────────────────────
 
+let _launchingInstance = false;  // Debounce flag to prevent double open
+
 async function openProjectInNewWindow() {
+    if (_launchingInstance) return;
     closeSettingsDropdown();
     pickerMode = 'newWindow';
     showProjectPicker();
@@ -336,6 +339,8 @@ async function openProjectInNewWindow() {
 
 
 async function launchInstanceForProject(path) {
+    if (_launchingInstance) return;
+    _launchingInstance = true;
     hideProjectPicker();
 
     // Show loading notification
@@ -355,5 +360,7 @@ async function launchInstanceForProject(path) {
         }
     } catch (error) {
         addSystemMessage('Error launching instance: ' + error.message, true);
+    } finally {
+        _launchingInstance = false;
     }
 }
