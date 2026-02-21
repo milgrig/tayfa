@@ -255,8 +255,9 @@ async def lifespan(app: FastAPI):
     health_task = asyncio.create_task(health_check_loop())
     shutdown_task = asyncio.create_task(_shutdown_check_loop())
 
-    # Open browser automatically
-    asyncio.create_task(_auto_open_browser())
+    # Open browser automatically (skip for locked instances — frontend already opens the tab)
+    if not app_state.LOCKED_PROJECT_PATH:
+        asyncio.create_task(_auto_open_browser())
 
     # Start Telegram bot if configured
     await _start_telegram_integration()

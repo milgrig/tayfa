@@ -143,7 +143,7 @@ async function executeRelease(sprintId) {
     }
 }
 
-async function triggerTaskAutoRun(taskId, runtime, sprintId = null) {
+async function triggerTaskAutoRun(taskId, runtime) {
     if (runningTasks[taskId]) return;
 
     const task = allTasks.find(t => t.id === taskId);
@@ -174,10 +174,6 @@ async function triggerTaskAutoRun(taskId, runtime, sprintId = null) {
         if (!taskFailures[taskId]) taskFailures[taskId] = [];
         taskFailures[taskId].push({ task_id: taskId, error_type: 'autorun', message: e.message });
     } finally {
-        // Mark this agent as "used" so it won't pick up another task in this auto-run session
-        if (sprintId && sprintAutoRunState[sprintId]?.usedAgents) {
-            sprintAutoRunState[sprintId].usedAgents.add(agentName);
-        }
         delete runningTasks[taskId];
         updateRunningTasksIndicator();
         // Signal any waiting loops that a task slot freed up
@@ -191,7 +187,7 @@ async function runAllSprintTasks(sprintId) {
     delete autoLaunchFinished[sprintId];  // Reset so manual re-launch is always allowed
 
     const maxConcurrent = parseInt(document.getElementById('maxConcurrentInput')?.value) || 5;
-    sprintAutoRunState[sprintId] = { running: true, cancelled: false, finished: false, usedAgents: new Set() };
+    sprintAutoRunState[sprintId] = { running: true, cancelled: false, finished: false };
     const failedTaskIds = new Set();  // Track tasks that failed during this run
 
     // Expand this sprint so user sees progress
@@ -234,18 +230,13 @@ async function runAllSprintTasks(sprintId) {
 
             if (actionable.length === 0) break;
 
-            // Find ready tasks: not currently running, dependencies met, agent not already used
-            const usedAgents = sprintAutoRunState[sprintId]?.usedAgents || new Set();
+            // Find ready tasks: not currently running, dependencies met
             const ready = actionable.filter(t => {
                 // Skip already running
                 if (runningTasks[t.id]) return false;
 
                 // Skip tasks with unresolved failures (don't retry automatically)
                 if (taskFailures[t.id] && taskFailures[t.id].length > 0) return false;
-
-                // Skip tasks whose agent already completed a task in this auto-run session
-                const { agent: agentName } = _getTaskAgent(t);
-                if (usedAgents.has(agentName)) return false;
 
                 // Check all dependencies are done/cancelled
                 const deps = t.depends_on || [];
@@ -293,7 +284,7 @@ async function runAllSprintTasks(sprintId) {
             batch.forEach(t => {
                 const { agent: agentName } = _getTaskAgent(t);
                 const runtime = getAgentRuntime(agentName);
-                triggerTaskAutoRun(t.id, runtime, sprintId);
+                triggerTaskAutoRun(t.id, runtime);
             });
 
             // Wait for ANY task in the batch to complete before re-evaluating
