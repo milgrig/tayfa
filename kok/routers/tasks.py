@@ -14,7 +14,7 @@ from fastapi import APIRouter, Body, HTTPException
 import app_state
 from app_state import (
     get_tasks, get_task, get_next_agent,
-    create_task, create_backlog, update_task_status, set_task_result,
+    create_task, create_bug, create_backlog, update_task_status, set_task_result,
     create_backlog_item,
     TASK_STATUSES,
     get_personel_dir, get_project_path_for_scoping,
@@ -374,6 +374,29 @@ async def api_create_tasks(data: dict):
     )
     board_notify()
     return task
+
+
+@router.post("/api/bugs")
+async def api_create_bug(data: dict):
+    """
+    Create a bug report.
+    Body: {title, description, author, executor, sprint_id, related_task}.
+    title is required.
+    """
+    title = data.get("title")
+    if not title:
+        raise HTTPException(status_code=400, detail="title field is required")
+
+    bug = create_bug(
+        title=title,
+        description=data.get("description", ""),
+        author=data.get("author", ""),
+        executor=data.get("executor", ""),
+        sprint_id=data.get("sprint_id", ""),
+        related_task=data.get("related_task", ""),
+    )
+    board_notify()
+    return bug
 
 
 @router.put("/api/tasks-list/{task_id}/status")

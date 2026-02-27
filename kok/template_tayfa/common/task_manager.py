@@ -22,6 +22,7 @@ Sprints:
 
 CLI usage:
   python task_manager.py create "Title" "Description" --author boss --executor developer --sprint S001
+  python task_manager.py create-bug "Title" "Description" --author tester --executor developer --sprint S007 --related-task T040
   python task_manager.py backlog tasks.json           # bulk creation from JSON file
   python task_manager.py list [--status new] [--sprint S001]
   python task_manager.py get T001
@@ -272,7 +273,7 @@ STATUS_FLOW = {
 def _load() -> dict:
     """Load the tasks file."""
     if not TASKS_FILE.exists():
-        return {"tasks": [], "sprints": [], "next_id": 1, "next_sprint_id": 1}
+        return {"tasks": [], "sprints": [], "next_id": 1, "next_sprint_id": 1, "next_bug_id": 1}
     try:
         data = json.loads(TASKS_FILE.read_text(encoding="utf-8"))
         # Backward compatibility: add fields if missing
@@ -280,9 +281,11 @@ def _load() -> dict:
             data["sprints"] = []
         if "next_sprint_id" not in data:
             data["next_sprint_id"] = 1
+        if "next_bug_id" not in data:
+            data["next_bug_id"] = 1
         return data
     except Exception:
-        return {"tasks": [], "sprints": [], "next_id": 1, "next_sprint_id": 1}
+        return {"tasks": [], "sprints": [], "next_id": 1, "next_sprint_id": 1, "next_bug_id": 1}
 
 
 def _save(data: dict) -> None:
@@ -698,6 +701,52 @@ def create_task(
     _create_discussion_file(task)
 
     return task
+
+
+def create_bug(
+    title: str,
+    description: str,
+    author: str,
+    executor: str,
+    sprint_id: str = "",
+    related_task: str = "",
+) -> dict:
+    """
+    Create a new bug report. Stored alongside tasks in the same data['tasks'] array.
+    ID format: B001, B002, ...
+    related_task: optional task ID where the bug was found (e.g. T040).
+    Returns the created bug.
+    """
+    data = _load()
+    bug_id = f"B{data['next_bug_id']:03d}"
+    bug = {
+        "id": bug_id,
+        "title": title,
+        "description": description,
+        "status": "new",
+        "author": author,
+        "executor": executor,
+        "result": "",
+        "sprint_id": sprint_id,
+        "depends_on": [],
+        "task_type": "bug",
+        "related_task": related_task,
+        "created_at": _now(),
+        "updated_at": _now(),
+    }
+    data["tasks"].append(bug)
+    data["next_bug_id"] += 1
+
+    # Update depends_on for the sprint finalization task
+    if sprint_id:
+        _update_finalize_depends(data, sprint_id)
+
+    _save(data)
+
+    # Create discussion file for the bug
+    _create_discussion_file(bug)
+
+    return bug
 
 
 def create_backlog(tasks_list: list[dict]) -> list[dict]:
@@ -1166,6 +1215,15 @@ def _cli():
     p_sprint.add_argument("--created-by", default="boss", help="Who created the sprint")
     p_sprint.add_argument("--include-backlog", action="store_true", help="Import entries with next_sprint=true")
 
+    # create-bug
+    p_bug = sub.add_parser("create-bug", help="Create a bug report")
+    p_bug.add_argument("title", help="Bug title")
+    p_bug.add_argument("description", nargs="?", default="", help="Bug description")
+    p_bug.add_argument("--author", default="boss", help="Author (who reported the bug)")
+    p_bug.add_argument("--executor", required=True, help="Executor (agent name)")
+    p_bug.add_argument("--sprint", default="", help="Sprint ID (e.g. S001)")
+    p_bug.add_argument("--related-task", default="", help="Related task ID (e.g. T040)")
+
     # create-from-backlog
     p_create_backlog = sub.add_parser("create-from-backlog", help="Create task from backlog entry")
     p_create_backlog.add_argument("backlog_id", help="Backlog entry ID (e.g. B001)")
@@ -1194,6 +1252,15 @@ def _cli():
             depends_on=args.depends_on if args.depends_on else None,
         )
         print(json.dumps(task, ensure_ascii=False, indent=2))
+
+    elif args.command == "create-bug":
+        bug = create_bug(
+            args.title, args.description,
+            args.author, args.executor,
+            sprint_id=args.sprint,
+            related_task=args.related_task,
+        )
+        print(json.dumps(bug, ensure_ascii=False, indent=2))
 
     elif args.command == "backlog":
         file_path = Path(args.file)

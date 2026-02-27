@@ -70,7 +70,7 @@ from employee_manager import (  # noqa: E402
     set_employees_file,
 )
 from task_manager import (  # noqa: E402
-    create_task, create_backlog, update_task_status,
+    create_task, create_bug, create_backlog, update_task_status,
     set_task_result, get_tasks, get_task, get_next_agent,
     create_sprint, get_sprints, get_sprint, update_sprint_status,
     update_sprint, update_sprint_release,

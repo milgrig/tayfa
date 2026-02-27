@@ -481,6 +481,56 @@ async function createBacklogFromModal() {
     } catch (e) { alert('Error: ' + e.message); }
 }
 
+// ── Report Bug modal ────────────────────────────────────────────────────────
+
+function showReportBugModal() {
+    const sprintOptions = '<option value="">— no sprint —</option>' +
+        allSprints.filter(s => s.status === 'active').map(s =>
+            `<option value="${s.id}">${s.id} — ${escapeHtml(s.title)}</option>`
+        ).join('');
+    const empOptions = Object.keys(employees).map(n => `<option value="${n}">${n} — ${escapeHtml(employees[n].role || '')}</option>`).join('');
+    const taskOptions = '<option value="">— none —</option>' +
+        allTasks.map(t =>
+            `<option value="${t.id}">${t.id} — ${escapeHtml(t.title.slice(0, 50))}</option>`
+        ).join('');
+
+    const body = `
+        <label>Sprint</label>
+        <select id="bugSprint">${sprintOptions}</select>
+        <label>Title</label>
+        <input type="text" id="bugTitle" placeholder="Short bug summary">
+        <label>Description</label>
+        <textarea id="bugDesc" rows="3" placeholder="Steps to reproduce, expected vs actual behavior"></textarea>
+        <label>Executor</label>
+        <select id="bugExecutor">${empOptions}</select>
+        <label>Related Task (where bug was found)</label>
+        <select id="bugRelatedTask">${taskOptions}</select>
+    `;
+    openModal('Report Bug', body,
+        `<button class="btn" onclick="closeModal()">Cancel</button>
+         <button class="btn danger" onclick="createBugFromModal()">Report Bug</button>`);
+}
+
+async function createBugFromModal() {
+    const title = document.getElementById('bugTitle').value.trim();
+    if (!title) { alert('Enter title'); return; }
+    const data = {
+        title,
+        description: document.getElementById('bugDesc').value.trim(),
+        author: 'tester',
+        executor: document.getElementById('bugExecutor').value,
+        sprint_id: document.getElementById('bugSprint').value,
+        related_task: document.getElementById('bugRelatedTask').value,
+    };
+    try {
+        const bug = await api('POST', '/api/bugs', data);
+        closeModal();
+        if (bug.sprint_id) expandedSprints[bug.sprint_id] = true;
+        await refreshTasksBoardNew();
+        addSystemMessage(`Bug ${bug.id} reported: ${bug.title}`);
+    } catch (e) { alert('Error: ' + e.message); }
+}
+
 // ── Auto-launch sprints loop ────────────────────────────────────────────────
 
 let autoLaunchTimer = null;

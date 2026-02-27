@@ -236,7 +236,30 @@ Boss will review during sprint planning.
 
 ---
 
-## 8. Output Size Limit
+## 8. Bug Reporting Rules
+
+When creating a bug report:
+
+1. **Before creating a new bug**, list all existing bugs in the sprint:
+   ```bash
+   python .tayfa/common/task_manager.py list --sprint SXXX
+   ```
+2. Review all entries starting with **B** (B001, B002, etc.) — both open and closed
+3. If an existing bug describes the same or very similar issue, do **NOT** create a duplicate
+4. Instead, add a comment to the existing bug's discussion file:
+   ```
+   .tayfa/common/discussions/{bug_id}.md
+   ```
+5. Only create a new bug if no similar issue exists
+6. When creating a bug, use:
+   ```bash
+   python .tayfa/common/task_manager.py create-bug 'Title' 'Description' \
+     --author <your_name> --executor <developer> --sprint SXXX --related-task TXXX
+   ```
+
+---
+
+## 9. Output Size Limit
 
 Your output for a single task **MUST NOT exceed 300 lines** of changes.
 

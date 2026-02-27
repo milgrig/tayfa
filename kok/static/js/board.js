@@ -313,6 +313,7 @@ function renderTaskCard(t) {
     const next = STATUS_NEXT_ROLE[t.status];
     let actionsHtml = '';
     const isFinalize = t.is_finalize || false;
+    const isBug = t.task_type === 'bug' || (t.id && t.id.startsWith('B'));
 
     if (isRunning) {
         actionsHtml += `<button class="btn sm running" disabled title="Agent ${escapeHtml(runInfo.agent || '?')} is running...">${escapeHtml(runInfo.agent || 'Agent')} thinking...</button>`;
@@ -375,8 +376,16 @@ function renderTaskCard(t) {
         </div>`;
     }
 
-    return `<div class="task-card${isRunning ? ' running' : ''}${isFinalize ? ' task-card-finalize' : ''}">
-        <div class="task-card-id">${escapeHtml(t.id)}${isFinalize ? ' · FINALIZE' : ''} · ${escapeHtml((t.updated_at || t.created_at || '').replace('T',' ').slice(0,16))}</div>
+    // Related task tag for bugs
+    let relatedTaskHtml = '';
+    if (isBug && t.related_task) {
+        relatedTaskHtml = `<span class="task-card-related">Found in: ${escapeHtml(t.related_task)}</span>`;
+    }
+
+    const idPrefix = isBug ? '\u{1F41B} ' : '';
+
+    return `<div class="task-card${isRunning ? ' running' : ''}${isFinalize ? ' task-card-finalize' : ''}${isBug ? ' task-card-bug' : ''}">
+        <div class="task-card-id">${idPrefix}${escapeHtml(t.id)}${isFinalize ? ' · FINALIZE' : ''} · ${escapeHtml((t.updated_at || t.created_at || '').replace('T',' ').slice(0,16))}${relatedTaskHtml ? ' ' + relatedTaskHtml : ''}</div>
         <div class="task-card-title">${escapeHtml(t.title)}</div>
         ${t.description && !isFinalize ? `<div style="font-size:12px;color:var(--text-dim);margin-bottom:6px;">${escapeHtml(t.description.slice(0, 120))}${t.description.length > 120 ? '...' : ''}</div>` : ''}
         <div class="task-card-roles">
