@@ -417,6 +417,60 @@ def unsubscribe_agent_stream(agent_name: str, q: asyncio.Queue) -> None:
         buf["subscribers"].remove(q)
 
 
+# ── Board event bus (pub/sub for push-notifications) ─────────────────────
+# Follows the same pattern as agent_stream_buffers above.
+
+_board_subscribers: list[asyncio.Queue] = []
+
+
+def board_notify() -> None:
+    """Push a board_changed event to all SSE subscribers."""
+    event = {"type": "board_changed", "ts": _time.time()}
+    for q in list(_board_subscribers):
+        try:
+            q.put_nowait(event)
+        except asyncio.QueueFull:
+            pass
+
+
+def board_subscribe() -> asyncio.Queue:
+    """Subscribe to board change events. Returns an asyncio.Queue."""
+    q: asyncio.Queue = asyncio.Queue(maxsize=50)
+    _board_subscribers.append(q)
+    return q
+
+
+def board_unsubscribe(q: asyncio.Queue) -> None:
+    """Remove a subscriber queue from the board event bus."""
+    try:
+        _board_subscribers.remove(q)
+    except ValueError:
+        pass
+
+
+# ── Background mtime watcher for tasks.json ─────────────────────────────
+
+async def _board_mtime_watcher() -> None:
+    """Check tasks.json mtime every 2 seconds.
+
+    If the file changed since the last check, calls board_notify().
+    This catches changes made by agent CLI subprocesses that bypass
+    the orchestrator's own API (e.g. task_manager.py called directly).
+    """
+    import task_manager as _tm  # local import to avoid circular at module level
+
+    last_mtime: float = 0.0
+    while True:
+        await asyncio.sleep(2)
+        try:
+            current = _tm.TASKS_FILE.stat().st_mtime
+            if current != last_mtime and last_mtime != 0.0:
+                board_notify()
+            last_mtime = current
+        except FileNotFoundError:
+            pass
+
+
 # ── Port helpers ──────────────────────────────────────────────────────────
 
 def is_port_in_use(port: int) -> bool:

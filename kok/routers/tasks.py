@@ -28,6 +28,7 @@ from app_state import (
     _RETRYABLE_ERRORS, _MAX_RETRY_ATTEMPTS, _RETRY_DELAY_SEC,
     TASKS_FILE,
     run_git_command,
+    board_notify,
     logger,
     MAX_FAILURE_LOG_ENTRIES,
 )
@@ -356,6 +357,7 @@ async def api_create_tasks(data: dict):
     """
     if "tasks" in data and isinstance(data["tasks"], list):
         results = create_backlog(data["tasks"])
+        board_notify()
         return {"created": results, "count": len(results)}
 
     title = data.get("title")
@@ -370,6 +372,7 @@ async def api_create_tasks(data: dict):
         sprint_id=data.get("sprint_id", ""),
         depends_on=data.get("depends_on"),
     )
+    board_notify()
     return task
 
 
@@ -415,6 +418,7 @@ async def api_update_task_status(task_id: str, data: dict):
     if "sprint_released" in result:
         result["sprint_finalized"] = result.pop("sprint_released")
 
+    board_notify()
     return result
 
 
@@ -425,6 +429,7 @@ async def api_set_task_result(task_id: str, data: dict):
     result = set_task_result(task_id, result_text)
     if "error" in result:
         raise HTTPException(status_code=400, detail=result["error"])
+    board_notify()
     return result
 
 
@@ -605,6 +610,7 @@ async def api_trigger_task(task_id: str, data: dict = Body(default_factory=dict)
                             extra={"role": role_label, "stderr": result.get("stderr")} if result.get("stderr") else {"role": role_label},
                         )
 
+                        board_notify()
                         return {
                             "task_id": task_id,
                             "agent": agent_name,
@@ -677,6 +683,7 @@ async def api_trigger_task(task_id: str, data: dict = Body(default_factory=dict)
                         # ── Artifact size check ──────────────────────────
                         _check_artifact_size(task_id, agent_name, full_result)
 
+                        board_notify()
                         return {
                             "task_id": task_id,
                             "agent": agent_name,
@@ -692,6 +699,25 @@ async def api_trigger_task(task_id: str, data: dict = Body(default_factory=dict)
                     last_error = exc
                     error_type = _classify_error(exc)
                     error_msg = str(getattr(exc, "detail", None) or exc)
+
+                    # If agent already completed the task before the stream
+                    # error, don't log a failure — the task is done.
+                    current_task = get_task(task_id)
+                    if current_task and current_task.get("status") in ("done", "cancelled"):
+                        logger.info(
+                            f"[Trigger] {task_id}: error after task already "
+                            f"{current_task['status']}, ignoring "
+                            f"({error_type}: {error_msg})"
+                        )
+                        return {
+                            "task_id": task_id,
+                            "agent": agent_name,
+                            "role": role_label,
+                            "runtime": resolved_model if runtime != "cursor" else "cursor",
+                            "success": True,
+                            "result": current_task.get("result", ""),
+                            "note": "Task completed before stream error; error ignored",
+                        }
 
                     # Log every attempt
                     log_agent_failure(

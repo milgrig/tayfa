@@ -3,6 +3,7 @@ Server management routes (ping, shutdown, status, health, settings, start/stop, 
 """
 
 import asyncio
+import json
 import os
 import subprocess
 import sys
@@ -11,7 +12,7 @@ from pathlib import Path
 
 import httpx
 from fastapi import APIRouter, HTTPException
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 
 import app_state
 from app_state import (
@@ -27,6 +28,7 @@ from app_state import (
     load_settings, update_settings,
     is_port_in_use,
     list_projects,
+    board_subscribe, board_unsubscribe,
     logger,
 )
 from settings_manager import get_telegram_settings, set_telegram_settings
@@ -274,6 +276,32 @@ async def launch_instance(data: dict):
         "pid": proc.pid,
         "project": project_path_str,
     }
+
+
+# ── Board SSE (push-notifications for task/sprint changes) ───────────────────
+
+
+@router.get("/api/board-events")
+async def board_events_sse():
+    """SSE endpoint: pushes lightweight events when board data changes.
+    Frontend subscribes via EventSource."""
+
+    q = board_subscribe()
+
+    async def event_stream():
+        try:
+            while True:
+                try:
+                    event = await asyncio.wait_for(q.get(), timeout=30)
+                    yield f"data: {json.dumps(event)}\n\n"
+                except asyncio.TimeoutError:
+                    yield ": keepalive\n\n"
+        except asyncio.CancelledError:
+            pass
+        finally:
+            board_unsubscribe(q)
+
+    return StreamingResponse(event_stream(), media_type="text/event-stream")
 
 
 # ── Telegram Bot ─────────────────────────────────────────────────────────────

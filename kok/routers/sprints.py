@@ -10,6 +10,7 @@ from app_state import (
     get_tasks, SPRINT_STATUSES,
     get_next_version, get_personel_dir,
     check_git_state,
+    board_notify,
     logger,
 )
 
@@ -91,6 +92,7 @@ async def api_create_sprint(data: dict):
             sprint["git_status"] = "warning"
             sprint["git_warning"] = sprint["git_note"]
 
+    board_notify()
     return sprint
 
 
@@ -103,6 +105,7 @@ async def api_update_sprint_status(sprint_id: str, data: dict):
     result = update_sprint_status(sprint_id, new_status)
     if "error" in result:
         raise HTTPException(status_code=400, detail=result["error"])
+    board_notify()
     return result
 
 
@@ -112,6 +115,7 @@ async def api_update_sprint(sprint_id: str, data: dict):
     result = update_sprint(sprint_id, data)
     if "error" in result:
         raise HTTPException(status_code=400, detail=result["error"])
+    board_notify()
     return result
 
 

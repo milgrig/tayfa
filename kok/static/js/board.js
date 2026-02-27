@@ -17,37 +17,55 @@ const STATUS_NEXT_ROLE = {
     'new': { label: 'Execute', btnClass: 'primary' },
 };
 
-let boardAutoRefreshTimer = null;
+let boardAutoRefreshTimer = null;  // kept for backward compat; no longer used
 let expandedSprints = {};  // { sprintId: true/false } — which sprints are expanded
 let allSprints = [];       // sprints cache
 let allTasks = [];         // tasks cache
 let taskFailures = {};     // { taskId: [failure, ...] } — unresolved failures cache
+
+// ── Board SSE (replaces polling) ─────────────────────────────────────────────
+
+let _boardEventSource = null;
+
+function connectBoardSSE() {
+    if (_boardEventSource) return;
+    _boardEventSource = new EventSource('/api/board-events');
+    _boardEventSource.onmessage = (e) => {
+        try {
+            const event = JSON.parse(e.data);
+            if (event.type === 'board_changed') {
+                refreshTasksBoardNew();  // debounce already built-in (2s min interval)
+            }
+        } catch {}
+    };
+    _boardEventSource.onerror = () => {
+        console.warn('[BoardSSE] Connection lost, browser will auto-reconnect');
+    };
+}
+
+function disconnectBoardSSE() {
+    if (_boardEventSource) {
+        _boardEventSource.close();
+        _boardEventSource = null;
+    }
+}
 
 function showTasksBoard() {
     saveCurrentDraft();
     hideAllScreens();
     document.getElementById('tasksBoardScreen').style.display = 'flex';
     refreshTasksBoardNew();
-    startBoardAutoRefresh();
+    connectBoardSSE();
 }
 
 function startBoardAutoRefresh() {
-    stopBoardAutoRefresh();
-    boardAutoRefreshTimer = setInterval(() => {
-        if (document.getElementById('tasksBoardScreen').style.display !== 'none') {
-            fetchRunningTasks().then(() => {
-                if (Object.keys(runningTasks).length > 0) {
-                    refreshTasksBoardNew();
-                }
-            });
-        } else {
-            stopBoardAutoRefresh();
-        }
-    }, 5000);
+    // Legacy — replaced by SSE. Kept as no-op for backward compat.
+    connectBoardSSE();
 }
 
 function stopBoardAutoRefresh() {
     if (boardAutoRefreshTimer) { clearInterval(boardAutoRefreshTimer); boardAutoRefreshTimer = null; }
+    disconnectBoardSSE();
 }
 
 async function fetchRunningTasks() {
@@ -97,9 +115,39 @@ function toggleSprint(sprintId) {
     if (toggle) toggle.classList.toggle('open', expandedSprints[sprintId]);
 }
 
+// Debounce: prevent refreshing more often than every 2 seconds during auto-run
+let _refreshScheduled = false;
+let _refreshLastRun = 0;
+const _REFRESH_MIN_INTERVAL = 2000; // ms
+
 async function refreshTasksBoardNew() {
+    const now = Date.now();
+    const elapsed = now - _refreshLastRun;
+
+    // If called too soon after the last refresh, schedule a deferred one
+    if (elapsed < _REFRESH_MIN_INTERVAL) {
+        if (!_refreshScheduled) {
+            _refreshScheduled = true;
+            setTimeout(() => {
+                _refreshScheduled = false;
+                refreshTasksBoardNew();
+            }, _REFRESH_MIN_INTERVAL - elapsed);
+        }
+        return;
+    }
+
+    _refreshLastRun = now;
+    await _doRefreshTasksBoard();
+}
+
+async function _doRefreshTasksBoard() {
     const wrap = document.getElementById('tasksBoardWrap');
-    wrap.innerHTML = '<div class="empty-state">Loading...</div>';
+
+    // Save scroll position of the scrollable parent before re-render
+    const scrollParent = wrap.closest('.screen-content') || wrap.parentElement;
+    const savedScroll = scrollParent ? scrollParent.scrollTop : 0;
+
+    // Don't show "Loading..." — keep old content visible while fetching
     try {
         const [tasksData, sprintsData, , failuresData] = await Promise.all([
             api('GET', '/api/tasks-list'),
@@ -214,6 +262,11 @@ async function refreshTasksBoardNew() {
 
         wrap.innerHTML = html;
 
+        // Restore scroll position after DOM update
+        if (scrollParent) {
+            scrollParent.scrollTop = savedScroll;
+        }
+
         if (hasRunning) {
             startRunningTasksTimer();
         } else {
@@ -248,6 +301,13 @@ function renderKanbanBoard(tasks) {
 }
 
 function renderTaskCard(t) {
+    // Auto-clear stale running state for completed tasks
+    // (agent may set status=done while the stream is still running)
+    if ((t.status === 'done' || t.status === 'cancelled') && runningTasks[t.id]) {
+        delete runningTasks[t.id];
+        updateRunningTasksIndicator();
+    }
+
     const isRunning = !!runningTasks[t.id];
     const runInfo = runningTasks[t.id];
     const next = STATUS_NEXT_ROLE[t.status];
@@ -306,7 +366,7 @@ function renderTaskCard(t) {
     // Failure badge + retry button
     let failureBadgeHtml = '';
     const failures = taskFailures[t.id] || [];
-    if (failures.length > 0 && !isRunning) {
+    if (failures.length > 0 && !isRunning && t.status !== 'done' && t.status !== 'cancelled') {
         const latest = failures[failures.length - 1];
         const errorType = escapeHtml(latest.error_type || 'unknown');
         failureBadgeHtml = `<div style="display:flex; align-items:center; gap:8px; margin-top:4px;">
