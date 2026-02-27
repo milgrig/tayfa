@@ -85,6 +85,10 @@ from chat_history_manager import (  # noqa: E402
     clear_history as clear_chat_history,
     set_tayfa_dir as set_chat_history_tayfa_dir,
 )
+from memory_manager import (  # noqa: E402
+    build_memory, update_memory, trim_memory,
+    set_tayfa_dir as set_memory_tayfa_dir,
+)
 from backlog_manager import (  # noqa: E402
     get_backlog, get_backlog_item, create_backlog_item,
     update_backlog_item, delete_backlog_item, toggle_next_sprint,

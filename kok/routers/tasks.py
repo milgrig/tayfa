@@ -22,6 +22,7 @@ from app_state import (
     get_agent_timeout, get_max_role_triggers, get_artifact_max_lines,
     call_claude_api, stream_claude_api,
     save_chat_message,
+    update_memory,
     running_tasks, task_trigger_counts, get_agent_lock,
     init_agent_stream, push_agent_stream_event, finish_agent_stream,
     _MODEL_RUNTIMES, _CURSOR_MODELS,
@@ -371,6 +372,7 @@ async def api_create_tasks(data: dict):
         executor=data.get("executor", ""),
         sprint_id=data.get("sprint_id", ""),
         depends_on=data.get("depends_on"),
+        project_path=get_project_path_for_scoping(),
     )
     board_notify()
     return task
@@ -394,6 +396,7 @@ async def api_create_bug(data: dict):
         executor=data.get("executor", ""),
         sprint_id=data.get("sprint_id", ""),
         related_task=data.get("related_task", ""),
+        project_path=get_project_path_for_scoping(),
     )
     board_notify()
     return bug
@@ -498,6 +501,9 @@ async def api_trigger_task(task_id: str, data: dict = Body(default_factory=dict)
     agent_name = next_info["agent"]
     role_label = next_info["role"]
     task = next_info["task"]
+
+    # Resolve project_path from task itself; fallback to current project (backward compat)
+    task_project_path = task.get("project_path") or get_project_path_for_scoping()
 
     if not agent_name:
         raise HTTPException(
@@ -632,6 +638,7 @@ async def api_trigger_task(task_id: str, data: dict = Body(default_factory=dict)
                             success=True,
                             extra={"role": role_label, "stderr": result.get("stderr")} if result.get("stderr") else {"role": role_label},
                         )
+                        update_memory(agent_name, task_id, result.get("result", "")[:200])
 
                         board_notify()
                         return {
@@ -654,7 +661,7 @@ async def api_trigger_task(task_id: str, data: dict = Body(default_factory=dict)
                             async for chunk in stream_claude_api("/run-stream", json_data={
                                 "name": agent_name,
                                 "prompt": full_prompt,
-                                "project_path": get_project_path_for_scoping(),
+                                "project_path": task_project_path,
                                 "model": resolved_model,
                             }):
                                 # Parse chunk and buffer for subscribers
@@ -702,6 +709,7 @@ async def api_trigger_task(task_id: str, data: dict = Body(default_factory=dict)
                             success=True,
                             extra={"role": role_label, "num_turns": num_turns},
                         )
+                        update_memory(agent_name, task_id, full_result[:200])
 
                         # ── Artifact size check ──────────────────────────
                         _check_artifact_size(task_id, agent_name, full_result)
@@ -766,8 +774,15 @@ async def api_trigger_task(task_id: str, data: dict = Body(default_factory=dict)
                     logger.info(f"[Trigger] {task_id}: attempt {attempt} failed ({error_type}), retrying in {_RETRY_DELAY_SEC}s...")
                     await asyncio.sleep(_RETRY_DELAY_SEC)
 
-            # All attempts failed — re-raise last error
+            # All attempts failed — record in agent memory and re-raise
             if last_error is not None:
+                run_info = running_tasks.get(task_id, {})
+                elapsed = round(_time.time() - run_info.get("started_at", _time.time()))
+                err_type = _classify_error(last_error)
+                update_memory(
+                    agent_name, task_id,
+                    f"INTERRUPTED after {elapsed}s, error: {err_type}",
+                )
                 if isinstance(last_error, HTTPException):
                     raise last_error
                 raise HTTPException(status_code=500, detail=str(last_error))

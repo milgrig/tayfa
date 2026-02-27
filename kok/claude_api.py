@@ -260,6 +260,31 @@ def _resolve_system_prompt(agent: dict) -> str:
     logger.info(f"_resolve_system_prompt: using inline system_prompt, len={len(inline)}")
     return inline
 
+
+def _read_agent_memory(agent: dict, agent_name: str) -> str:
+    """Read .tayfa/{agent_name}/memory.md from the agent's workdir.
+
+    Returns formatted memory block to append to system prompt,
+    or empty string if no memory file exists.
+    """
+    workdir = agent.get("workdir", "")
+    if not workdir:
+        return ""
+    memory_path = os.path.join(workdir, ".tayfa", agent_name, "memory.md")
+    try:
+        if not os.path.isfile(memory_path):
+            return ""
+        with open(memory_path, encoding="utf-8") as f:
+            content = f.read().strip()
+        if not content:
+            return ""
+        logger.info(f"_read_agent_memory: loaded {len(content)} chars for agent={agent_name!r}")
+        return f"\n\n---\n\n# Agent Memory\n\n{content}\n"
+    except Exception as e:
+        logger.warning(f"_read_agent_memory: error reading {memory_path!r}: {e}")
+        return ""
+
+
 def _run_claude(prompt: str, workdir: str, allowed_tools: str,
                 system_prompt: Optional[str] = "", session_id: str = "",
                 model: str = "", permission_mode: str = "bypassPermissions",
@@ -695,6 +720,8 @@ def run(req: UnifiedRequest):
         agent = agents[internal_key]
 
     system_prompt = _resolve_system_prompt(agent)
+    # Append persistent agent memory (recent work log) to system prompt
+    system_prompt += _read_agent_memory(agent, req.name)
     # Transient model override: use req.model if provided (from UI model selector),
     # otherwise fall back to agent's stored model. Does NOT persist to agent config.
     run_model = req.model or agent.get("model", "")
@@ -774,6 +801,8 @@ def run_stream(req: UnifiedRequest):
         agent = agents[internal_key]
 
     system_prompt = _resolve_system_prompt(agent)
+    # Append persistent agent memory (recent work log) to system prompt
+    system_prompt += _read_agent_memory(agent, req.name)
     run_model = req.model or agent.get("model", "")
     run_permission_mode = agent.get("permission_mode", "bypassPermissions")
     model_session_id = _get_session_id(agent, run_model, run_permission_mode)

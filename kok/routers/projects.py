@@ -14,7 +14,7 @@ from app_state import (
     get_project_repo_name, set_project_repo_name,
     open_project, init_project, add_project, remove_project,
     set_tasks_file, set_employees_file, set_backlog_file,
-    set_chat_history_tayfa_dir,
+    set_chat_history_tayfa_dir, set_memory_tayfa_dir,
     _get_employees, get_employee, register_employee, remove_employee,
     get_chat_history, clear_chat_history,
     get_backlog, get_backlog_item, create_backlog_item,
@@ -92,6 +92,7 @@ async def api_open_project(data: dict):
         set_employees_file(employees_json_path)
         set_backlog_file(backlog_json_path)
         set_chat_history_tayfa_dir(tayfa_path)
+        set_memory_tayfa_dir(tayfa_path)
         print(f"[api_open_project] tasks.json set: {tasks_json_path}")
         print(f"[api_open_project] employees.json set: {employees_json_path}")
         print(f"[api_open_project] chat_history_dir set: {tayfa_path}")
