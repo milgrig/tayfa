@@ -254,6 +254,7 @@ async def lifespan(app: FastAPI):
     # Start background tasks
     health_task = asyncio.create_task(health_check_loop())
     shutdown_task = asyncio.create_task(_shutdown_check_loop())
+    mtime_task = asyncio.create_task(app_state._board_mtime_watcher())
 
     # Open browser automatically (skip for locked instances — frontend already opens the tab)
     if not app_state.LOCKED_PROJECT_PATH:
@@ -266,6 +267,7 @@ async def lifespan(app: FastAPI):
     # Shutdown
     health_task.cancel()
     shutdown_task.cancel()
+    mtime_task.cancel()
     await stop_telegram_bot()
     stop_claude_api()
 

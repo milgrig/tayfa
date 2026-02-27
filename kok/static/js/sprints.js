@@ -230,13 +230,23 @@ async function runAllSprintTasks(sprintId) {
 
             if (actionable.length === 0) break;
 
-            // Find ready tasks: not currently running, dependencies met
+            // Collect agents that are currently busy (one task at a time per agent)
+            const busyAgents = new Set();
+            for (const [, info] of Object.entries(runningTasks)) {
+                if (info.agent) busyAgents.add(info.agent);
+            }
+
+            // Find ready tasks: not currently running, agent not busy, dependencies met
             const ready = actionable.filter(t => {
                 // Skip already running
                 if (runningTasks[t.id]) return false;
 
                 // Skip tasks with unresolved failures (don't retry automatically)
                 if (taskFailures[t.id] && taskFailures[t.id].length > 0) return false;
+
+                // Skip if this agent is already executing another task
+                const { agent: agentName } = _getTaskAgent(t);
+                if (busyAgents.has(agentName)) return false;
 
                 // Check all dependencies are done/cancelled
                 const deps = t.depends_on || [];
@@ -253,10 +263,18 @@ async function runAllSprintTasks(sprintId) {
                 return numA - numB;
             });
 
-            // Calculate available slots
+            // Calculate available slots and build batch (max one task per agent)
             const currentRunning = Object.keys(runningTasks).length;
             const slots = Math.max(0, maxConcurrent - currentRunning);
-            const batch = ready.slice(0, slots);
+            const batch = [];
+            const batchAgents = new Set();
+            for (const t of ready) {
+                if (batch.length >= slots) break;
+                const { agent: agentName } = _getTaskAgent(t);
+                if (batchAgents.has(agentName)) continue;  // one task per agent
+                batch.push(t);
+                batchAgents.add(agentName);
+            }
 
             console.log(`[AutoRun] Sprint ${sprintId}: actionable=${actionable.length}, ready=${ready.length}, running=${currentRunning}, slots=${slots}, batch=${batch.length}, failed=${failedTaskIds.size}`);
 
@@ -265,10 +283,10 @@ async function runAllSprintTasks(sprintId) {
                     // Wait for ANY running task to complete (event-driven, not polling)
                     await new Promise(r => {
                         _taskCompletionResolvers.push(r);
-                        // Safety fallback: don't wait more than 500ms
-                        setTimeout(r, 500);
+                        // Safety fallback: don't wait more than 3s (aligned with board refresh debounce)
+                        setTimeout(r, 3000);
                     });
-                    await refreshTasksBoardNew();
+                    // Board refreshes via SSE — no manual refresh needed
                     continue;
                 }
                 // Nothing running and nothing ready - stuck (deps block or error)
@@ -276,8 +294,7 @@ async function runAllSprintTasks(sprintId) {
                 break;
             }
 
-            // Update board to show running state
-            await refreshTasksBoardNew();
+            // Board updates via SSE — no manual refresh needed
 
             // Fire-and-forget: launch batch tasks without waiting for all to complete.
             // Each task clears its runningTasks entry on completion and signals the loop.
@@ -291,9 +308,7 @@ async function runAllSprintTasks(sprintId) {
             await new Promise(r => {
                 _taskCompletionResolvers.push(r);
             });
-
-            // Refresh board after a task completes
-            await refreshTasksBoardNew();
+            // Board refreshes via SSE — no manual refresh needed
         }
     } catch (e) {
         console.error('[AutoRun] Error:', e);
