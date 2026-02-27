@@ -11,6 +11,8 @@ from pathlib import Path
 from fastapi import APIRouter, Body, HTTPException, Request
 from fastapi.responses import StreamingResponse
 
+from fastapi import Query
+
 from app_state import (
     _get_employees, get_employee, update_employee,
     get_personel_dir, get_agent_workdir, get_project_path_for_scoping,
@@ -27,8 +29,10 @@ from app_state import (
     CURSOR_CLI_TIMEOUT, CURSOR_CLI_MODEL, CURSOR_CREATE_CHAT_TIMEOUT,
     _MODEL_RUNTIMES, _CURSOR_MODELS,
     _debug_log_ensure,
+    estimate_tokens,
     logger,
 )
+from chat_history_manager import _load_history
 from telegram_bot import get_bot
 
 router = APIRouter(tags=["agents"])
@@ -470,6 +474,115 @@ async def list_agents():
             result[name]["runtimes"] = _get_agent_runtimes(name)
             result[name].setdefault("default_runtime", result[name].get("model", "sonnet"))
     return result
+
+
+@router.get("/api/agents/metrics")
+async def get_agents_metrics(window: int = Query(default=60, description="Custom time window in seconds")):
+    """
+    Aggregated metrics for all agents.
+
+    Reads chat_history.json for each agent and aggregates by time window:
+    - last ``window`` seconds (custom, default 60)
+    - last 10 minutes (600 s)
+    - total session (all messages)
+
+    Each bucket contains: request_count, cost_usd, duration_sec,
+    est_input_tokens, est_output_tokens (approximated from cost_usd
+    and model pricing rates).
+    Also includes is_busy and current_task_id from running_tasks.
+    """
+    from datetime import datetime as _dt
+
+    employees = _get_employees()
+    now = _time.time()
+
+    bucket_keys = [f"last_{window}s", "last_10m", "total"]
+    agents_metrics: dict[str, dict] = {}
+
+    for agent_name in employees:
+        messages = _load_history(agent_name)
+
+        # Determine busy status from running_tasks
+        is_busy = False
+        current_task_id: str | None = None
+        for tid, info in running_tasks.items():
+            if info.get("agent") == agent_name:
+                is_busy = True
+                current_task_id = tid
+                break
+
+        # Prepare time buckets — each tracks aggregate cost_usd
+        # AND per-model cost breakdown (for accurate token estimation).
+        buckets: dict[str, dict] = {}
+        for key in bucket_keys:
+            buckets[key] = {
+                "since": (now - window) if key == f"last_{window}s"
+                         else (now - 600) if key == "last_10m"
+                         else 0,
+                "request_count": 0,
+                "cost_usd": 0.0,
+                "duration_sec": 0.0,
+                "cost_by_model": {},   # {model: sum_cost_usd}
+            }
+
+        for msg in messages:
+            # Parse timestamp to epoch
+            ts_str = msg.get("timestamp", "")
+            try:
+                msg_time = _dt.fromisoformat(ts_str).timestamp()
+            except (ValueError, TypeError):
+                msg_time = 0
+
+            cost = msg.get("cost_usd") or 0
+            duration = msg.get("duration_sec") or 0
+            model = msg.get("runtime", "")
+
+            # Always add to total
+            buckets["total"]["request_count"] += 1
+            buckets["total"]["cost_usd"] += cost
+            buckets["total"]["duration_sec"] += duration
+            if cost > 0 and model:
+                buckets["total"]["cost_by_model"][model] = (
+                    buckets["total"]["cost_by_model"].get(model, 0.0) + cost
+                )
+
+            # Check time-windowed buckets
+            for key in (f"last_{window}s", "last_10m"):
+                if msg_time >= buckets[key]["since"]:
+                    buckets[key]["request_count"] += 1
+                    buckets[key]["cost_usd"] += cost
+                    buckets[key]["duration_sec"] += duration
+                    if cost > 0 and model:
+                        buckets[key]["cost_by_model"][model] = (
+                            buckets[key]["cost_by_model"].get(model, 0.0) + cost
+                        )
+
+        # Build result (remove internal helpers)
+        windows_result = {}
+        for key, data in buckets.items():
+            # Aggregate token estimates across all models in this bucket
+            est_input_total = 0
+            est_output_total = 0
+            for model, model_cost in data["cost_by_model"].items():
+                tok = estimate_tokens(model_cost, model)
+                est_input_total += tok["est_input_tokens"]
+                est_output_total += tok["est_output_tokens"]
+
+            windows_result[key] = {
+                "request_count": data["request_count"],
+                "cost_usd": round(data["cost_usd"], 4),
+                "duration_sec": round(data["duration_sec"], 2),
+                "est_input_tokens": est_input_total,
+                "est_output_tokens": est_output_total,
+            }
+
+        agents_metrics[agent_name] = {
+            "is_busy": is_busy,
+            "current_task_id": current_task_id,
+            **windows_result,
+        }
+
+    return {"agents": agents_metrics, "window": window}
 
 
 @router.post("/api/create-agent")

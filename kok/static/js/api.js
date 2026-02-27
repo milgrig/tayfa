@@ -53,11 +53,12 @@ function saveCurrentDraft() {
 }
 
 function hideAllScreens() {
-    ['welcomeScreen','tasksBoardScreen','tasksScreen','chatScreen','settingsScreen','backlogScreen'].forEach(id => {
+    ['welcomeScreen','tasksBoardScreen','tasksScreen','chatScreen','settingsScreen','backlogScreen','agentLoadScreen'].forEach(id => {
         document.getElementById(id).style.display = 'none';
     });
     stopBoardAutoRefresh();
     stopRunningTasksTimer();
+    if (typeof stopAgentLoadPoll === 'function') stopAgentLoadPoll();
 }
 
 // ── Status ─────────────────────────────────────────────────────────────────

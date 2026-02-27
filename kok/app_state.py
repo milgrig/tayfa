@@ -264,6 +264,42 @@ MAX_FAILURE_LOG_ENTRIES = 1000
 _MODEL_RUNTIMES = ["opus", "sonnet", "haiku"]
 _CURSOR_MODELS = {"composer"}  # Models that run via Cursor CLI instead of Claude API
 
+# ── Token pricing (USD per 1M tokens) ────────────────────────────────────
+# Used by estimate_tokens() to approximate token counts from cost_usd.
+_TOKEN_RATES = {
+    "opus":   {"input": 15.0,  "output": 75.0},
+    "sonnet": {"input": 3.0,   "output": 15.0},
+    "haiku":  {"input": 0.25,  "output": 1.25},
+}
+
+
+def estimate_tokens(cost_usd: float, model: str) -> dict:
+    """Estimate token counts from cost_usd and model name.
+
+    Since a single cost value can't be split into input vs output,
+    we return *two* estimates:
+    - ``est_input_tokens``:  tokens if all cost were input  (upper bound)
+    - ``est_output_tokens``: tokens if all cost were output (lower bound)
+
+    Both are rounded to the nearest integer.
+    Returns ``{"est_input_tokens": 0, "est_output_tokens": 0}`` for
+    unknown models or zero/negative cost.
+    """
+    if cost_usd <= 0:
+        return {"est_input_tokens": 0, "est_output_tokens": 0}
+
+    rates = _TOKEN_RATES.get(model)
+    if not rates:
+        return {"est_input_tokens": 0, "est_output_tokens": 0}
+
+    # cost = tokens * rate_per_token  →  tokens = cost / rate_per_token
+    # rate_per_token = rate_per_1M / 1_000_000
+    est_input  = round(cost_usd / (rates["input"]  / 1_000_000))
+    est_output = round(cost_usd / (rates["output"] / 1_000_000))
+
+    return {"est_input_tokens": est_input, "est_output_tokens": est_output}
+
+
 # Error types eligible for auto-retry (used by tasks router)
 _RETRYABLE_ERRORS = {"timeout", "unavailable"}
 _MAX_RETRY_ATTEMPTS = 3

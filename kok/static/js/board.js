@@ -143,9 +143,8 @@ async function refreshTasksBoardNew() {
 async function _doRefreshTasksBoard() {
     const wrap = document.getElementById('tasksBoardWrap');
 
-    // Save scroll position of the scrollable parent before re-render
-    const scrollParent = wrap.closest('.screen-content') || wrap.parentElement;
-    const savedScroll = scrollParent ? scrollParent.scrollTop : 0;
+    // wrap itself IS the scroll container (overflow-y: auto)
+    const savedScroll = wrap.scrollTop;
 
     // Don't show "Loading..." — keep old content visible while fetching
     try {
@@ -260,12 +259,13 @@ async function _doRefreshTasksBoard() {
             </div>`;
         }
 
-        wrap.innerHTML = html;
+        // Build new DOM off-screen, then swap atomically to avoid flicker
+        const tmp = document.createElement('div');
+        tmp.innerHTML = html;
+        wrap.replaceChildren(...tmp.childNodes);
 
         // Restore scroll position after DOM update
-        if (scrollParent) {
-            scrollParent.scrollTop = savedScroll;
-        }
+        wrap.scrollTop = savedScroll;
 
         if (hasRunning) {
             startRunningTasksTimer();
@@ -273,6 +273,7 @@ async function _doRefreshTasksBoard() {
             stopRunningTasksTimer();
         }
     } catch (e) {
+        wrap.replaceChildren();
         wrap.innerHTML = '<div class="empty-state" style="color:var(--danger);">Error: ' + escapeHtml(e.message) + '</div>';
     }
 }
