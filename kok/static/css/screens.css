@@ -911,3 +911,106 @@
             gap: 8px;
             margin-top: 12px;
         }
+
+        /* ── Agent Load Dashboard ──────── */
+        .agent-load-auto-refresh {
+            font-size: 11px; color: var(--text-dim); padding: 4px 10px;
+            background: var(--bg-input); border-radius: 12px;
+        }
+        .agent-load-grid {
+            display: flex; flex-direction: column; gap: 0;
+        }
+        /* Table-style layout */
+        .agent-load-table {
+            width: 100%; border-collapse: separate; border-spacing: 0;
+            background: var(--bg-card); border: 1px solid var(--border);
+            border-radius: 10px; overflow: hidden;
+        }
+        .agent-load-table thead th {
+            padding: 10px 14px; font-size: 11px; text-transform: uppercase;
+            letter-spacing: 0.5px; color: var(--text-dim); font-weight: 600;
+            text-align: left; border-bottom: 1px solid var(--border);
+            background: var(--bg-input); white-space: nowrap;
+        }
+        .agent-load-table thead th:first-child { border-radius: 10px 0 0 0; }
+        .agent-load-table thead th:last-child { border-radius: 0 10px 0 0; }
+        .agent-load-table tbody td {
+            padding: 10px 14px; font-size: 13px; color: var(--text);
+            border-bottom: 1px solid var(--border); vertical-align: middle;
+        }
+        .agent-load-table tbody tr:last-child td { border-bottom: none; }
+        .agent-load-table tbody tr:hover td { background: var(--bg-card-hover); }
+        .agent-load-table tbody tr.totals-row td {
+            background: var(--bg-input); font-weight: 600; color: var(--text-bright);
+            border-top: 2px solid var(--border);
+        }
+        .agent-load-table tbody tr.totals-row:hover td { background: var(--bg-input); }
+
+        /* Status dot */
+        .agent-load-status {
+            width: 10px; height: 10px; border-radius: 50%; display: inline-block;
+            margin-right: 8px; flex-shrink: 0;
+        }
+        .agent-load-status.busy {
+            background: var(--success); box-shadow: 0 0 8px var(--success);
+            animation: pulse 1.5s infinite;
+        }
+        .agent-load-status.idle { background: var(--text-dim); opacity: 0.4; }
+
+        /* Agent name cell */
+        .agent-load-name {
+            display: flex; align-items: center; gap: 2px;
+        }
+        .agent-load-name-text {
+            font-weight: 600; color: var(--text-bright); font-size: 13px;
+        }
+
+        /* Task ID badge */
+        .agent-load-task {
+            font-family: var(--mono); font-size: 11px; font-weight: 600;
+            color: var(--accent); background: rgba(79,110,247,0.1);
+            padding: 2px 8px; border-radius: 4px; display: inline-block;
+        }
+        .agent-load-task.none { color: var(--text-dim); background: none; font-weight: 400; }
+
+        /* Metric values */
+        .agent-load-cost {
+            font-family: var(--mono); font-size: 12px;
+        }
+        .agent-load-cost.highlight {
+            color: var(--warning); font-weight: 600;
+        }
+
+        /* Request bar */
+        .agent-load-bar-wrap {
+            width: 80px; height: 6px; background: var(--bg-input);
+            border-radius: 3px; overflow: hidden; display: inline-block;
+            vertical-align: middle; margin-right: 6px;
+        }
+        .agent-load-bar {
+            height: 100%; background: var(--accent); border-radius: 3px;
+            transition: width 0.4s ease;
+        }
+        .agent-load-count {
+            font-family: var(--mono); font-size: 12px; color: var(--text);
+        }
+
+        /* Token estimates */
+        .agent-load-tokens {
+            font-family: var(--mono); font-size: 11px; color: var(--text-dim);
+        }
+
+        /* Window selector tabs */
+        .agent-load-window-tabs {
+            display: flex; gap: 4px; margin-bottom: 16px;
+        }
+        .agent-load-window-tab {
+            padding: 5px 14px; font-size: 12px; font-weight: 600;
+            border: 1px solid var(--border); border-radius: 6px;
+            background: var(--bg-card); color: var(--text-dim);
+            cursor: pointer; transition: all 0.15s;
+        }
+        .agent-load-window-tab:hover { border-color: var(--border-active); color: var(--text); }
+        .agent-load-window-tab.active {
+            background: var(--accent); border-color: var(--accent); color: #fff;
+        }

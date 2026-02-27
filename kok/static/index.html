@@ -129,6 +129,7 @@
             <div style="display: flex; flex-direction: column; gap: 6px;">
                 <button class="btn primary" onclick="showTasksBoard()">Task board</button>
                 <button class="btn" onclick="showBacklogScreen()">📋 Backlog</button>
+                <button class="btn" onclick="showAgentLoadScreen()">📊 Agent Load</button>
                 <button class="btn" onclick="showOldTasksBoard()">Tasks (tasks.md)</button>
                 <button class="btn" onclick="showSettingsScreen()">⚙️ Settings</button>
             </div>
@@ -231,6 +232,22 @@
             <div style="flex:1; overflow-y:auto; padding:20px 24px;">
                 <div id="backlogContainer" class="backlog-grid">
                     <div class="empty-state">Loading...</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Agent Load Screen -->
+        <div id="agentLoadScreen" style="display:none; flex-direction:column; height:100%; overflow:hidden;">
+            <div class="content-header">
+                <h2>📊 Agent Load</h2>
+                <div style="display:flex; gap:8px; align-items:center;">
+                    <span class="agent-load-auto-refresh" id="agentLoadAutoRefresh">Auto-refresh: 5s</span>
+                    <button class="btn sm" onclick="refreshAgentLoad()">Refresh</button>
+                </div>
+            </div>
+            <div style="flex:1; overflow-y:auto; padding:20px 24px;">
+                <div id="agentLoadContainer" class="agent-load-grid">
+                    <div class="empty-state">Loading metrics...</div>
                 </div>
             </div>
         </div>
@@ -495,6 +512,7 @@
 <script src="/static/js/board.js"></script>
 <script src="/static/js/sprints.js"></script>
 <script src="/static/js/backlog.js"></script>
+<script src="/static/js/agent-load.js"></script>
 <script src="/static/js/git.js"></script>
 <script src="/static/js/init.js"></script>
 
