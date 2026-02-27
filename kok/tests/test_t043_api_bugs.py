@@ -10,7 +10,7 @@ Verifies that:
 """
 import sys
 from pathlib import Path
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch, MagicMock, ANY
 
 import pytest
 
@@ -131,6 +131,7 @@ class TestPostApiBugs:
             executor="developer",
             sprint_id="S008",
             related_task="T040",
+            project_path=ANY,
         )
 
     def test_create_bug_missing_title_returns_400(self, client, mock_create_bug, mock_board_notify):
@@ -166,6 +167,7 @@ class TestPostApiBugs:
             executor="",
             sprint_id="",
             related_task="",
+            project_path=ANY,
         )
 
     def test_create_bug_calls_board_notify(self, client, mock_create_bug, mock_board_notify):

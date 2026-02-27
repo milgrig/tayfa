@@ -37,7 +37,7 @@ from app_state import (
     DEFAULT_ORCHESTRATOR_PORT, ACTUAL_ORCHESTRATOR_PORT,
     start_claude_api, stop_claude_api,
     get_current_project, get_tayfa_dir, set_tasks_file,
-    set_employees_file, set_backlog_file, set_chat_history_tayfa_dir,
+    set_employees_file, set_backlog_file, set_chat_history_tayfa_dir, set_memory_tayfa_dir,
     migrate_remote_url, get_project_repo_name, set_project_repo_name,
     get_auto_shutdown_settings,
     find_free_port,
@@ -114,6 +114,7 @@ def _init_files_for_current_project():
             set_employees_file(employees_json_path)
             set_backlog_file(backlog_json_path)
             set_chat_history_tayfa_dir(tayfa_path)
+            set_memory_tayfa_dir(tayfa_path)
             print(f"  tasks.json set: {tasks_json_path}")
             print(f"  employees.json set: {employees_json_path}")
             print(f"  backlog.json set: {backlog_json_path}")
