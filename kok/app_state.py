@@ -103,7 +103,7 @@ from project_manager import (  # noqa: E402
     list_projects, get_project, add_project, remove_project,
     get_current_project as _pm_get_current_project,
     set_current_project, init_project,
-    open_project, get_tayfa_dir, has_tayfa, TAYFA_DIR_NAME,
+    open_project, sync_project, get_tayfa_dir, has_tayfa, TAYFA_DIR_NAME,
     is_new_user, get_project_repo_name, set_project_repo_name,
 )
 from git_manager import (  # noqa: E402
@@ -126,15 +126,18 @@ CLAUDE_API_URL = f"http://localhost:{DEFAULT_CLAUDE_API_PORT}"
 
 # ── Path helpers ──────────────────────────────────────────────────────────
 
-_FALLBACK_PERSONEL_DIR = TAYFA_DATA_DIR
+_FALLBACK_TAYFA_DIR = TAYFA_DATA_DIR
 
 
-def get_personel_dir() -> Path:
-    """Path to .tayfa of the current project. Fallback: old Personel."""
+def get_tayfa_dir() -> Path:
+    """Path to .tayfa of the current project."""
     project = get_current_project()
     if project:
         return Path(project["path"]) / TAYFA_DIR_NAME
-    return _FALLBACK_PERSONEL_DIR
+    return _FALLBACK_TAYFA_DIR
+
+
+get_personel_dir = get_tayfa_dir
 
 
 def get_project_dir() -> Path | None:
@@ -148,7 +151,7 @@ def get_agent_workdir() -> str:
     project = get_current_project()
     if project:
         return str(Path(project["path"]))
-    return str(_FALLBACK_PERSONEL_DIR.parent)
+    return str(_FALLBACK_TAYFA_DIR.parent)
 
 
 def get_project_path_for_scoping() -> str:
@@ -169,7 +172,7 @@ _DEFAULT_ARTIFACT_MAX_LINES = 300
 def _read_config_value(key: str, default, validator=None):
     """Read a value from .tayfa/config.json. Fresh on every call."""
     try:
-        config_path = get_personel_dir() / "config.json"
+        config_path = get_tayfa_dir() / "config.json"
         if not config_path.exists():
             config_path = TAYFA_DATA_DIR / "config.json"
         if config_path.exists():
@@ -203,11 +206,12 @@ def get_artifact_max_lines() -> int:
     )
 
 
-# Legacy aliases
-PERSONEL_DIR = _FALLBACK_PERSONEL_DIR
-TASKS_FILE = PERSONEL_DIR / "boss" / "tasks.md"
-SKILLS_DIR = PERSONEL_DIR / "common" / "skills"
-COMMON_DIR = PERSONEL_DIR / "common"
+# Legacy aliases (kept for backward compatibility)
+TAYFA_FALLBACK_DIR = _FALLBACK_TAYFA_DIR
+PERSONEL_DIR = TAYFA_FALLBACK_DIR
+TASKS_FILE = TAYFA_FALLBACK_DIR / "boss" / "tasks.md"
+SKILLS_DIR = TAYFA_FALLBACK_DIR / "common" / "skills"
+COMMON_DIR = TAYFA_FALLBACK_DIR / "common"
 
 # ── Cursor CLI constants ──────────────────────────────────────────────────
 
@@ -266,7 +270,11 @@ def get_current_project() -> dict | None:
 MAX_FAILURE_LOG_ENTRIES = 1000
 
 _MODEL_RUNTIMES = ["opus", "sonnet", "haiku"]
-_CURSOR_MODELS = {"composer"}  # Models that run via Cursor CLI instead of Claude API
+
+
+def is_cursor_model(model: str) -> bool:
+    """True if model runs via Cursor CLI (any model not in Claude API set)."""
+    return bool(model and model not in _MODEL_RUNTIMES)
 
 # ── Token pricing (USD per 1M tokens) ────────────────────────────────────
 # Used by estimate_tokens() to approximate token counts from cost_usd.

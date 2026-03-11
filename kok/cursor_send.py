@@ -41,8 +41,8 @@ def load_chats():
 
 def build_prompt(agent_name: str, user_prompt: str) -> str:
     return (
-        f"Role: {agent_name}. Project dir: Tayfa (Personel - rules/tasks, project - code). "
-        f"Use context from Personel/{agent_name}/prompt.md and Personel/Rules/. Task: {user_prompt}"
+        f"Role: {agent_name}. Working directory: project root (.tayfa/ — rules/tasks, project root — code). "
+        f"Consider context from .tayfa/{agent_name}/prompt.md and .tayfa/common/Rules/. Task: {user_prompt}"
     )
 
 

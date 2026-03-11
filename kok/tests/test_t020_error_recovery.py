@@ -21,7 +21,7 @@ sys.path.insert(0, str(KOK_DIR))
 
 
 # ---------------------------------------------------------------------------
-# Fixture: mock personel dir for failure log
+# Fixture: mock tayfa dir for failure log
 # ---------------------------------------------------------------------------
 
 @pytest.fixture
@@ -29,9 +29,8 @@ def tmp_failures(tmp_path, monkeypatch):
     """Redirect agent_failures.json to a temp directory."""
     common_dir = tmp_path / "common"
     common_dir.mkdir()
-    # Patch get_personel_dir where it's used (routers.tasks imports it from app_state)
     import routers.tasks
-    monkeypatch.setattr(routers.tasks, "get_personel_dir", lambda: tmp_path)
+    monkeypatch.setattr(routers.tasks, "get_tayfa_dir", lambda: tmp_path)
     return common_dir / "agent_failures.json"
 
 

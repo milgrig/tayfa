@@ -8,7 +8,7 @@ from app_state import (
     get_sprints, get_sprint, create_sprint, update_sprint_status,
     update_sprint, delete_sprint, generate_sprint_report,
     get_tasks, SPRINT_STATUSES,
-    get_next_version, get_personel_dir,
+    get_next_version, get_tayfa_dir,
     check_git_state,
     board_notify,
     logger,
@@ -158,8 +158,8 @@ async def api_get_sprint_report(sprint_id: str):
     """
     from fastapi.responses import PlainTextResponse
 
-    personel_dir = get_personel_dir()
-    report_path = personel_dir / "common" / "sprint_reports" / f"{sprint_id}_report.md"
+    tayfa_dir = get_tayfa_dir()
+    report_path = tayfa_dir / "common" / "sprint_reports" / f"{sprint_id}_report.md"
     if not report_path.exists():
         raise HTTPException(status_code=404, detail="Report not found")
     content = report_path.read_text(encoding="utf-8")

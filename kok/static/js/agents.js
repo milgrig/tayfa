@@ -1,16 +1,52 @@
 // ── Model helpers ─────────────────────────────────────────────────────────
+// Claude API models (opus, sonnet, haiku) — остальные идут через Cursor CLI
+const _CLAUDE_API_MODELS = new Set(['opus', 'sonnet', 'haiku']);
 
-const _CURSOR_MODELS = new Set(['composer']);
-const _CLAUDE_MODELS = new Set(['opus', 'sonnet', 'haiku']);
+function _modelFamily(model) {
+    if (!model) return 'unknown';
+    const m = model.toLowerCase();
+    if (_CLAUDE_API_MODELS.has(m)) return m;
+    if (m.startsWith('opus') || m.startsWith('claude') && m.includes('opus')) return 'opus';
+    if (m.startsWith('sonnet') || m.startsWith('claude') && m.includes('sonnet')) return 'sonnet';
+    if (m.startsWith('haiku') || m.startsWith('claude') && m.includes('haiku')) return 'haiku';
+    if (m.startsWith('gpt-') || m.startsWith('gpt_')) return 'gpt';
+    if (m.startsWith('gemini')) return 'gemini';
+    if (m.startsWith('grok')) return 'grok';
+    if (m.startsWith('kimi')) return 'kimi';
+    if (m.startsWith('composer')) return 'composer';
+    if (m === 'auto') return 'auto';
+    return 'cursor';
+}
 
 function _modelDisplayLabel(model) {
-    if (_CURSOR_MODELS.has(model)) return 'Cursor ' + model.charAt(0).toUpperCase() + model.slice(1);
-    if (_CLAUDE_MODELS.has(model)) return model.charAt(0).toUpperCase() + model.slice(1);
+    if (!model) return '';
+    if (_CLAUDE_API_MODELS.has(model)) return model.charAt(0).toUpperCase() + model.slice(1);
+    const m = model.toLowerCase();
+    if (m.startsWith('opus-') || m.startsWith('sonnet-') || m.startsWith('haiku-')) {
+        const base = m.split('-')[0];
+        const ver = m.replace(/^(opus|sonnet|haiku)-/, '');
+        const suffix = m.includes('thinking') ? ' T' : '';
+        return base.charAt(0).toUpperCase() + base.slice(1) + ' ' + ver.replace('-thinking', '') + suffix;
+    }
+    if (m.startsWith('gpt-')) {
+        const parts = m.replace('gpt-', '').split('-');
+        const ver = parts[0];
+        const tierWords = parts.slice(1).filter(p => p !== 'codex' && p !== 'fast');
+        const tier = tierWords.map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
+        const fast = m.includes('-fast') ? ' F' : '';
+        const codex = m.includes('codex') ? ' Cdx' : '';
+        return 'GPT ' + ver + codex + (tier ? ' ' + tier : '') + fast;
+    }
+    if (m.startsWith('gemini-')) return 'Gemini ' + m.replace('gemini-', '');
+    if (m.startsWith('grok')) return 'Grok';
+    if (m.startsWith('kimi-')) return 'Kimi ' + m.replace('kimi-', '');
+    if (m.startsWith('composer-')) return 'Composer ' + m.replace('composer-', '');
+    if (m === 'auto') return 'Auto';
     return model;
 }
 
 function _modelIsComposer(model) {
-    return _CURSOR_MODELS.has(model);
+    return model && !_CLAUDE_API_MODELS.has(model);
 }
 
 // ── Agents ─────────────────────────────────────────────────────────────────
@@ -33,11 +69,11 @@ async function loadAgents() {
             li.className = `agent-item ${name === currentAgent ? 'active' : ''}`;
             li.onclick = () => selectAgent(name);
             const model = config.model || 'sonnet';
-            // Display model with provider prefix for clarity
             const modelLabel = _modelDisplayLabel(model);
+            const family = _modelFamily(model);
             li.innerHTML = `
                 <div style="flex:1; min-width:0;">
-                    <div class="agent-name">${name}<span class="agent-model model-${model}">${modelLabel}</span></div>
+                    <div class="agent-name">${name}<span class="agent-model model-${family}">${modelLabel}</span></div>
                     <div class="agent-role">${escapeHtml(config.role || '')}</div>
                 </div>
             `;
@@ -245,9 +281,9 @@ function updateTypingIndicator(agentName) {
 async function sendPrompt() {
     if (!currentAgent) return;
 
-    // Use streaming when panel is open and model is not a Cursor model
+    // Use streaming when panel is open (both Claude API and Cursor CLI agents)
     const runtime = getAgentRuntime(currentAgent);
-    if (!isAgentCursor(currentAgent) && typeof sendPromptStreaming === 'function' && panelOpen) {
+    if (typeof sendPromptStreaming === 'function' && panelOpen) {
         return sendPromptStreaming();
     }
 

@@ -110,6 +110,32 @@ All task messages go in:
 Before starting work, study:
 - `.tayfa/common/Rules/teamwork.md` — workflow and handoff formats
 - `.tayfa/common/Rules/employees.md` — employee list
+- `.tayfa/common/known_bugs.md` — known bug patterns and lessons learned
+
+---
+
+## 5.1. Known Bugs & Lessons Learned
+
+The file **`.tayfa/common/known_bugs.md`** contains recurring bug patterns discovered across sprints.
+
+### Before every task:
+- **Read** `known_bugs.md` — check your work against every KB-* entry
+- Do NOT repeat listed bugs — they have already been fixed before
+
+### When you fix a bug:
+1. Check if the bug pattern is already in `known_bugs.md`
+2. If **NOT** — **add a new entry** following the KB-XXX format:
+   ```markdown
+   ## KB-XXX: Short Title
+
+   **Symptom:** What the user sees
+   **Root Cause:** Why it happens
+   **Prevention:** Steps to avoid it
+   **Recurred:** How many times / which sprints
+   ```
+3. Use the next available KB number (e.g., if last is KB-005, add KB-006)
+
+### This is mandatory — not optional. The goal is to prevent the same bug from happening twice.
 
 ---
 
@@ -141,11 +167,20 @@ Open in browser, check functionality manually. Don't guess — verify.
 
 **3. RUN TESTS**
 ```bash
-pytest kok/tests/
-# or
-npm test
+# Fast tests (unit + integration)
+bash ./run_tests.sh unit
+# or: pytest tests/ -m "not e2e" -v
+
+# E2E tests (Playwright) — mandatory for UI changes
+bash ./run_tests.sh e2e
+# or: pytest tests/e2e/ -m e2e -v
+
+# All tests at once
+bash ./run_tests.sh
 ```
 All tests must pass. If they fail — fix them.
+
+**For UI changes:** You MUST add/update E2E tests in `tests/e2e/`. Use centralized selectors from `tests/e2e/helpers/selectors.py` and reusable actions from `tests/e2e/helpers/actions.py`. See `.tayfa/common/Rules/testing.md` for E2E guidelines.
 
 **4. CHECK TYPES (for Python)**
 ```bash
@@ -179,32 +214,37 @@ Testers MUST NOT:
 
 **✅ REQUIRED: Run the test suite script.**
 
-The single command testers execute:
+The main commands testers execute:
 ```bash
+# Run unit tests
+bash ./run_tests.sh unit
+
+# Run E2E tests (Playwright — auto-starts server, opens browser)
+bash ./run_tests.sh e2e
+
+# Run everything
 bash ./run_tests.sh
 ```
 
-This script automatically performs all mandatory checks:
-1. Installs dependencies
-2. Runs `pytest kok/tests/`
-3. Starts the server and performs a health check via HTTP
-4. Reports PASS/FAIL with exit code (0 = success, non-zero = failure)
+`run_tests.sh` runs all mandatory checks and reports PASS/FAIL with exit code (0 = success, non-zero = failure).
 
 ### Tester mandatory steps:
 
-**Step 1 — Run the test suite**
+**Step 1 — Run the unit test suite**
 ```bash
-bash ./run_tests.sh
+bash ./run_tests.sh unit
 ```
-If `run_tests.sh` exits with non-zero → log bugs as new backlog tasks, but still close/pass the current task:
+If exits with non-zero → log bugs as new backlog tasks, but still close/pass the current task.
+
+**Step 2 — Run E2E tests (for UI tasks)**
 ```bash
-python .tayfa/common/task_manager.py result T001 "❌ run_tests.sh failed: [paste output]. Logged as backlog item."
-python .tayfa/common/task_manager.py status T001 done
+bash ./run_tests.sh e2e
 ```
+E2E tests auto-start the server on a free port — no manual server launch needed. For debugging, use `--headed` to see the browser.
 
-**Step 2 — Verify endpoint behavior**
+**Step 3 — Verify endpoint behavior**
 
-After `run_tests.sh` passes, manually hit at least one real endpoint to confirm the feature works:
+After tests pass, manually hit at least one real endpoint to confirm the feature works:
 ```bash
 curl -sf http://localhost:8008/api/status
 # or use httpx:
@@ -268,3 +308,37 @@ If you estimate the implementation will produce more than 300 lines of changes, 
 - Set status to `questions` (so the orchestrator can re-plan)
 
 Do **NOT** attempt to produce oversized output. Break the task into smaller pieces instead.
+
+---
+
+## 10. Agent Memory
+
+Your memory file is **`.tayfa/<your_name>/memory.md`**. It is automatically loaded into your context on every call.
+
+### When to save to memory
+
+Save to memory **only important information** — things you would need to remember after a restart:
+
+- **Key architectural decisions** (e.g. "We chose WebSockets over SSE for real-time updates")
+- **User preferences and agreements** (e.g. "User wants all UI text in Russian")
+- **Critical context** (e.g. "Project uses Godot 4.3, NOT Godot 3.x")
+- **Current state** (e.g. "Sprint S012 is in progress, working on multi-instance support")
+
+### How to save
+
+```bash
+python .tayfa/common/memory_manager.py save <your_name> "<one-line summary>"
+```
+
+### What NOT to save
+
+- ❌ Every chat message (that's what `chat_history.json` is for)
+- ❌ Task results (saved automatically on sprint finalization)
+- ❌ Obvious things from your prompt.md
+- ❌ Long text — keep each entry under 200 characters
+
+### When memory is updated automatically
+
+- **Sprint finalization** — your completed tasks are recorded
+- **App shutdown** — last session info is saved
+- You do NOT need to duplicate these

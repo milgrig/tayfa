@@ -1,0 +1,72 @@
+[
+  {
+    "id": "msg_001",
+    "timestamp": "2026-03-11T14:49:38",
+    "direction": "to_agent",
+    "prompt": "Say hello in one word",
+    "result": "[Errno 2] No such file or directory: 'wsl'",
+    "runtime": "cursor",
+    "success": true,
+    "duration_sec": 0.01
+  },
+  {
+    "id": "msg_002",
+    "timestamp": "2026-03-11T14:51:40",
+    "direction": "to_agent",
+    "prompt": "Say just the word hello, nothing else",
+    "result": "\nHello",
+    "runtime": "cursor",
+    "success": true,
+    "duration_sec": 4.03
+  },
+  {
+    "id": "msg_003",
+    "timestamp": "2026-03-11T14:54:59",
+    "direction": "to_agent",
+    "prompt": "Say hello",
+    "result": "\nHello, glad to see you here.",
+    "runtime": "cursor",
+    "success": true,
+    "duration_sec": 3.93
+  },
+  {
+    "id": "msg_004",
+    "timestamp": "2026-03-11T14:55:27",
+    "direction": "to_agent",
+    "prompt": "Всё хорошо. Ещё есть такая информаация 748878→1176 tok",
+    "result": "\nХорошо, что всё работает.\n\nПо «748878→1176 tok» — это, скорее всего, подсчёт или конвертация токенов (например, сжатие или оценка после summarization).  \n\nНужно ли с этим что‑то сделать в проекте (сохранение метрик, вывод в UI, бэкенд-логика) или вы просто поделились контекстом?",
+    "runtime": "cursor",
+    "success": true,
+    "duration_sec": 15.18
+  },
+  {
+    "id": "msg_005",
+    "timestamp": "2026-03-11T14:57:17",
+    "direction": "to_agent",
+    "prompt": "Есть проблема, что Claude API сейчас отключён.",
+    "result": "\nДа, Claude API — это отдельный процесс, который поднимается оркестратором при старте.\n\nСудя по логам, в WSL при старте возникает ошибка:\n```text\nClaude API: error — module 'subprocess' has no attribute 'CREATE_NEW_PROCESS_GROUP'\n```\n\nЭто Windows-специфичный атрибут (`subprocess.CREATE_NEW_PROCESS_GROUP`), он недоступен в Linux/WSL. Поэтому при запуске Tayfa из WSL Claude API не поднимается.\n\nНужно понять, что именно требуется:\n\n1. **Исправить запуск Claude API в WSL** — убрать или обернуть использование `CREATE_NEW_PROCESS_GROUP` при определении платформы.\n2. **Только использовать Cursor CLI** — тогда отсутствие Claude API можно оставить как есть.\n3. **Другой сценарий** — напишите, что именно вы хотите получить.",
+    "runtime": "cursor",
+    "success": true,
+    "duration_sec": 15.2
+  },
+  {
+    "id": "msg_006",
+    "timestamp": "2026-03-11T14:58:32",
+    "direction": "to_agent",
+    "prompt": "Сейчас есть сообщение  Warning: Claude API is unreachable. Tasks will fail until it is restored.",
+    "result": "Separator is found, but chunk is longer than limit",
+    "runtime": "cursor",
+    "success": true,
+    "duration_sec": 13.06
+  },
+  {
+    "id": "msg_007",
+    "timestamp": "2026-03-11T15:00:07",
+    "direction": "to_agent",
+    "prompt": "Так же не показывается список Сотрудников сейчас. Хочу, чтоб всё хорошо работало из без Claude",
+    "result": "Separator is found, but chunk is longer than limit",
+    "runtime": "cursor",
+    "success": true,
+    "duration_sec": 50.57
+  }
+]

@@ -13,7 +13,7 @@ Study `.tayfa/common/Rules/`: `teamwork.md`, `employees.md`.
 
 ## Responsibilities
 
-1. **Onboarding**: create new employees based on boss requirements
+1. **Onboarding**: read new employee descriptions from the boss
 2. **Create employees via `create_employee.py`**:
    ```bash
    python .tayfa/hr/create_employee.py <name> --model <model>
@@ -39,7 +39,7 @@ Name = role, latin, lowercase, underscore:
 
 ## Creating New Employee
 
-1. Get requirements from boss
+1. Get employee description from the boss
 2. **Choose model** (see rules below)
 3. Run with model:
    ```bash

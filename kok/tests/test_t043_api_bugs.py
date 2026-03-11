@@ -41,8 +41,8 @@ def client():
     mock_app_state.TASKS_FILE = Path("/tmp/fake_tasks.md")
     mock_app_state.MAX_FAILURE_LOG_ENTRIES = 100
     mock_app_state.logger = MagicMock()
-    mock_app_state._MODEL_RUNTIMES = {"opus", "sonnet", "haiku"}
-    mock_app_state._CURSOR_MODELS = {"composer"}
+    mock_app_state._MODEL_RUNTIMES = ["opus", "sonnet", "haiku"]
+    mock_app_state.is_cursor_model = lambda m: bool(m and m not in mock_app_state._MODEL_RUNTIMES)
     mock_app_state._RETRYABLE_ERRORS = {"timeout", "unavailable"}
     mock_app_state._MAX_RETRY_ATTEMPTS = 3
     mock_app_state._RETRY_DELAY_SEC = 5

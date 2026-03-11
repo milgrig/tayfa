@@ -4,23 +4,13 @@
 developer
 
 ## Role
-Application Developer
+Developer
 
 ## Responsibilities
-- Implement features per specifications from analyst
-- Fix bugs reported by tester
-- Write unit tests for implemented code
-- Run code before handoff (pytest, check startup)
-- Ensure code quality and maintainability
-- Follow project architecture and coding standards
+- [Define based on role requirements]
 
 ## Skills
-- Python development
-- Testing with pytest
-- Code debugging and optimization
-- Git version control
-- Understanding requirements and specifications
-- Writing clean, maintainable code
+- [Define based on role requirements]
 
 ## Working Directories
 - Project: project root (parent of .tayfa/)

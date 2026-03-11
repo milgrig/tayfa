@@ -21,7 +21,7 @@ from pathlib import Path
 from datetime import date
 
 # Validation constants
-VALID_MODELS = {"opus", "sonnet", "haiku", "composer"}
+VALID_MODELS = {"opus", "sonnet", "haiku"}  # Claude API; Cursor models = any non-empty string
 VALID_PERMISSION_MODES = {
     "acceptEdits", "bypassPermissions", "default",
     "delegate", "dontAsk", "plan"
@@ -99,17 +99,17 @@ def register_employee(
     Args:
         name: Employee name (latin, lowercase, underscores)
         role: Employee role (e.g. "Python Developer")
-        model: Claude model - opus, sonnet (default), haiku
-        fallback_model: Fallback model on overload (opus, sonnet, haiku, or empty)
+        model: opus, sonnet, haiku (Claude API) or any Cursor model ID
+        fallback_model: Fallback model (any model ID or empty)
         max_budget_usd: API call budget limit (>= 0, 0 = no limit)
         permission_mode: Permission mode (acceptEdits, bypassPermissions, default, delegate, dontAsk, plan)
         allowed_tools: Space-separated list of allowed tools
     """
-    if model not in VALID_MODELS:
-        return {"status": "error", "message": f"Invalid model: {model}. Valid: {', '.join(VALID_MODELS)}"}
+    if not model or not str(model).strip():
+        return {"status": "error", "message": "model cannot be empty"}
 
-    if fallback_model and fallback_model not in VALID_MODELS:
-        return {"status": "error", "message": f"Invalid fallback model: {fallback_model}. Valid: {', '.join(VALID_MODELS)}"}
+    if fallback_model and not str(fallback_model).strip():
+        return {"status": "error", "message": "fallback_model cannot be empty when set"}
 
     if max_budget_usd < 0:
         return {"status": "error", "message": f"max_budget_usd must be >= 0, got: {max_budget_usd}"}
@@ -159,15 +159,15 @@ def update_employee(name: str, **fields) -> dict:
 
     if "model" in fields:
         model = fields["model"]
-        if model not in VALID_MODELS:
-            return {"status": "error", "message": f"Invalid model: {model}. Valid: {', '.join(VALID_MODELS)}"}
+        if not model or not str(model).strip():
+            return {"status": "error", "message": "model cannot be empty"}
         emp["model"] = model
 
     if "fallback_model" in fields:
         fb = fields["fallback_model"]
-        if fb and fb not in VALID_MODELS:
-            return {"status": "error", "message": f"Invalid fallback model: {fb}. Valid: {', '.join(VALID_MODELS)}"}
-        emp["fallback_model"] = fb
+        if fb is not None and fb and not str(fb).strip():
+            return {"status": "error", "message": "fallback_model cannot be empty when set"}
+        emp["fallback_model"] = fb or ""
 
     if "max_budget_usd" in fields:
         budget = fields["max_budget_usd"]
@@ -245,10 +245,10 @@ Examples:
     register_parser = subparsers.add_parser("register", help="Register new employee")
     register_parser.add_argument("name", help="Employee name (latin, lowercase)")
     register_parser.add_argument("role", help="Employee role")
-    register_parser.add_argument("--model", default="sonnet", choices=list(VALID_MODELS),
-                                  help="Model: opus, sonnet, haiku (Claude) or composer (Cursor). Default: sonnet")
-    register_parser.add_argument("--fallback-model", default="", choices=["", "opus", "sonnet", "haiku", "composer"],
-                                  help="Fallback model on overload")
+    register_parser.add_argument("--model", default="sonnet",
+                                  help="Model: opus, sonnet, haiku (Claude API) or any Cursor model ID. Default: sonnet")
+    register_parser.add_argument("--fallback-model", default="",
+                                  help="Fallback model on overload (any model ID or empty)")
     register_parser.add_argument("--max-budget", type=float, default=0.0,
                                   help="Budget limit USD (0 = no limit)")
     register_parser.add_argument("--permission-mode", default=DEFAULT_PERMISSION_MODE,

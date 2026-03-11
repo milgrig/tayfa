@@ -17,7 +17,7 @@ from app_state import (
     create_task, create_bug, create_backlog, update_task_status, set_task_result,
     create_backlog_item,
     TASK_STATUSES,
-    get_personel_dir, get_project_path_for_scoping,
+    get_tayfa_dir, get_project_path_for_scoping,
     get_employee,
     get_agent_timeout, get_max_role_triggers, get_artifact_max_lines,
     call_claude_api, stream_claude_api,
@@ -25,7 +25,7 @@ from app_state import (
     update_memory,
     running_tasks, task_trigger_counts, get_agent_lock,
     init_agent_stream, push_agent_stream_event, finish_agent_stream,
-    _MODEL_RUNTIMES, _CURSOR_MODELS,
+    _MODEL_RUNTIMES, is_cursor_model,
     _RETRYABLE_ERRORS, _MAX_RETRY_ATTEMPTS, _RETRY_DELAY_SEC,
     TASKS_FILE,
     run_git_command,
@@ -42,8 +42,8 @@ router = APIRouter(tags=["tasks"])
 
 def _get_failures_file() -> Path:
     """Path to agent_failures.json for the current project."""
-    personel = get_personel_dir()
-    return personel / "common" / "agent_failures.json"
+    tayfa = get_tayfa_dir()
+    return tayfa / "common" / "agent_failures.json"
 
 
 def _load_failures() -> list[dict]:
@@ -151,7 +151,7 @@ def _check_artifact_size(task_id: str, agent_name: str, result_text: str) -> Non
 
     # Append note to discussion file
     try:
-        disc_dir = get_personel_dir() / "common" / "discussions"
+        disc_dir = get_tayfa_dir() / "common" / "discussions"
         disc_file = disc_dir / f"{task_id}.md"
         if disc_file.exists():
             note = (
@@ -323,7 +323,7 @@ def _perform_auto_commit(task_id: str, task: dict) -> dict:
 
 @router.get("/api/tasks")
 async def get_tasks_board():
-    """Unified task board — contents of Personel/boss/tasks.md. User sees all tasks."""
+    """Unified task board — contents of .tayfa/boss/tasks.md. User sees all tasks."""
     if not TASKS_FILE.exists():
         return {"content": "# Tasks\n\nTask board is empty. Boss tracks tasks in this file.", "path": str(TASKS_FILE)}
     try:
@@ -573,6 +573,25 @@ async def api_trigger_task(task_id: str, data: dict = Body(default_factory=dict)
     if task.get("result"):
         prompt_parts.append(f"Previous result: {task['result']}")
 
+    # Inject known bugs context (auto-learning system)
+    try:
+        tayfa = get_tayfa_dir()
+        if tayfa:
+            kb_path = tayfa / "common" / "known_bugs.md"
+            if kb_path.is_file():
+                kb_content = kb_path.read_text(encoding="utf-8").strip()
+                if kb_content:
+                    prompt_parts.append("")
+                    prompt_parts.append("---")
+                    prompt_parts.append("## Known Bugs & Lessons Learned (auto-injected)")
+                    prompt_parts.append("Check every KB-* entry before marking the task as done.")
+                    prompt_parts.append("If you encounter a NEW bug pattern — add it to `.tayfa/common/known_bugs.md`.")
+                    prompt_parts.append("")
+                    prompt_parts.append(kb_content)
+                    prompt_parts.append("---")
+    except Exception as e:
+        logger.warning(f"Failed to inject known_bugs.md: {e}")
+
     prompt_parts.append("")
     prompt_parts.append(
         f"You are the {role_label}. Complete the task according to the description.\n"
@@ -596,8 +615,8 @@ async def api_trigger_task(task_id: str, data: dict = Body(default_factory=dict)
     else:
         resolved_model = emp.get("model", "sonnet")
 
-    # If resolved model is a Cursor model (e.g. composer), route via cursor CLI
-    if resolved_model in _CURSOR_MODELS:
+    # If resolved model is a Cursor model (not Claude API), route via cursor CLI
+    if is_cursor_model(resolved_model):
         runtime = "cursor"
 
     # Acquire per-agent semaphore so only 1 task runs per agent at a time
@@ -617,7 +636,9 @@ async def api_trigger_task(task_id: str, data: dict = Body(default_factory=dict)
                 try:
                     if runtime == "cursor":
                         from routers.agents import run_cursor_cli
-                        result = await run_cursor_cli(agent_name, full_prompt)
+                        result = await run_cursor_cli(
+                            agent_name, full_prompt, model=resolved_model
+                        )
                         duration_sec = _time.time() - start_time
 
                         # Fix cursor timeout silent-success bug: check success flag
@@ -683,8 +704,11 @@ async def api_trigger_task(task_id: str, data: dict = Body(default_factory=dict)
                                 # Extract result/cost from stream events
                                 if etype == "result":
                                     full_result = event.get("result", full_result)
-                                    cost_usd = event.get("cost_usd", 0)
+                                    # Claude CLI may return cost as "cost_usd" or "total_cost_usd"
+                                    cost_usd = event.get("cost_usd") or event.get("total_cost_usd") or 0
                                     num_turns = event.get("num_turns", 0)
+                                    if cost_usd > 0:
+                                        logger.info(f"[task_trigger] {agent_name}: cost_usd={cost_usd:.4f}")
                                 elif etype == "assistant" and event.get("subtype") == "text":
                                     full_result = event.get("text", full_result)
                                 elif etype == "streamlined_text":

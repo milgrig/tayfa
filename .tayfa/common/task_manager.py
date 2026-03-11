@@ -22,6 +22,7 @@ Sprints:
 
 CLI usage:
   python task_manager.py create "Title" "Description" --author boss --executor developer --sprint S001
+  python task_manager.py create-bug "Title" "Description" --author tester --executor developer --sprint S007 --related-task T040
   python task_manager.py backlog tasks.json           # bulk creation from JSON file
   python task_manager.py list [--status new] [--sprint S001]
   python task_manager.py get T001
@@ -55,18 +56,252 @@ def _get_project_root() -> Path | None:
 
 
 def _get_github_token() -> str:
-    """Get GitHub token from kok/secret_settings.json."""
+    """
+    Get GitHub token. Search order:
+    1. {project_root}/kok/secret_settings.json (legacy local path)
+    2. Central orchestrator: scan parent directories for */kok/secret_settings.json
+    """
+    # 1. Local project path
+    project_root = _get_project_root()
+    if project_root:
+        secret_path = project_root / "kok" / "secret_settings.json"
+        if secret_path.exists():
+            try:
+                settings = json.loads(secret_path.read_text(encoding="utf-8"))
+                token = settings.get("githubToken", "").strip()
+                if token:
+                    return token
+            except Exception:
+                pass
+
+    # 2. Search up from project root for sibling directories with kok/
+    if project_root:
+        search_dir = project_root.parent
+        for _ in range(3):  # Go up max 3 levels
+            if search_dir and search_dir.exists():
+                try:
+                    for candidate in search_dir.iterdir():
+                        if candidate.is_dir():
+                            secret_path = candidate / "kok" / "secret_settings.json"
+                            if secret_path.exists():
+                                try:
+                                    settings = json.loads(secret_path.read_text(encoding="utf-8"))
+                                    token = settings.get("githubToken", "").strip()
+                                    if token:
+                                        return token
+                                except Exception:
+                                    pass
+                except PermissionError:
+                    pass
+                search_dir = search_dir.parent
+
+    return ""
+
+
+def _get_github_owner() -> str:
+    """
+    Get GitHub owner. Search order:
+    1. {project_root}/kok/settings.json -> git.githubOwner
+    2. Central orchestrator: scan parent directories for */kok/settings.json
+    """
+    project_root = _get_project_root()
+
+    def _try_read_owner(path: Path) -> str:
+        if not path.exists():
+            return ""
+        try:
+            settings = json.loads(path.read_text(encoding="utf-8"))
+            return settings.get("git", {}).get("githubOwner", "").strip()
+        except Exception:
+            return ""
+
+    # 1. Local project path
+    if project_root:
+        owner = _try_read_owner(project_root / "kok" / "settings.json")
+        if owner:
+            return owner
+
+    # 2. Search up from project root
+    if project_root:
+        search_dir = project_root.parent
+        for _ in range(3):
+            if search_dir and search_dir.exists():
+                try:
+                    for candidate in search_dir.iterdir():
+                        if candidate.is_dir():
+                            owner = _try_read_owner(candidate / "kok" / "settings.json")
+                            if owner:
+                                return owner
+                except PermissionError:
+                    pass
+                search_dir = search_dir.parent
+
+    return ""
+
+
+def _get_repo_name() -> str:
+    """Get repo name from kok/projects.json for the current project.
+
+    Looks at the 'current' project in projects.json and returns its repoName.
+    Falls back to sanitized project directory name.
+    """
     project_root = _get_project_root()
     if not project_root:
         return ""
-    secret_path = project_root / "kok" / "secret_settings.json"
-    if not secret_path.exists():
+    projects_path = project_root / "kok" / "projects.json"
+    if not projects_path.exists():
         return ""
     try:
-        settings = json.loads(secret_path.read_text(encoding="utf-8"))
-        return settings.get("githubToken", "").strip()
+        data = json.loads(projects_path.read_text(encoding="utf-8"))
+        current = data.get("current", "")
+        for proj in data.get("projects", []):
+            proj_path = str(proj.get("path", "")).replace("\\", "/").rstrip("/")
+            cur_path = str(current).replace("\\", "/").rstrip("/")
+            if proj_path.lower() == cur_path.lower():
+                repo = proj.get("repoName", "").strip()
+                if repo:
+                    return repo
+        # Fallback: derive from project root directory name
+        name = project_root.name
+        # Sanitize: replace spaces/special chars with hyphens
+        import re as _re
+        sanitized = _re.sub(r"[^a-zA-Z0-9._-]", "-", name)
+        return sanitized.strip("-") or "project"
     except Exception:
         return ""
+
+
+def _ensure_github_repo(owner: str, repo_name: str, token: str) -> dict:
+    """Check if GitHub repo exists; create it if not. Uses urllib (no deps).
+
+    Returns {"existed": bool, "created": bool, "error": str|None}
+    """
+    import urllib.request
+    import urllib.error
+
+    result = {"existed": False, "created": False, "error": None}
+
+    # 1. Check if repo exists
+    check_url = f"https://api.github.com/repos/{owner}/{repo_name}"
+    req = urllib.request.Request(check_url, method="GET")
+    req.add_header("Authorization", f"token {token}")
+    req.add_header("Accept", "application/vnd.github.v3+json")
+    req.add_header("User-Agent", "Tayfa-Orchestrator")
+
+    try:
+        urllib.request.urlopen(req, timeout=10)
+        result["existed"] = True
+        return result
+    except urllib.error.HTTPError as e:
+        if e.code != 404:
+            result["error"] = f"GitHub API error checking repo: {e.code} {e.reason}"
+            return result
+        # 404 = doesn't exist, proceed to create
+    except Exception as e:
+        result["error"] = f"GitHub API request failed: {str(e)}"
+        return result
+
+    # 2. Create repo (try user endpoint first)
+    create_url = "https://api.github.com/user/repos"
+    body = json.dumps({
+        "name": repo_name,
+        "private": False,
+        "auto_init": False,
+    }).encode("utf-8")
+
+    req = urllib.request.Request(create_url, data=body, method="POST")
+    req.add_header("Authorization", f"token {token}")
+    req.add_header("Accept", "application/vnd.github.v3+json")
+    req.add_header("Content-Type", "application/json")
+    req.add_header("User-Agent", "Tayfa-Orchestrator")
+
+    try:
+        urllib.request.urlopen(req, timeout=15)
+        result["created"] = True
+        return result
+    except urllib.error.HTTPError as e:
+        if e.code == 422:
+            result["existed"] = True
+            return result
+        if e.code not in (404, 403):
+            result["error"] = f"GitHub API error creating repo: {e.code} {e.reason}"
+            return result
+    except Exception as e:
+        result["error"] = f"GitHub API create failed: {str(e)}"
+        return result
+
+    # 3. Fallback: try org endpoint
+    org_url = f"https://api.github.com/orgs/{owner}/repos"
+    req = urllib.request.Request(org_url, data=body, method="POST")
+    req.add_header("Authorization", f"token {token}")
+    req.add_header("Accept", "application/vnd.github.v3+json")
+    req.add_header("Content-Type", "application/json")
+    req.add_header("User-Agent", "Tayfa-Orchestrator")
+
+    try:
+        urllib.request.urlopen(req, timeout=15)
+        result["created"] = True
+        return result
+    except urllib.error.HTTPError as e:
+        if e.code == 422:
+            result["existed"] = True
+            return result
+        result["error"] = f"GitHub API error creating org repo: {e.code} {e.reason}"
+        return result
+    except Exception as e:
+        result["error"] = f"GitHub API org create failed: {str(e)}"
+        return result
+
+
+def _ensure_remote_and_repo() -> dict:
+    """Ensure git remote origin is set and GitHub repo exists.
+
+    Steps:
+      1. Read githubOwner, repoName, githubToken
+      2. Compute expected remote URL
+      3. If no remote origin — set it
+      4. If remote exists — ensure GitHub repo exists via API
+      5. Return {success, remote_url, repo_created, error}
+    """
+    result = {"success": False, "remote_url": "", "repo_created": False, "error": None}
+
+    owner = _get_github_owner()
+    repo_name = _get_repo_name()
+    token = _get_github_token()
+
+    if not owner or not repo_name:
+        result["error"] = "githubOwner or repoName not configured"
+        return result
+    if not token:
+        result["error"] = "githubToken not configured"
+        return result
+
+    expected_url = f"https://github.com/{owner}/{repo_name}.git"
+    result["remote_url"] = expected_url
+
+    # Check current remote
+    remote = _run_git(["remote", "get-url", "origin"])
+    if not remote["success"]:
+        # No remote origin — add it
+        add = _run_git(["remote", "add", "origin", expected_url])
+        if not add["success"]:
+            result["error"] = f"Failed to add remote: {add['stderr']}"
+            return result
+    else:
+        current_url = remote["stdout"].strip()
+        # If remote differs from expected, update it
+        if current_url != expected_url and not current_url.endswith(f"/{owner}/{repo_name}.git"):
+            _run_git(["remote", "set-url", "origin", expected_url])
+
+    # Ensure GitHub repo exists
+    repo_result = _ensure_github_repo(owner, repo_name, token)
+    if repo_result.get("error"):
+        result["error"] = repo_result["error"]
+        return result
+
+    result["repo_created"] = repo_result.get("created", False)
+    result["success"] = True
+    return result
 
 
 def _get_authenticated_push_url() -> str | None:
@@ -223,6 +458,12 @@ def _release_sprint(sprint_id: str, sprint_title: str = "") -> dict:
         tag_msg = f"Sprint: {sprint_title}" if sprint_title else f"Release {version}"
         _run_git(["tag", "-a", version, "-m", tag_msg])
 
+        # 7.5. Ensure remote origin + GitHub repo exist before push
+        remote_setup = _ensure_remote_and_repo()
+        result["repo_created"] = remote_setup.get("repo_created", False)
+        if remote_setup.get("error"):
+            result["remote_setup_error"] = remote_setup["error"]
+
         # 8. Push to remote (with token for authentication)
         auth_url = _get_authenticated_push_url()
         if auth_url:
@@ -261,6 +502,97 @@ def set_tasks_file(path: str | Path) -> None:
 
 
 STATUSES = ["new", "done", "questions", "cancelled"]
+
+
+def _update_agent_memories_for_sprint(sprint_id: str) -> dict:
+    """Update memory.md for every agent that participated in the sprint.
+
+    Collects all tasks grouped by executor, reads each agent's existing
+    memory.md and appends a sprint summary block.  Creates the file if
+    it doesn't exist yet.
+
+    Returns {"agents_updated": [...], "errors": [...]}.
+    """
+    result = {"agents_updated": [], "errors": []}
+    tasks = get_tasks(sprint_id=sprint_id)
+    sprint = get_sprint(sprint_id)
+    sprint_title = sprint.get("title", sprint_id) if sprint else sprint_id
+
+    # Group tasks by executor
+    agent_tasks: dict[str, list[dict]] = {}
+    for t in tasks:
+        executor = t.get("executor", "")
+        if not executor:
+            continue
+        agent_tasks.setdefault(executor, []).append(t)
+
+    # .tayfa dir — sibling of common/
+    tayfa_dir = TASKS_FILE.parent.parent  # .tayfa/common -> .tayfa
+
+    for agent_name, atasks in agent_tasks.items():
+        try:
+            memory_path = tayfa_dir / agent_name / "memory.md"
+            memory_path.parent.mkdir(parents=True, exist_ok=True)
+
+            # Read existing memory
+            existing = ""
+            if memory_path.exists():
+                existing = memory_path.read_text(encoding="utf-8")
+
+            # Build sprint summary for this agent
+            lines = [
+                f"\n## Sprint {sprint_id}: {sprint_title}",
+                f"Completed: {_now()}",
+                "",
+            ]
+            for t in atasks:
+                status_icon = "✅" if t["status"] == "done" else ("🚫" if t["status"] == "cancelled" else "❓")
+                task_result = (t.get("result") or "").strip()
+                # Truncate long results
+                if len(task_result) > 150:
+                    task_result = task_result[:147] + "..."
+                lines.append(f"- {status_icon} **{t['id']}** {t.get('title', '')}: {task_result}")
+            lines.append("")
+
+            sprint_block = "\n".join(lines)
+
+            # --- Build / update the Recent Work Log section ---
+            WORK_LOG_HEADER = "## Recent Work Log"
+            MAX_SPRINT_BLOCKS = 3  # keep last N sprint summaries
+
+            # Separate preamble (role, project info) from work log
+            idx = existing.find(WORK_LOG_HEADER)
+            if idx == -1:
+                preamble = existing.rstrip()
+                work_log = ""
+            else:
+                preamble = existing[:idx].rstrip()
+                work_log = existing[idx + len(WORK_LOG_HEADER):]
+
+            # Split work log into sprint blocks (each starts with "\n## Sprint S")
+            import re as _re
+            blocks = _re.split(r"(?=\n## Sprint S)", work_log)
+            blocks = [b for b in blocks if b.strip()]
+            blocks.append(sprint_block)
+
+            # Trim to last N blocks
+            if len(blocks) > MAX_SPRINT_BLOCKS:
+                blocks = blocks[-MAX_SPRINT_BLOCKS:]
+
+            # If no preamble yet — create a minimal one
+            if not preamble.strip():
+                preamble = (
+                    f"# Agent: {agent_name}\n"
+                    f"Project: {sprint_title.split(':')[0] if ':' in sprint_title else 'current'}\n"
+                )
+
+            new_content = preamble + "\n\n" + WORK_LOG_HEADER + "\n" + "\n".join(blocks) + "\n"
+            memory_path.write_text(new_content, encoding="utf-8")
+            result["agents_updated"].append(agent_name)
+        except Exception as e:
+            result["errors"].append(f"{agent_name}: {e}")
+
+    return result
 SPRINT_STATUSES = ["active", "completed", "released"]
 
 # For "new" tasks: agent resolves from task field "executor"
@@ -272,7 +604,7 @@ STATUS_FLOW = {
 def _load() -> dict:
     """Load the tasks file."""
     if not TASKS_FILE.exists():
-        return {"tasks": [], "sprints": [], "next_id": 1, "next_sprint_id": 1}
+        return {"tasks": [], "sprints": [], "next_id": 1, "next_sprint_id": 1, "next_bug_id": 1}
     try:
         data = json.loads(TASKS_FILE.read_text(encoding="utf-8"))
         # Backward compatibility: add fields if missing
@@ -280,9 +612,11 @@ def _load() -> dict:
             data["sprints"] = []
         if "next_sprint_id" not in data:
             data["next_sprint_id"] = 1
+        if "next_bug_id" not in data:
+            data["next_bug_id"] = 1
         return data
     except Exception:
-        return {"tasks": [], "sprints": [], "next_id": 1, "next_sprint_id": 1}
+        return {"tasks": [], "sprints": [], "next_id": 1, "next_sprint_id": 1, "next_bug_id": 1}
 
 
 def _save(data: dict) -> None:
@@ -663,13 +997,13 @@ def create_task(
     executor: str,
     sprint_id: str = "",
     depends_on: list[str] | None = None,
+    project_path: str = "",
 ) -> dict:
     """
     Create a new task. Only boss can create tasks.
-    author: who created the task (boss or agent name).
-    executor: who executes the task (agent name).
     sprint_id: ID of the sprint the task is linked to.
     depends_on: list of task IDs this task depends on.
+    project_path: project path for cross-project agent scoping.
     Returns the created task.
     """
     data = _load()
@@ -684,6 +1018,7 @@ def create_task(
         "result": "",
         "sprint_id": sprint_id,
         "depends_on": depends_on or [],
+        "project_path": project_path,
         "created_at": _now(),
         "updated_at": _now(),
     }
@@ -702,6 +1037,55 @@ def create_task(
     return task
 
 
+def create_bug(
+    title: str,
+    description: str,
+    author: str,
+    executor: str,
+    sprint_id: str = "",
+    related_task: str = "",
+    project_path: str = "",
+) -> dict:
+    """
+    Create a new bug report. Stored alongside tasks in the same data['tasks'] array.
+    ID format: B001, B002, ...
+    related_task: optional task ID where the bug was found (e.g. T040).
+    project_path: project path for cross-project agent scoping.
+    Returns the created bug.
+    """
+    data = _load()
+    bug_id = f"B{data['next_bug_id']:03d}"
+    bug = {
+        "id": bug_id,
+        "title": title,
+        "description": description,
+        "status": "new",
+        "author": author,
+        "executor": executor,
+        "result": "",
+        "sprint_id": sprint_id,
+        "depends_on": [],
+        "task_type": "bug",
+        "related_task": related_task,
+        "project_path": project_path,
+        "created_at": _now(),
+        "updated_at": _now(),
+    }
+    data["tasks"].append(bug)
+    data["next_bug_id"] += 1
+
+    # Update depends_on for the sprint finalization task
+    if sprint_id:
+        _update_finalize_depends(data, sprint_id)
+
+    _save(data)
+
+    # Create discussion file for the bug
+    _create_discussion_file(bug)
+
+    return bug
+
+
 def create_backlog(tasks_list: list[dict]) -> list[dict]:
     """
     Create multiple tasks at once (backlog).
@@ -718,6 +1102,7 @@ def create_backlog(tasks_list: list[dict]) -> list[dict]:
             executor=t.get("executor", ""),
             sprint_id=t.get("sprint_id", ""),
             depends_on=t.get("depends_on"),
+            project_path=t.get("project_path", ""),
         )
         results.append(task)
     return results
@@ -783,6 +1168,14 @@ def update_task_status(task_id: str, new_status: str) -> dict:
                         except Exception:
                             pass  # Report failure must not block task completion
 
+                        # Update agent memories with sprint results
+                        try:
+                            memory_result = _update_agent_memories_for_sprint(sprint_id)
+                            if memory_result.get("agents_updated"):
+                                result["memory_updated"] = memory_result["agents_updated"]
+                        except Exception:
+                            pass  # Memory update failure must not block task completion
+
             return result
     return {"error": f"Task {task_id} not found"}
 
@@ -822,7 +1215,7 @@ def get_task(task_id: str) -> dict | None:
 def get_next_agent(task_id: str) -> dict | None:
     """
     Determine which agent should work on the task.
-    For 'new' tasks, returns the executor agent.
+    For 'new' tasks, returns the executor assigned to the task.
     Returns {"agent": <name>, "role": "executor", "next_status": "done", "task": task} or None.
     """
     task = get_task(task_id)
@@ -1168,6 +1561,15 @@ def _cli():
     p_sprint.add_argument("--created-by", default="boss", help="Who created the sprint")
     p_sprint.add_argument("--include-backlog", action="store_true", help="Import entries with next_sprint=true")
 
+    # create-bug
+    p_bug = sub.add_parser("create-bug", help="Create a bug report")
+    p_bug.add_argument("title", help="Bug title")
+    p_bug.add_argument("description", nargs="?", default="", help="Bug description")
+    p_bug.add_argument("--author", default="boss", help="Author (who reported the bug)")
+    p_bug.add_argument("--executor", required=True, help="Executor (agent name)")
+    p_bug.add_argument("--sprint", default="", help="Sprint ID (e.g. S001)")
+    p_bug.add_argument("--related-task", default="", help="Related task ID (e.g. T040)")
+
     # create-from-backlog
     p_create_backlog = sub.add_parser("create-from-backlog", help="Create task from backlog entry")
     p_create_backlog.add_argument("backlog_id", help="Backlog entry ID (e.g. B001)")
@@ -1196,6 +1598,15 @@ def _cli():
             depends_on=args.depends_on if args.depends_on else None,
         )
         print(json.dumps(task, ensure_ascii=False, indent=2))
+
+    elif args.command == "create-bug":
+        bug = create_bug(
+            args.title, args.description,
+            args.author, args.executor,
+            sprint_id=args.sprint,
+            related_task=args.related_task,
+        )
+        print(json.dumps(bug, ensure_ascii=False, indent=2))
 
     elif args.command == "backlog":
         file_path = Path(args.file)

@@ -104,7 +104,7 @@ def _init_files_for_current_project():
 
     project = get_current_project()
     if project:
-        tayfa_path = get_tayfa_dir(project["path"])
+        tayfa_path = get_tayfa_dir()
         if tayfa_path:
             common_path = Path(tayfa_path) / "common"
             tasks_json_path = common_path / "tasks.json"
@@ -182,6 +182,13 @@ async def _shutdown_check_loop():
             print(f"  [WARNING] No ping from client for {elapsed:.0f} sec (timeout in {shutdown_timeout - elapsed:.0f} sec)")
         if elapsed > shutdown_timeout:
             print(f"\n  [SHUTDOWN] No active clients for {elapsed:.0f} sec (timeout {shutdown_timeout} sec). Shutting down server...")
+            # Save agent memories before auto-shutdown
+            try:
+                from routers.server import _save_all_agent_memories
+                mem_result = _save_all_agent_memories()
+                print(f"  [SHUTDOWN] Memory saved: {mem_result.get('agents_updated', [])}")
+            except Exception as e:
+                print(f"  [SHUTDOWN] Memory save error: {e}")
             stop_claude_api()
             os._exit(0)
 
@@ -257,8 +264,8 @@ async def lifespan(app: FastAPI):
     shutdown_task = asyncio.create_task(_shutdown_check_loop())
     mtime_task = asyncio.create_task(app_state._board_mtime_watcher())
 
-    # Open browser automatically (skip for locked instances — frontend already opens the tab)
-    if not app_state.LOCKED_PROJECT_PATH:
+    # Open browser automatically (skip for locked instances and test mode)
+    if not app_state.LOCKED_PROJECT_PATH and not os.environ.get("TAYFA_TEST_MODE"):
         asyncio.create_task(_auto_open_browser())
 
     # Start Telegram bot if configured
@@ -328,6 +335,7 @@ from app_state import (  # noqa: E402, F401
     agent_locks,
     get_agent_lock,
     call_claude_api,
+    get_tayfa_dir,
     get_personel_dir,
     get_agent_workdir,
     get_project_path_for_scoping,
@@ -377,8 +385,12 @@ if __name__ == "__main__":
         app_state.LOCKED_PROJECT_PATH = project_path
         logger.info(f"Instance locked to project: {project_path}")
 
-    # Find free port for orchestrator
-    port = find_free_port(DEFAULT_ORCHESTRATOR_PORT)
+    # Find free port for orchestrator (or use TAYFA_TEST_PORT if set)
+    _test_port = os.environ.get("TAYFA_TEST_PORT")
+    if _test_port:
+        port = int(_test_port)
+    else:
+        port = find_free_port(DEFAULT_ORCHESTRATOR_PORT)
     app_state.ACTUAL_ORCHESTRATOR_PORT = port
 
     logger.info(f"Starting uvicorn on port {port}")
