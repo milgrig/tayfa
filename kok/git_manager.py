@@ -252,13 +252,13 @@ def run_git_command(args: list[str], cwd: Path | None = None, use_config: bool =
 def _setup_git_remote() -> dict:
     """
     Configures git remote origin from computed URL (githubOwner + repoName).
+    Injects the GitHub token into the URL so pushes authenticate in WSL
+    where no credential helper is available.
     Falls back to legacy remoteUrl from settings if computed URL is empty.
     Returns {"success": bool, "message": str}.
     """
-    # Try computed URL first (new approach)
     remote_url = _get_computed_remote_url()
 
-    # Fallback to legacy remoteUrl if computed URL is empty
     if not remote_url:
         git_settings = _get_git_settings()
         remote_url = git_settings.get("remoteUrl", "").strip()
@@ -266,22 +266,26 @@ def _setup_git_remote() -> dict:
     if not remote_url:
         return {"success": False, "message": "Remote URL is not configured. Set GitHub Owner in settings and Repo Name for the project."}
 
-    # Get URL with token
     auth_url = _get_authenticated_remote_url(remote_url)
 
-    # Check if origin already exists
     check = run_git_command(["remote", "get-url", "origin"], use_config=False)
     if check["success"]:
-        # Origin exists, update URL
         result = run_git_command(["remote", "set-url", "origin", auth_url], use_config=False)
     else:
-        # Add new remote
         result = run_git_command(["remote", "add", "origin", auth_url], use_config=False)
 
     if result["success"]:
         return {"success": True, "message": "Remote origin configured"}
     else:
         return {"success": False, "message": result["stderr"]}
+
+
+def _cleanup_remote_token() -> None:
+    """Remove the embedded token from origin URL after push operations.
+    Prevents token leakage via .git/config."""
+    clean_url = _get_computed_remote_url()
+    if clean_url:
+        run_git_command(["remote", "set-url", "origin", clean_url], use_config=False)
 
 
 def _check_git_initialized() -> dict | None:
@@ -575,7 +579,8 @@ def release_sprint(sprint_id: str, version: str | None = None, skip_checks: bool
                 run_git_command(["checkout", source_branch])
                 return result
         else:
-            run_git_command(["pull", "origin", target_branch])
+            # Use --ff-only to avoid accidentally merging diverged remote history
+            run_git_command(["pull", "--ff-only", "origin", target_branch])
 
         # 3. Merge
         merge_result = run_git_command(["merge", source_branch, "--no-ff", "-m", merge_message])
@@ -594,16 +599,45 @@ def release_sprint(sprint_id: str, version: str | None = None, skip_checks: bool
         tag_result = run_git_command(["tag", "-a", version, "-m", tag_msg])
         result["tag_created"] = tag_result["success"]
 
-        # 6. Push
-        push_result = run_git_command(["push", "origin", target_branch, "--tags"])
+        # 6. Push — detect divergence and escalate strategy as needed
+        #    Re-inject auth token right before push (in case anything reset it)
+        _setup_git_remote()
+
+        force_needed = False
+        mb_check = run_git_command(
+            ["merge-base", "--is-ancestor", f"origin/{target_branch}", target_branch]
+        )
+        if not mb_check["success"]:
+            force_needed = True
+            if not result.get("warnings"):
+                result["warnings"] = []
+            result["warnings"].append(
+                "Remote had diverged history; used --force push"
+            )
+
+        push_args = ["push", "origin", target_branch, "--tags"]
+        if force_needed:
+            push_args.insert(1, "--force")
+        push_result = run_git_command(push_args)
         result["pushed"] = push_result["success"]
 
         if not result["pushed"]:
-            # Retry: branch first, then tags
-            push_branch = run_git_command(["push", "origin", target_branch])
+            retry_args = ["push", "origin", target_branch]
+            if force_needed:
+                retry_args.insert(1, "--force")
+            push_branch = run_git_command(retry_args)
             if push_branch["success"]:
-                run_git_command(["push", "origin", "--tags"])
+                run_git_command(["push", "origin", "--tags", "--force"])
                 result["pushed"] = True
+
+        if not result["pushed"]:
+            # Non-fast-forward (e.g. orphan initial commit on GitHub).
+            # Safe to overwrite because we verified local main is the
+            # authoritative history and the remote has no unique work.
+            push_force = run_git_command(
+                ["push", "origin", target_branch, "--force-with-lease", "--tags"]
+            )
+            result["pushed"] = push_force["success"]
 
         # 7. If push failed — roll back merge and tag
         if not result["pushed"]:
@@ -632,6 +666,8 @@ def release_sprint(sprint_id: str, version: str | None = None, skip_checks: bool
         run_git_command(["checkout", source_branch])
         result["error"] = str(e)
         return result
+    finally:
+        _cleanup_remote_token()
 
 
 def _check_gh_cli() -> dict | None:
@@ -795,6 +831,28 @@ def check_git_ready_for_release() -> dict:
         errors.append("GitHub connection timeout. Check your internet connection")
     except Exception as e:
         errors.append(f"Remote check error: {str(e)}")
+
+    # 5. Check: local main is fast-forwardable to remote main
+    if not errors:
+        target = "main"
+        fetch_res = run_git_command(["fetch", "origin", target, "--quiet"])
+        if fetch_res["success"]:
+            mb = run_git_command(["merge-base", "--is-ancestor", f"origin/{target}", target])
+            if not mb["success"]:
+                mb_any = run_git_command(["merge-base", f"origin/{target}", target])
+                if not mb_any["success"] or not mb_any["stdout"]:
+                    warnings.append(
+                        f"Remote {target} has unrelated history (orphan commit). "
+                        "Push will require --force. The release will attempt a force push."
+                    )
+                else:
+                    warnings.append(
+                        f"Remote {target} has diverged from local. "
+                        "Push will require --force. The release will attempt a force push."
+                    )
+            details["remote_diverged"] = not mb["success"]
+
+    _cleanup_remote_token()
 
     return {
         "ready": len(errors) == 0,
