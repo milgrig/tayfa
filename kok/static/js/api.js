@@ -107,6 +107,14 @@ function updateStatusUI(s) {
     if (s.locked_project) {
         disableProjectSwitching();
     }
+
+    // Update Tayfa version badge and settings
+    if (s.tayfa_version) {
+        const badge = document.getElementById('tayfaVersionBadge');
+        if (badge) badge.textContent = 'v' + s.tayfa_version;
+        const settingsVer = document.getElementById('settingsTayfaVersion');
+        if (settingsVer) settingsVer.textContent = 'v' + s.tayfa_version;
+    }
 }
 
 async function startServer() {
@@ -124,6 +132,29 @@ async function stopServer() {
     try { await api('POST', '/api/stop-server'); await checkStatus(); }
     catch (e) { addSystemMessage('Error: ' + e.message, true); }
 }
+
+async function closeTayfa() {
+    if (!confirm('Close Tayfa?\n\nAgent memories will be saved before shutdown.')) return;
+    addSystemMessage('Saving agent memories and shutting down...');
+    try {
+        await api('POST', '/api/shutdown');
+        addSystemMessage('Tayfa is shutting down. You can close this tab.');
+    } catch (e) {
+        // Server already shut down — connection error is expected
+        addSystemMessage('Tayfa shut down.');
+    }
+}
+
+// Save memories when user closes the browser tab
+window.addEventListener('beforeunload', (e) => {
+    // Fire-and-forget: save memories via keepalive fetch (survives tab close)
+    try {
+        navigator.sendBeacon('/api/save-memories', '{}');
+    } catch (_) {}
+    // Show confirmation dialog
+    e.preventDefault();
+    e.returnValue = '';
+});
 
 // ── Employees (data for task creation modal) ──────────────────────────
 

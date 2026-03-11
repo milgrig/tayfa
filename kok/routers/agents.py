@@ -4,6 +4,7 @@ Agent routes and Cursor CLI helpers — extracted from app.py.
 
 import asyncio
 import json
+import os
 import re
 import time as _time
 from pathlib import Path
@@ -15,19 +16,20 @@ from fastapi import Query
 
 from app_state import (
     _get_employees, get_employee, update_employee,
-    get_personel_dir, get_agent_workdir, get_project_path_for_scoping,
+    get_tayfa_dir, get_agent_workdir, get_project_path_for_scoping,
     get_current_project,
     call_claude_api, stream_claude_api, stop_claude_api,
     save_chat_message,
     get_agent_timeout,
     running_tasks,
     subscribe_agent_stream, unsubscribe_agent_stream,
+    init_agent_stream, push_agent_stream_event, finish_agent_stream,
     _maybe_send_telegram_question,
     TAYFA_DIR_NAME,
     TAYFA_ROOT_WIN, SKILLS_DIR,
     CURSOR_CLI_PROMPT_FILE, CURSOR_CHATS_FILE,
     CURSOR_CLI_TIMEOUT, CURSOR_CLI_MODEL, CURSOR_CREATE_CHAT_TIMEOUT,
-    _MODEL_RUNTIMES, _CURSOR_MODELS,
+    _MODEL_RUNTIMES, is_cursor_model,
     _debug_log_ensure,
     estimate_tokens,
     logger,
@@ -39,6 +41,16 @@ router = APIRouter(tags=["agents"])
 
 
 # ── Cursor CLI via WSL ─────────────────────────────────────────────────────
+
+_RUNNING_IN_WSL = os.path.exists("/proc/version") and "microsoft" in open("/proc/version").read().lower() if os.path.exists("/proc/version") else False
+
+
+def _cursor_cli_exec_args() -> list[str]:
+    """Return the base command for running bash scripts.
+    If already inside WSL, run bash directly; from Windows, use 'wsl bash'."""
+    if _RUNNING_IN_WSL:
+        return ["bash"]
+    return ["wsl", "bash"]
 
 
 def _to_wsl_path(path) -> str:
@@ -91,7 +103,7 @@ async def run_cursor_cli_create_chat() -> dict:
     )
     try:
         proc = await asyncio.create_subprocess_exec(
-            "wsl", "bash",
+            *_cursor_cli_exec_args(),
             stdin=asyncio.subprocess.PIPE,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
@@ -144,8 +156,8 @@ async def run_cursor_cli_create_chat() -> dict:
 def _build_cursor_cli_prompt(agent_name: str, user_prompt: str) -> str:
     """Builds prompt for Cursor CLI: role (agent name) + context + task."""
     return (
-        f"Role: {agent_name}. Working directory: Personel (project/ — code, common/Rules/ — rules). "
-        f"Consider context from {agent_name}/prompt.md and common/Rules/. Task: {user_prompt}"
+        f"Role: {agent_name}. Working directory: .tayfa (project root — code, .tayfa/common/Rules/ — rules). "
+        f"Consider context from .tayfa/{agent_name}/prompt.md and .tayfa/common/Rules/. Task: {user_prompt}"
     )
 
 
@@ -167,20 +179,31 @@ async def ensure_cursor_chat(agent_name: str) -> tuple[str | None, str]:
     return chat_id, ""
 
 
-def _cursor_cli_model_flag() -> str:
-    """Always uses CURSOR_CLI_MODEL (Composer 1.5). Ignores any request override."""
-    safe = CURSOR_CLI_MODEL.replace("'", "'\"'\"'")
+# Legacy model IDs that were renamed in Cursor CLI (old -> new)
+_CURSOR_MODEL_ALIASES = {"composer": "composer-1.5", "grok-code": "grok"}
+
+
+def _cursor_cli_model_flag(model: str | None = None) -> str:
+    """Build --model flag for Cursor CLI. Uses CURSOR_CLI_MODEL if model is empty; applies aliases for legacy IDs."""
+    raw = (model or CURSOR_CLI_MODEL).strip()
+    raw = _CURSOR_MODEL_ALIASES.get(raw.lower(), raw)
+    safe = raw.replace("'", "'\"'\"'")
     return f" --model '{safe}'"
 
 
-async def run_cursor_cli(agent_name: str, user_prompt: str, use_chat: bool = True) -> dict:
+async def run_cursor_cli(
+    agent_name: str, user_prompt: str, use_chat: bool = True, model: str | None = None
+) -> dict:
     """
     Runs Cursor CLI in WSL in headless mode.
     If use_chat=True, ensures a chat exists for the agent (create-chat if needed)
     and sends a message with --resume <chat_id>. Otherwise — a one-time call without --resume.
-    Model is always CURSOR_CLI_MODEL (Composer 1.5).
+    model: Cursor model ID (e.g. Composer-1.5, gpt-5.1-codex). If None, taken from employee config.
     Returns { "success": bool, "result": str, "stderr": str }.
     """
+    if model is None:
+        emp = get_employee(agent_name)
+        model = (emp or {}).get("model") or CURSOR_CLI_MODEL
     full_prompt = _build_cursor_cli_prompt(agent_name, user_prompt)
     try:
         CURSOR_CLI_PROMPT_FILE.write_text(full_prompt, encoding="utf-8")
@@ -203,7 +226,7 @@ async def run_cursor_cli(agent_name: str, user_prompt: str, use_chat: bool = Tru
     base = _cursor_cli_base_script()
     safe_id = (chat_id or "").replace("'", "'\"'\"'")
     resume_part = f" --resume '{safe_id}'" if chat_id else ""
-    model_part = _cursor_cli_model_flag()
+    model_part = _cursor_cli_model_flag(model)
     # Read prompt into variable with " escaping for bash, so quotes in text don't break the command
     wsl_script = (
         f"{base} && "
@@ -213,7 +236,7 @@ async def run_cursor_cli(agent_name: str, user_prompt: str, use_chat: bool = Tru
 
     try:
         proc = await asyncio.create_subprocess_exec(
-            "wsl", "bash",
+            *_cursor_cli_exec_args(),
             stdin=asyncio.subprocess.PIPE,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
@@ -255,6 +278,80 @@ async def run_cursor_cli(agent_name: str, user_prompt: str, use_chat: bool = Tru
         "result": result_text,
         "stderr": err_text,
     }
+
+
+async def run_cursor_cli_stream(
+    agent_name: str, user_prompt: str, use_chat: bool = True, model: str | None = None
+):
+    """
+    Runs Cursor CLI in WSL with --output-format stream-json.
+    Yields parsed JSON events as they arrive from stdout.
+    """
+    if model is None:
+        emp = get_employee(agent_name)
+        model = (emp or {}).get("model") or CURSOR_CLI_MODEL
+    full_prompt = _build_cursor_cli_prompt(agent_name, user_prompt)
+    try:
+        CURSOR_CLI_PROMPT_FILE.write_text(full_prompt, encoding="utf-8")
+    except Exception as e:
+        yield {"type": "error", "error": f"Failed to write prompt: {e}"}
+        return
+
+    chat_id = None
+    if use_chat:
+        chat_id, chat_error = await ensure_cursor_chat(agent_name)
+        if not chat_id and chat_error:
+            yield {"type": "error", "error": f"Failed to get Cursor chat: {chat_error}"}
+            return
+
+    base = _cursor_cli_base_script()
+    safe_id = (chat_id or "").replace("'", "'\"'\"'")
+    resume_part = f" --resume '{safe_id}'" if chat_id else ""
+    model_part = _cursor_cli_model_flag(model)
+    wsl_script = (
+        f"{base} && "
+        "content=$(cat .cursor_cli_prompt.txt | sed 's/\"/\\\\\"/g') && "
+        f"agent -p --force{resume_part}{model_part} --output-format stream-json --stream-partial-output \"$content\""
+    )
+
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            *_cursor_cli_exec_args(),
+            stdin=asyncio.subprocess.PIPE,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+            cwd=str(TAYFA_ROOT_WIN),
+        )
+        proc.stdin.write(wsl_script.encode("utf-8"))
+        proc.stdin.close()
+
+        while True:
+            raw_line = await proc.stdout.readline()
+            if not raw_line:
+                break
+            line = raw_line.decode("utf-8", errors="replace").strip()
+            if not line:
+                continue
+            try:
+                event = json.loads(line)
+                yield event
+            except json.JSONDecodeError:
+                yield {"type": "raw", "content": line}
+
+        await proc.wait()
+        stderr_text = (await proc.stderr.read()).decode("utf-8", errors="replace").strip()
+        if proc.returncode != 0 and stderr_text:
+            yield {"type": "error", "error": stderr_text}
+    except asyncio.TimeoutError:
+        yield {"type": "error", "error": f"Timeout {CURSOR_CLI_TIMEOUT}s"}
+    except Exception as e:
+        yield {"type": "error", "error": str(e)}
+    finally:
+        try:
+            if CURSOR_CLI_PROMPT_FILE.exists():
+                CURSOR_CLI_PROMPT_FILE.unlink()
+        except Exception:
+            pass
 
 
 # ── Prompt / skill management ─────────────────────────────────────────────────
@@ -302,16 +399,17 @@ def load_skill_content(skill_id: str) -> str | None:
         return None
 
 
-def compose_system_prompt(agent_name: str, use_skills: list[str] | None = None, personel_dir: Path | None = None) -> str | None:
+def compose_system_prompt(agent_name: str, use_skills: list[str] | None = None, personel_dir: Path | None = None, *, tayfa_dir: Path | None = None) -> str | None:
     """
     Composes system prompt from prompt.md + 'Skills' block from profile.md (and skills.md).
     If use_skills is provided, appends SKILL.md content from Tayfa/skills/<id>/ to the end of the prompt.
-    If personel_dir is provided, use it (e.g. from ensure_agents); else get_personel_dir().
+    tayfa_dir (or legacy personel_dir) overrides the default .tayfa path.
     Returns None if folders/files don't exist — then only system_prompt_file from the request is used.
     """
-    if personel_dir is None:
-        personel_dir = get_personel_dir()
-    agent_dir = personel_dir / agent_name
+    _dir = tayfa_dir or personel_dir
+    if _dir is None:
+        _dir = get_tayfa_dir()
+    agent_dir = _dir / agent_name
     prompt_file = agent_dir / "prompt.md"
     profile_file = agent_dir / "profile.md"
     skills_file = agent_dir / "skills.md"
@@ -387,11 +485,11 @@ def _agents_from_registry() -> dict:
     """List of agents from employees.json (those that have prompt.md)."""
     result = {}
     employees = _get_employees()
-    personel_dir = get_personel_dir()
+    tayfa_dir = get_tayfa_dir()
     agent_workdir = get_agent_workdir()
 
     for emp_name, emp_data in employees.items():
-        prompt_file = personel_dir / emp_name / "prompt.md"
+        prompt_file = tayfa_dir / emp_name / "prompt.md"
         if prompt_file.exists():
             result[emp_name] = {
                 "system_prompt_file": f"{TAYFA_DIR_NAME}/{emp_name}/prompt.md",
@@ -449,12 +547,23 @@ async def list_agents():
     """
     List of agents: from employees.json (those that have prompt.md).
     If Claude API is available — enriches with session_id etc. for agents from API.
+    Works fully without Claude API: returns employees from registry (Cursor CLI agents).
     """
     result = _agents_from_registry()
     employees = _get_employees()
     pp = get_project_path_for_scoping()
+
+    def _enrich_from_registry():
+        for name in result:
+            result[name]["runtimes"] = _get_agent_runtimes(name)
+            result[name].setdefault("default_runtime", result[name].get("model", "sonnet"))
+
     try:
-        raw = await call_claude_api("GET", "/agents", params={"project_path": pp} if pp else None)
+        raw = await call_claude_api(
+            "GET", "/agents",
+            params={"project_path": pp} if pp else None,
+            timeout=3.0,
+        )
         if isinstance(raw, dict):
             for name, config in raw.items():
                 if name not in employees:
@@ -465,14 +574,11 @@ async def list_agents():
                 cfg["model"] = employees[name].get("model", "sonnet")
                 cfg["default_runtime"] = employees[name].get("model", "sonnet")
                 result[name] = cfg
-    except HTTPException:
-        for name in result:
-            result[name]["runtimes"] = _get_agent_runtimes(name)
-            result[name].setdefault("default_runtime", result[name].get("model", "sonnet"))
+            return result
     except Exception:
-        for name in result:
-            result[name]["runtimes"] = _get_agent_runtimes(name)
-            result[name].setdefault("default_runtime", result[name].get("model", "sonnet"))
+        pass
+
+    _enrich_from_registry()
     return result
 
 
@@ -725,7 +831,8 @@ async def send_prompt_stream(data: dict):
                 try:
                     if etype == "result":
                         full_result = event.get("result", full_result)
-                        cost_usd = event.get("cost_usd", 0)
+                        # Claude CLI may return cost as "cost_usd" or "total_cost_usd"
+                        cost_usd = event.get("cost_usd") or event.get("total_cost_usd") or 0
                         num_turns = event.get("num_turns", 0)
                     elif etype == "assistant" and event.get("subtype") == "text":
                         full_result = event.get("text", full_result)
@@ -775,10 +882,11 @@ async def send_prompt_cursor(data: dict):
         raise HTTPException(status_code=400, detail="name and prompt are required")
 
     use_chat = data.get("use_chat", True)
-    # Model always CURSOR_CLI_MODEL (Composer 1.5), request body model is ignored
+    emp = get_employee(name)
+    cursor_model = data.get("model") or (emp or {}).get("model")
 
     start_time = _time.time()
-    result = await run_cursor_cli(name, prompt_text, use_chat=use_chat)
+    result = await run_cursor_cli(name, prompt_text, use_chat=use_chat, model=cursor_model)
     duration_sec = _time.time() - start_time
 
     # Save to chat history
@@ -795,6 +903,73 @@ async def send_prompt_cursor(data: dict):
     )
 
     return result
+
+
+@router.post("/api/send-prompt-cursor-stream")
+async def send_prompt_cursor_stream(data: dict):
+    """Send a prompt to Cursor CLI with SSE streaming. Saves history on completion."""
+    name = data.get("name") or data.get("agent")
+    prompt_text = data.get("prompt") or ""
+    task_id = data.get("task_id")
+
+    if not name or not prompt_text:
+        raise HTTPException(status_code=400, detail="name and prompt are required")
+
+    use_chat = data.get("use_chat", True)
+    emp = get_employee(name)
+    cursor_model = data.get("model") or (emp or {}).get("model")
+
+    start_time = _time.time()
+
+    _SKIP_TYPES = {"system", "user", "message_start", "message_delta", "message_stop", "keep_alive"}
+
+    async def sse_generator():
+        full_result = ""
+
+        init_agent_stream(name)
+        try:
+            async for event in run_cursor_cli_stream(name, prompt_text, use_chat=use_chat, model=cursor_model):
+                etype = event.get("type", "")
+
+                push_agent_stream_event(name, event)
+
+                if etype in _SKIP_TYPES:
+                    continue
+
+                yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
+
+                try:
+                    if etype == "result":
+                        full_result = event.get("result", full_result)
+                    elif etype == "assistant":
+                        msg = event.get("message") or {}
+                        content = msg.get("content") or []
+                        if not event.get("timestamp_ms") and isinstance(content, list):
+                            for block in content:
+                                if isinstance(block, dict) and block.get("type") == "text":
+                                    full_result = block.get("text", full_result)
+                    elif etype == "error":
+                        full_result = full_result or event.get("error", "")
+                except (KeyError, TypeError):
+                    pass
+        finally:
+            finish_agent_stream(name)
+
+        duration_sec = _time.time() - start_time
+        if name and prompt_text:
+            save_chat_message(
+                agent_name=name,
+                prompt=prompt_text,
+                result=full_result,
+                runtime="cursor",
+                cost_usd=None,
+                duration_sec=duration_sec,
+                task_id=task_id,
+                success=bool(full_result),
+                extra=None,
+            )
+
+    return StreamingResponse(sse_generator(), media_type="text/event-stream")
 
 
 @router.post("/api/cursor-create-chat")
@@ -936,37 +1111,67 @@ async def get_agent_stream(name: str):
 
 @router.get("/api/agent-config/{name}")
 async def get_agent_config(name: str):
-    """Get full agent configuration from claude_agents.json."""
+    """Get agent configuration. Tries Claude API first, falls back to employees.json."""
     pp = get_project_path_for_scoping()
-    agents = await call_claude_api("GET", "/agents", params={"project_path": pp} if pp else None)
-    if name not in agents:
+    try:
+        agents = await call_claude_api("GET", "/agents", params={"project_path": pp} if pp else None)
+        if name in agents:
+            config = agents[name]
+            config["name"] = name
+            return config
+    except Exception:
+        pass
+
+    emp = get_employee(name)
+    if not emp:
         raise HTTPException(404, f"Agent '{name}' not found")
-    config = agents[name]
-    config["name"] = name
-    return config
+    tayfa_dir = get_tayfa_dir()
+    return {
+        "name": name,
+        "model": emp.get("model", "sonnet"),
+        "allowed_tools": emp.get("allowed_tools", "Read Edit Bash"),
+        "permission_mode": emp.get("permission_mode", "bypassPermissions"),
+        "budget_limit": emp.get("budget_limit", 10),
+        "workdir": get_agent_workdir(),
+        "system_prompt_file": f"{TAYFA_DIR_NAME}/{name}/prompt.md",
+        "system_prompt": "",
+        "session_id": {},
+        "_source": "employees.json (Claude API unavailable)",
+    }
 
 
 @router.put("/api/agent-config/{name}")
 async def update_agent_config(name: str, data: dict):
-    """Update agent configuration. Accepts partial updates."""
+    """Update agent configuration. Accepts partial updates.
+    Always persists model to employees.json. Forwards to Claude API when available."""
+    # Always sync model/allowed_tools/permission_mode to employees.json
+    emp_updates = {}
+    if "model" in data and data["model"]:
+        emp_updates["model"] = data["model"]
+    if "allowed_tools" in data:
+        emp_updates["allowed_tools"] = data["allowed_tools"]
+    if "permission_mode" in data:
+        emp_updates["permission_mode"] = data["permission_mode"]
+    if emp_updates:
+        update_employee(name, **emp_updates)
+
+    # Try to forward to Claude API (for Claude-model agents)
     pp = get_project_path_for_scoping()
-    # Build payload for claude_api /run (create/update mode — no prompt)
     payload = {"name": name}
     if pp:
         payload["project_path"] = pp
-
-    # Forward config fields
     for field in ("system_prompt", "system_prompt_file", "workdir",
                   "allowed_tools", "permission_mode", "model", "budget_limit"):
         if field in data:
             payload[field] = data[field]
 
-    # Sync model change to employees.json so the employee list shows the current model
-    if "model" in data and data["model"]:
-        update_employee(name, model=data["model"])
-
-    result = await call_claude_api("POST", "/run", json_data=payload)
-    return result
+    try:
+        result = await call_claude_api("POST", "/run", json_data=payload)
+        return result
+    except HTTPException as e:
+        if e.status_code == 503:
+            return {"status": "saved_locally", "detail": "Saved to employees.json (Claude API unavailable)"}
+        raise
 
 
 @router.post("/api/agent-config/{name}/reset-session")
@@ -978,7 +1183,12 @@ async def reset_agent_session(name: str, data: dict = None):
         payload["project_path"] = pp
     if data and data.get("model"):
         payload["model"] = data["model"]
-    return await call_claude_api("POST", "/run", json_data=payload)
+    try:
+        return await call_claude_api("POST", "/run", json_data=payload)
+    except HTTPException as e:
+        if e.status_code == 503:
+            return {"status": "skipped", "detail": "Claude API unavailable — no session to reset"}
+        raise
 
 
 @router.post("/api/kill-agents")
@@ -1057,18 +1267,18 @@ async def ensure_agents(request: Request = None):
 
     if project_path_str:
         _proj = Path(project_path_str)
-        personel_dir = _proj / TAYFA_DIR_NAME
+        tayfa_dir = _proj / TAYFA_DIR_NAME
         agent_workdir = str(_proj)
         _source = "project_path"
     else:
-        personel_dir = get_personel_dir()
+        tayfa_dir = get_tayfa_dir()
         agent_workdir = get_agent_workdir()
         project_path_str = get_project_path_for_scoping()
         _source = "current_project"
 
-    logger.info(f"[ensure_agents] START personel_dir={personel_dir}, agent_workdir={agent_workdir!r}, project_path={project_path_str!r}, source={_source}")
+    logger.info(f"[ensure_agents] START tayfa_dir={tayfa_dir}, agent_workdir={agent_workdir!r}, project_path={project_path_str!r}, source={_source}")
     # #region agent log
-    _debug_log_ensure("ensure_agents START", {"personel_dir": str(personel_dir), "agent_workdir": agent_workdir, "project_path_str": project_path_str, "source": _source}, "Tayfa")
+    _debug_log_ensure("ensure_agents START", {"tayfa_dir": str(tayfa_dir), "agent_workdir": agent_workdir, "project_path_str": project_path_str, "source": _source}, "Tayfa")
     # #endregion
 
     # Query params for scoped GET/DELETE requests
@@ -1096,7 +1306,7 @@ async def ensure_agents(request: Request = None):
                 model = emp_data.get("model", "sonnet")
                 allowed_tools = emp_data.get("allowed_tools", "Read Edit Bash")
                 permission_mode = emp_data.get("permission_mode", "bypassPermissions")
-                composed = compose_system_prompt(emp_name, personel_dir=personel_dir)
+                composed = compose_system_prompt(emp_name, tayfa_dir=tayfa_dir)
                 update_payload = {
                     "name": emp_name,
                     "workdir": agent_workdir,
@@ -1132,14 +1342,17 @@ async def ensure_agents(request: Request = None):
                 model_missing = not existing_model
                 logger.info(f"[ensure_agents] {emp_name}: already exists, has_inline_prompt={has_inline}, system_prompt_file={spf!r}, model={existing_model!r}")
 
-                # Migrate: if agent uses stale inline prompt, wrong file path, missing model,
-                # or old-style session_id (string UUID from pre-S031) — update so prompt.md
-                # edits take effect immediately, model is always set, and legacy sessions
-                # are reset so the agent receives --system-prompt on the next run.
+                # Migrate: if agent uses ONLY inline prompt (no file), wrong file path,
+                # missing model, or old-style session_id (string UUID from pre-S031) —
+                # update so prompt.md edits take effect immediately.
+                # NOTE: has_inline alone is NOT a reason to update — agents can have BOTH
+                # inline prompt AND system_prompt_file (this is normal after ensure_agents
+                # sets both). Only trigger update if system_prompt_file is wrong/missing.
                 legacy_session = isinstance((existing or {}).get("session_id"), str)
-                if has_inline or spf != expected_spf or model_missing or legacy_session:
+                needs_spf_fix = spf != expected_spf
+                if needs_spf_fix or model_missing or legacy_session:
                     try:
-                        fix_composed = compose_system_prompt(emp_name, personel_dir=personel_dir)
+                        fix_composed = compose_system_prompt(emp_name, tayfa_dir=tayfa_dir)
                         _fix_payload = {
                             "name": emp_name,
                             "system_prompt_file": expected_spf,
@@ -1153,7 +1366,7 @@ async def ensure_agents(request: Request = None):
                             logger.info(f"[ensure_agents] {emp_name}: fixing missing model \u2192 {expected_model!r}")
                         if legacy_session:
                             logger.info(f"[ensure_agents] {emp_name}: legacy string session_id detected, will be reset by claude_api")
-                        _debug_log_ensure("ensure_agents prompt_to_file payload", {"path": "prompt_to_file", "emp_name": emp_name, "had_inline": has_inline, "old_spf": spf, "new_spf": expected_spf, "model_missing": model_missing, "expected_model": expected_model, "legacy_session": legacy_session, "project_path": project_path_str or ""}, "Tayfa")
+                        _debug_log_ensure("ensure_agents prompt_to_file payload", {"path": "prompt_to_file", "emp_name": emp_name, "had_inline": has_inline, "needs_spf_fix": needs_spf_fix, "old_spf": spf, "new_spf": expected_spf, "model_missing": model_missing, "expected_model": expected_model, "legacy_session": legacy_session, "project_path": project_path_str or ""}, "Tayfa")
                         await call_claude_api("POST", "/run", json_data=_fix_payload)
                         logger.info(f"[ensure_agents] {emp_name}: switched to system_prompt_file={expected_spf!r} (had_inline={has_inline}, old_spf={spf!r}, model_fixed={model_missing}, legacy_session_reset={legacy_session})")
                         results.append({"agent": emp_name, "status": "prompt_switched_to_file"})
@@ -1165,7 +1378,7 @@ async def ensure_agents(request: Request = None):
             continue
 
         # Check for prompt.md existence
-        prompt_file = personel_dir / emp_name / "prompt.md"
+        prompt_file = tayfa_dir / emp_name / "prompt.md"
         logger.info(f"[ensure_agents] {emp_name}: checking prompt.md at {prompt_file}, exists={prompt_file.exists()}")
         if not prompt_file.exists():
             results.append({
@@ -1175,15 +1388,23 @@ async def ensure_agents(request: Request = None):
             })
             continue
 
-        # Compose system prompt and create agent (use same personel_dir as for this request)
+        emp_data = employees.get(emp_name, {})
+        model = emp_data.get("model", "sonnet")
+
+        # Cursor-model agents don't need Claude API registration
+        if is_cursor_model(model):
+            logger.info(f"[ensure_agents] {emp_name}: Cursor model '{model}' — ready (no Claude API needed)")
+            results.append({
+                "agent": emp_name,
+                "status": "ready",
+                "detail": f"Cursor model '{model}' — works via CLI",
+            })
+            continue
+
         try:
-            composed = compose_system_prompt(emp_name, personel_dir=personel_dir)
-            # Model and permissions from employees.json
-            emp_data = employees.get(emp_name, {})
-            model = emp_data.get("model", "sonnet")
+            composed = compose_system_prompt(emp_name, tayfa_dir=tayfa_dir)
             allowed_tools = emp_data.get("allowed_tools", "Read Edit Bash")
             permission_mode = emp_data.get("permission_mode", "bypassPermissions")
-            # Do not pass session_id — new agent starts with a fresh session (e.g. after Kill all agents)
             payload = {
                 "name": emp_name,
                 "workdir": agent_workdir,
@@ -1192,12 +1413,6 @@ async def ensure_agents(request: Request = None):
                 "model": model,
                 "project_path": project_path_str or "",
             }
-            # Always use system_prompt_file so edits to prompt.md take effect
-            # immediately without needing to re-run ensure_agents.
-            # Pass system_prompt inline so the agent knows its role from the very first run,
-            # regardless of which model is selected. system_prompt_file is also set so that
-            # subsequent runs re-read prompt.md and pick up any edits automatically.
-            # When claude_api.py receives BOTH, inline takes priority (see CREATE logic).
             if composed:
                 payload["system_prompt"] = composed
             payload["system_prompt_file"] = f"{TAYFA_DIR_NAME}/{emp_name}/prompt.md"
@@ -1210,7 +1425,6 @@ async def ensure_agents(request: Request = None):
             # #region agent log
             _debug_log_ensure("ensure_agents CREATE payload", {"path": "create", "emp_name": emp_name, "payload_keys": list(payload.keys()), "has_system_prompt": bool(payload.get("system_prompt")), "system_prompt_len": len(payload.get("system_prompt") or ""), "workdir": payload.get("workdir"), "project_path": payload.get("project_path")}, "Tayfa")
             # #endregion
-            # Log full payload (system_prompt truncated to 200 chars for readability)
             log_payload = {k: (v[:200] + "..." if isinstance(v, str) and len(v) > 200 else v)
                            for k, v in payload.items()}
             logger.info(f"[ensure_agents] {emp_name}: CREATE payload={log_payload}")

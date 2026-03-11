@@ -83,11 +83,25 @@ function switchPanelTab(tab) {
 
 // ── Config ───────────────────────────────────────────────────────────────────
 
+function ensureModelOption(selectEl, model) {
+    if (!model) return;
+    const hasOption = Array.from(selectEl.options).some(o => o.value === model);
+    if (!hasOption) {
+        const opt = document.createElement('option');
+        opt.value = model;
+        opt.textContent = model;
+        selectEl.appendChild(opt);
+    }
+}
+
 async function loadAgentConfig(name) {
     if (!name) return;
     try {
         const config = await api('GET', `/api/agent-config/${name}`);
-        document.getElementById('cfgModel').value = config.model || '';
+        const modelSelect = document.getElementById('cfgModel');
+        const model = config.model || '';
+        ensureModelOption(modelSelect, model);
+        modelSelect.value = model;
         document.getElementById('cfgAllowedTools').value = config.allowed_tools || '';
         document.getElementById('cfgPermissionMode').value = config.permission_mode || 'bypassPermissions';
         document.getElementById('cfgBudgetLimit').value = config.budget_limit ?? 10;
@@ -241,7 +255,9 @@ async function sendPromptStreaming() {
     activeStreamAbort = abortController;
 
     try {
-        const response = await fetch('/api/send-prompt-stream', {
+        const isCursor = isAgentCursor(agentForRequest);
+        const streamUrl = isCursor ? '/api/send-prompt-cursor-stream' : '/api/send-prompt-stream';
+        const response = await fetch(streamUrl, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -295,10 +311,18 @@ async function sendPromptStreaming() {
                         costUsd = event.cost_usd || 0;
                         numTurns = event.num_turns || 0;
                     } else if (event.type === 'message' && Array.isArray(event.content)) {
-                        // Full message object — take last text block as full result (replaces prior)
                         for (const block of event.content) {
                             if (block.type === 'text' && block.text) {
                                 fullResult = block.text;
+                            }
+                        }
+                    } else if (event.type === 'assistant' && event.message && Array.isArray(event.message.content)) {
+                        // Cursor Agent CLI: final message (no timestamp_ms) has full text
+                        if (!event.timestamp_ms) {
+                            for (const block of event.message.content) {
+                                if (block.type === 'text' && block.text) {
+                                    fullResult = block.text;
+                                }
                             }
                         }
                     } else if (event.type === 'assistant' && (event.subtype === 'text' || event.subtype === 'text_delta')) {
@@ -346,13 +370,28 @@ function processStreamEvent(event) {
     const subtype = event.subtype || '';
 
     if (type === 'assistant') {
-        if (subtype === 'text_delta' || subtype === 'text') {
+        // Cursor Agent CLI format: {type:"assistant", message:{content:[{type:"text",text:"..."}]}}
+        const msgContent = event.message && event.message.content;
+        if (Array.isArray(msgContent)) {
+            const isPartial = !!event.timestamp_ms;
+            for (const block of msgContent) {
+                if (block.type === 'text' && block.text) {
+                    if (isPartial) {
+                        _appendTextDelta(block.text);
+                    } else {
+                        // Final accumulated message — skip (already built from partials)
+                    }
+                } else if (block.type === 'thinking' && block.text) {
+                    _streamTextNode = null;
+                    appendStreamEvent('thinking', block.text);
+                }
+            }
+        } else if (subtype === 'text_delta' || subtype === 'text') {
             _appendTextDelta(event.delta || event.text || '');
         } else if (subtype === 'thinking') {
             _streamTextNode = null;
             appendStreamEvent('thinking', event.delta || event.text || '');
         } else {
-            // Unknown assistant subtype — only show string text content (never raw JSON)
             const val = event.delta || event.text || '';
             if (typeof val === 'string' && val) _appendTextDelta(val);
         }
@@ -419,6 +458,29 @@ function processStreamEvent(event) {
             appendStreamEvent('tool', _formatToolUse(toolName, event.input));
         }
 
+    } else if (type === 'tool_call') {
+        // Cursor Agent CLI format: {type:"tool_call", subtype:"started"|"completed", tool_call:{readToolCall:{args:{...}, result:{...}}}}
+        _streamTextNode = null;
+        const tc = event.tool_call || {};
+        const callKey = Object.keys(tc)[0] || '';
+        const callData = tc[callKey] || {};
+        if (subtype === 'started') {
+            const toolName = callKey.replace(/ToolCall$/, '').replace(/^(.)/, (_, c) => c.toUpperCase());
+            appendStreamEvent('tool', _formatToolUse(toolName, callData.args));
+        } else if (subtype === 'completed' && callData.result) {
+            const res = callData.result;
+            const successData = res.success || res;
+            const content = typeof successData === 'string' ? successData
+                : successData.content || successData.output || '';
+            if (content && typeof content === 'string') {
+                if (content.length < 300) {
+                    appendStreamEvent('text', `  => ${content}`);
+                } else {
+                    _appendCollapsibleResult(content);
+                }
+            }
+        }
+
     } else if (type === 'tool_result') {
         let content = event.content || '';
         // content can be a string, an array of content blocks, or an object
@@ -445,6 +507,11 @@ function processStreamEvent(event) {
         const parts = [];
         if (event.cost_usd) parts.push(`$${event.cost_usd.toFixed(4)}`);
         if (event.num_turns) parts.push(`${event.num_turns} turns`);
+        if (event.duration_ms) parts.push(`${(event.duration_ms / 1000).toFixed(1)}s`);
+        const usage = event.usage;
+        if (usage && usage.outputTokens) {
+            parts.push(`${usage.inputTokens || 0}→${usage.outputTokens} tok`);
+        }
         appendStreamEvent('result', `Done${parts.length ? ' \u2022 ' + parts.join(' \u2022 ') : ''}`);
 
     } else if (type === 'error') {

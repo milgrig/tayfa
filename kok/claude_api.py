@@ -393,11 +393,17 @@ def _run_claude(prompt: str, workdir: str, allowed_tools: str,
 
     try:
         data = json.loads(proc.stdout)
+        # Claude CLI may return cost as "cost_usd" or "total_cost_usd"
+        resolved_cost = data.get("cost_usd") or data.get("total_cost_usd") or 0
+        logger.info(
+            f"_run_claude: cost fields: cost_usd={data.get('cost_usd')}, "
+            f"total_cost_usd={data.get('total_cost_usd')}, resolved={resolved_cost}"
+        )
         return {
             "code":       proc.returncode,
             "result":     data.get("result", ""),
             "session_id": data.get("session_id", ""),
-            "cost_usd":   data.get("cost_usd", 0),
+            "cost_usd":   resolved_cost,
             "is_error":   data.get("is_error", False),
             "num_turns":  data.get("num_turns", 0),
         }
@@ -625,21 +631,31 @@ def run(req: UnifiedRequest):
                     f"system_prompt_file={req.system_prompt_file!r}, "
                     f"workdir={req.workdir!r}, model={req.model!r}"
                 )
+                # Track whether the prompt actually changed — only reset session if it did.
+                # This prevents Ensure Agents from wiping agent memory on every click.
+                _prompt_changed = False
                 if req.system_prompt and req.system_prompt_file:
+                    if a.get("system_prompt") != req.system_prompt or a.get("system_prompt_file") != req.system_prompt_file:
+                        _prompt_changed = True
                     a["system_prompt"] = req.system_prompt
                     a["system_prompt_file"] = req.system_prompt_file
-                    a["session_id"] = {}
-                    logger.info(f"UPDATE agent={req.name!r}: set BOTH system_prompt ({len(req.system_prompt)} chars) and system_prompt_file={req.system_prompt_file!r}")
+                    logger.info(f"UPDATE agent={req.name!r}: set BOTH system_prompt ({len(req.system_prompt)} chars) and system_prompt_file={req.system_prompt_file!r}, prompt_changed={_prompt_changed}")
                 elif req.system_prompt:
+                    if a.get("system_prompt") != req.system_prompt or a.get("system_prompt_file"):
+                        _prompt_changed = True
                     a["system_prompt"] = req.system_prompt
                     a["system_prompt_file"] = ""
-                    a["session_id"] = {}
-                    logger.info(f"UPDATE agent={req.name!r}: set inline system_prompt, cleared system_prompt_file")
+                    logger.info(f"UPDATE agent={req.name!r}: set inline system_prompt, cleared system_prompt_file, prompt_changed={_prompt_changed}")
                 elif req.system_prompt_file:
-                    a["system_prompt_file"] = req.system_prompt_file
-                    a["system_prompt"] = ""
-                    a["session_id"] = {}
-                    logger.info(f"UPDATE agent={req.name!r}: set system_prompt_file={req.system_prompt_file!r}, cleared inline")
+                    if a.get("system_prompt_file") != req.system_prompt_file:
+                        # File path actually changed — update and clear inline prompt
+                        _prompt_changed = True
+                        a["system_prompt_file"] = req.system_prompt_file
+                        a["system_prompt"] = ""
+                        logger.info(f"UPDATE agent={req.name!r}: set system_prompt_file={req.system_prompt_file!r}, cleared inline, prompt_changed={_prompt_changed}")
+                    else:
+                        # File path is already correct — don't touch inline prompt or session
+                        logger.info(f"UPDATE agent={req.name!r}: system_prompt_file already {req.system_prompt_file!r}, no prompt change")
                 if req.workdir:
                     a["workdir"] = req.workdir
                 if req.allowed_tools:
@@ -650,8 +666,13 @@ def run(req: UnifiedRequest):
                     a["model"] = req.model
                 if req.budget_limit is not None:
                     a["budget_limit"] = req.budget_limit
-                # Always clear session on update so next run starts a new session (e.g. after Kill + Ensure)
-                a["session_id"] = {}
+                # Only clear session when the prompt actually changed — otherwise
+                # Ensure Agents would wipe agent memory/context on every click.
+                if _prompt_changed:
+                    a["session_id"] = {}
+                    logger.info(f"UPDATE agent={req.name!r}: session RESET (prompt changed)")
+                else:
+                    logger.info(f"UPDATE agent={req.name!r}: session PRESERVED (prompt unchanged)")
                 # #region agent log
                 _debug_log_api("UPDATE saved", {"internal_key": internal_key, "stored_prompt_len": len(a["system_prompt"])})
                 # #endregion

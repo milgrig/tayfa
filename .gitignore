@@ -54,3 +54,27 @@ kok/secret_settings.json
 
 # Local project list
 kok/projects.json
+
+# Agent state (per-instance)
+claude_agents.json
+~*claude_agents.json
+
+# Coverage reports
+.coverage
+kok/.coverage
+htmlcov/
+kok/htmlcov/
+
+# Chat history archives (large, per-instance)
+.tayfa/**/chat_history_archive/
+
+# pytest cache
+.pytest_cache/
+kok/.pytest_cache/
+
+# Memory files (per-instance runtime data)
+.tayfa/**/memory.md
+
+# Debug / temp files
+debug-*.log
+NUL

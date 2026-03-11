@@ -3,18 +3,18 @@
 ## How an Agent is Created in the Application
 
 1. **Preparing the employee folder**
-   In `Personel/<name>/` the following structure is created:
+   In `.tayfa/<name>/` the following structure is created:
    - `prompt.md` — system prompt (role, instructions)
    - `profile.md` — profile: role, **skills**, area of responsibility
    - optionally `skills.md` — extended skill description
    - `tasks.md`, `notes.md`, `source.md`
 
 2. **Registering the agent via API**
-   A JSON is placed in `Personel/Request/` (or the orchestrator sends a request). You can explicitly specify **use_skills** — an array of skill names from the `Tayfa/skills/` folder (see below):
+   The orchestrator sends a request. You can explicitly specify **use_skills** — an array of skill names from the `Tayfa/skills/` folder (see below):
    ```json
    {
      "name": "employee_name",
-     "system_prompt_file": "Personel/employee_name/prompt.md",
+     "system_prompt_file": ".tayfa/employee_name/prompt.md",
      "workdir": "/mnt/c/Cursor/Tayfa",
      "allowed_tools": "Read Edit Bash",
      "use_skills": ["project-decomposer"]
@@ -24,8 +24,8 @@
 
 3. **Assembling the system prompt**
    The orchestrator (or the API when called with `system_prompt_file`) during agent creation/update:
-   - reads `Personel/<name>/prompt.md`;
-   - reads `Personel/<name>/profile.md` and if present — `Personel/<name>/skills.md`;
+   - reads `.tayfa/<name>/prompt.md`;
+   - reads `.tayfa/<name>/profile.md` and if present — `.tayfa/<name>/skills.md`;
    - inserts the "Skills" section from the profile (and from `skills.md`) into the prompt and passes the assembled text as the agent's system prompt.
 
 4. **Who creates agents**
@@ -35,10 +35,10 @@
 
 ## How to Properly Add Skills to Employees
 
-- **Primary source of skills** — the **"## Skills"** section in `Personel/<name>/profile.md`.
+- **Primary source of skills** — the **"## Skills"** section in `.tayfa/<name>/profile.md`.
   The orchestrator inserts it into the system prompt during agent creation/update.
 
-- **Optionally** — a `Personel/<name>/skills.md` file for details (levels, checklists, references).
+- **Optionally** — a `.tayfa/<name>/skills.md` file for details (levels, checklists, references).
   If it exists, the orchestrator includes it as well. In `profile.md` in the "Skills" section you can write: "See skills.md".
 
 - **Do not duplicate** the skill list in `prompt.md` — skills are taken only from `profile.md` and optionally from `skills.md`.

@@ -207,7 +207,7 @@ class TestStartupHealthCheck:
         config_file = tmp_path / "config.json"
         config_file.write_text(json.dumps(config_data), encoding="utf-8")
 
-        monkeypatch.setattr(app_state, "get_personel_dir", lambda: tmp_path)
+        monkeypatch.setattr(app_state, "get_tayfa_dir", lambda: tmp_path)
         # Also patch TAYFA_DATA_DIR to point nowhere useful (so fallback doesn't interfere)
         monkeypatch.setattr(app_state, "TAYFA_DATA_DIR", tmp_path / "nonexistent")
 

@@ -34,13 +34,13 @@ def _build_client():
 class TestEnsureAgentsWithProjectPath:
 
     @pytest.mark.asyncio
-    async def test_tc1_project_path_used_for_personel_dir(self):
+    async def test_tc1_project_path_used_for_tayfa_dir(self):
         """POST with project_path uses it instead of get_current_project()."""
         fake_project = "C:\\Cursor\\TayfaWindows"
 
         with patch("routers.agents._get_employees", return_value={}), \
              patch("routers.agents.call_claude_api", new_callable=AsyncMock, return_value={}), \
-             patch("routers.agents.get_personel_dir") as mock_gpd, \
+             patch("routers.agents.get_tayfa_dir") as mock_gtd, \
              patch("routers.agents.get_agent_workdir") as mock_gaw:
 
             async with _build_client() as client:
@@ -50,8 +50,8 @@ class TestEnsureAgentsWithProjectPath:
                 )
 
             assert resp.status_code == 200
-            # get_personel_dir / get_agent_workdir should NOT have been called
-            mock_gpd.assert_not_called()
+            # get_tayfa_dir / get_agent_workdir should NOT have been called
+            mock_gtd.assert_not_called()
             mock_gaw.assert_not_called()
 
     @pytest.mark.asyncio
@@ -107,10 +107,10 @@ class TestEnsureAgentsWithoutProjectPath:
         """POST with empty JSON body {} falls back to get_current_project()."""
         with patch("routers.agents._get_employees", return_value={}), \
              patch("routers.agents.call_claude_api", new_callable=AsyncMock, return_value={}), \
-             patch("routers.agents.get_personel_dir") as mock_gpd, \
+             patch("routers.agents.get_tayfa_dir") as mock_gtd, \
              patch("routers.agents.get_agent_workdir") as mock_gaw:
 
-            mock_gpd.return_value = Path("C:/fallback/.tayfa")
+            mock_gtd.return_value = Path("C:/fallback/.tayfa")
             mock_gaw.return_value = "C:\\fallback"
 
             async with _build_client() as client:
@@ -120,7 +120,7 @@ class TestEnsureAgentsWithoutProjectPath:
                 )
 
             assert resp.status_code == 200
-            mock_gpd.assert_called_once()
+            mock_gtd.assert_called_once()
             mock_gaw.assert_called_once()
 
 
@@ -134,7 +134,7 @@ class TestEnsureAgentsEmptyBody:
         """POST with empty body (b'') does not cause 422/500."""
         with patch("routers.agents._get_employees", return_value={}), \
              patch("routers.agents.call_claude_api", new_callable=AsyncMock, return_value={}), \
-             patch("routers.agents.get_personel_dir", return_value=Path("C:/x/.tayfa")), \
+             patch("routers.agents.get_tayfa_dir", return_value=Path("C:/x/.tayfa")), \
              patch("routers.agents.get_agent_workdir", return_value="C:\\x"):
 
             async with _build_client() as client:

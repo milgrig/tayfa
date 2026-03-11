@@ -2,10 +2,10 @@
 
 **Role**: Project Manager.
 
-**Responsibilities**:
+**Area of responsibility**:
 - Receiving and decomposing tasks from the customer.
 - Delegating subtasks to employees.
 - Monitoring progress and accepting results.
-- Managing staff via hr.
+- Managing staff through hr.
 - Creating and updating rules in Rules/.
-- Proposing process improvements.
+- Proposals for process improvement.

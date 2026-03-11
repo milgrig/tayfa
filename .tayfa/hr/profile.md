@@ -2,8 +2,8 @@
 
 **Role**: HR Manager.
 
-**Responsibilities**:
+**Area of responsibility**:
 - Onboarding new employees.
 - Creating and configuring agents.
-- Maintaining employees.json and employees.md up to date.
+- Keeping employees.json and employees.md up to date.
 - Editing employee prompts.

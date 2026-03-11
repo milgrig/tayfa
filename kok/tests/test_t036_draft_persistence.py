@@ -1,11 +1,14 @@
 """
 T036: E2E test - Preserve chat input draft when navigating away.
 
-Tests that typing text in chat input, navigating to another screen,
-and returning preserves the draft text.
+MIGRATED to tests/e2e/test_e2e_draft_persistence.py (shared Playwright infrastructure).
+This file is kept for reference. Run the new version:
+    pytest tests/e2e/test_e2e_draft_persistence.py -v
 """
 import pytest
 from playwright.sync_api import sync_playwright, expect
+
+pytestmark = pytest.mark.skip(reason="Migrated to tests/e2e/test_e2e_draft_persistence.py")
 
 BASE_URL = "http://127.0.0.1:8008"
 DRAFT_TEXT = "This is my unsent draft message for testing"

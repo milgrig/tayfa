@@ -424,12 +424,145 @@ def init_project(path: str) -> dict:
         }
 
 
+def sync_project(path: str) -> dict:
+    """
+    Sync infrastructure files in project's .tayfa/ from the latest template.
+
+    Compares template_version in sync_manifest.json with the project's
+    config.json version. If template is newer — updates infrastructure files,
+    creates .local backups, and returns a detailed report.
+
+    Never touches project data (tasks.json, employees.json, backlog.json,
+    discussions/, known_bugs.md, chat histories, custom agent folders).
+
+    Returns:
+        - status: "up_to_date", "synced", "error", "no_tayfa"
+        - from_version / to_version
+        - added / updated / unchanged (lists of file paths)
+        - backups (list of .local backup paths)
+        - changelog (list of change descriptions)
+    """
+    import filecmp
+    import logging
+    logger = logging.getLogger("tayfa.sync")
+
+    norm_path = _normalize_path(path)
+    project_path = Path(norm_path)
+    tayfa_path = project_path / TAYFA_DIR_NAME
+
+    # Guard: no .tayfa — nothing to sync
+    if not tayfa_path.exists():
+        return {"status": "no_tayfa", "error": "No .tayfa directory in project"}
+
+    # Load sync manifest from template
+    manifest_path = TEMPLATE_DIR / "sync_manifest.json"
+    if not manifest_path.exists():
+        return {"status": "error", "error": "sync_manifest.json not found in template"}
+
+    try:
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except Exception as e:
+        return {"status": "error", "error": f"Failed to read sync_manifest.json: {e}"}
+
+    template_version = manifest.get("template_version", 1)
+    sync_files = manifest.get("files", [])
+    changelog_map = manifest.get("changelog", {})
+
+    # Load project config.json to get current version
+    config_path = tayfa_path / "config.json"
+    project_version = 1  # default for old projects without version
+    if config_path.exists():
+        try:
+            config = json.loads(config_path.read_text(encoding="utf-8"))
+            raw_ver = config.get("version", "1.0")
+            # Handle both "1.0" string and integer formats
+            if isinstance(raw_ver, str):
+                project_version = int(float(raw_ver))
+            else:
+                project_version = int(raw_ver)
+        except Exception:
+            project_version = 1
+
+    # Already up to date?
+    if project_version >= template_version:
+        return {
+            "status": "up_to_date",
+            "project_version": project_version,
+            "template_version": template_version,
+        }
+
+    # Sync each infrastructure file
+    added = []
+    updated = []
+    unchanged = []
+    backups = []
+
+    for rel_path in sync_files:
+        template_file = TEMPLATE_DIR / rel_path
+        project_file = tayfa_path / rel_path
+
+        if not template_file.exists():
+            logger.warning(f"Sync: template file missing: {rel_path}")
+            continue
+
+        if not project_file.exists():
+            # File doesn't exist in project — copy it
+            project_file.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(template_file, project_file)
+            added.append(rel_path)
+            logger.info(f"Sync: added {rel_path}")
+        elif filecmp.cmp(template_file, project_file, shallow=False):
+            # Files are identical — skip
+            unchanged.append(rel_path)
+        else:
+            # Files differ — backup old, overwrite with template
+            backup_path = project_file.with_suffix(project_file.suffix + ".local")
+            shutil.copy2(project_file, backup_path)
+            shutil.copy2(template_file, project_file)
+            updated.append(rel_path)
+            backups.append(str(backup_path.relative_to(tayfa_path)))
+            logger.info(f"Sync: updated {rel_path} (backup: {backup_path.name})")
+
+    # Update project config.json with new version
+    try:
+        if config_path.exists():
+            config = json.loads(config_path.read_text(encoding="utf-8"))
+        else:
+            config = {}
+        config["version"] = template_version
+        config_path.write_text(
+            json.dumps(config, ensure_ascii=False, indent=2) + "\n",
+            encoding="utf-8"
+        )
+    except Exception as e:
+        logger.error(f"Sync: failed to update config.json version: {e}")
+
+    # Collect changelog entries for all versions between old and new
+    changelog_entries = []
+    for ver in range(project_version + 1, template_version + 1):
+        ver_key = str(ver)
+        if ver_key in changelog_map:
+            changelog_entries.extend(changelog_map[ver_key])
+
+    return {
+        "status": "synced",
+        "from_version": project_version,
+        "to_version": template_version,
+        "added": added,
+        "updated": updated,
+        "unchanged": unchanged,
+        "backups": backups,
+        "changelog": changelog_entries,
+    }
+
+
 def open_project(path: str) -> dict:
     """
-    Open a project: init + set_current.
+    Open a project: init + sync + set_current.
     A combined operation for convenience.
 
-    First initializes .tayfa (if needed), then sets it as the current project.
+    First initializes .tayfa (if needed), then syncs infrastructure files
+    from the latest template, then sets it as the current project.
     On initialization error, returns status="error".
     """
     # First, initialize
@@ -444,15 +577,26 @@ def open_project(path: str) -> dict:
             "tayfa_path": init_result.get("tayfa_path")
         }
 
+    # Auto-sync infrastructure files if project already existed
+    sync_result = None
+    if init_result["status"] == "already_exists":
+        sync_result = sync_project(path)
+
     # Then set as current
     set_result = set_current_project(path)
 
-    return {
+    result = {
         "status": "opened",
         "init": init_result["status"],
         "project": set_result["project"],
-        "tayfa_path": init_result["tayfa_path"]
+        "tayfa_path": init_result["tayfa_path"],
     }
+
+    # Include sync report if sync was performed
+    if sync_result:
+        result["sync"] = sync_result
+
+    return result
 
 
 # ── CLI interface ─────────────────────────────────────────────────────────────

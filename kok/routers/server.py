@@ -52,10 +52,152 @@ async def ping():
     return {"status": "ok", "server_time": current_time}
 
 
+def _save_all_agent_memories() -> dict:
+    """Save memory.md for all agents of the current project.
+
+    Builds a concise session summary (last task, last topic discussed)
+    and writes it into .tayfa/{agent}/memory.md.  Does NOT dump raw
+    chat history — that's what chat_history.json is for.
+
+    Returns {"agents_updated": [...], "errors": [...]}.
+    """
+    from datetime import datetime
+    from chat_history_manager import _load_history
+
+    result = {"agents_updated": [], "errors": []}
+    project = get_current_project()
+    if not project:
+        result["errors"].append("No current project")
+        return result
+
+    project_path = project.get("path", "")
+    project_name = project.get("name", "unknown")
+    tayfa_dir = Path(project_path) / ".tayfa" if project_path else None
+    if not tayfa_dir or not tayfa_dir.exists():
+        result["errors"].append(f".tayfa not found at {project_path}")
+        return result
+
+    now_str = datetime.now().strftime("%Y-%m-%d %H:%M")
+
+    # Find all agents — subfolders of .tayfa that have chat_history.json
+    for agent_dir in tayfa_dir.iterdir():
+        if not agent_dir.is_dir() or agent_dir.name == "common":
+            continue
+        agent_name = agent_dir.name
+        history_file = agent_dir / "chat_history.json"
+        if not history_file.exists():
+            continue
+
+        try:
+            history = _load_history(agent_name)
+            if not history:
+                continue
+
+            memory_path = agent_dir / "memory.md"
+
+            # Read existing memory (preserve sprint blocks and preamble)
+            existing = ""
+            if memory_path.exists():
+                existing = memory_path.read_text(encoding="utf-8")
+
+            # --- Build session summary from last few messages ---
+            recent = history[-3:]  # last 3 messages only
+            last_task_id = None
+            last_topic = None
+            for msg in reversed(recent):
+                if not last_task_id and msg.get("task_id"):
+                    last_task_id = msg["task_id"]
+                prompt = (msg.get("prompt") or "").strip()
+                if not last_topic and prompt:
+                    # First non-empty prompt = last topic
+                    last_topic = prompt[:120]
+
+            session_line = f"- [{now_str}] Session closed."
+            if last_task_id:
+                session_line += f" Last task: {last_task_id}."
+            if last_topic:
+                session_line += f" Last topic: {last_topic}"
+
+            # --- Update the Session Log section (keep last 3 entries) ---
+            SESSION_HEADER = "## Session Log"
+            MAX_SESSIONS = 3
+
+            idx = existing.find(SESSION_HEADER)
+            if idx == -1:
+                preamble = existing.rstrip()
+                session_entries = []
+            else:
+                preamble = existing[:idx].rstrip()
+                session_section = existing[idx + len(SESSION_HEADER):]
+                # Entries before next ## section
+                next_section = session_section.find("\n## ")
+                if next_section != -1:
+                    entries_text = session_section[:next_section]
+                    after_sessions = session_section[next_section:]
+                else:
+                    entries_text = session_section
+                    after_sessions = ""
+                session_entries = [l.strip() for l in entries_text.strip().splitlines() if l.strip().startswith("- [")]
+                # Re-attach sprint blocks after session log
+                if after_sessions.strip():
+                    preamble = preamble + "\n\n" + SESSION_HEADER + "\n" + "\n".join(session_entries)
+                    # Actually, let's keep it simple: sessions first, then sprint blocks
+                    pass
+
+            session_entries.append(session_line)
+            if len(session_entries) > MAX_SESSIONS:
+                session_entries = session_entries[-MAX_SESSIONS:]
+
+            # If no preamble yet — create a minimal one
+            if not preamble.strip():
+                preamble = f"# Agent: {agent_name}\nProject: {project_name}\n"
+
+            # Rebuild: keep everything before Session Log, then add session log
+            # Find and preserve sprint blocks (## Recent Work Log and ## Sprint)
+            sprint_blocks = ""
+            work_log_idx = existing.find("## Recent Work Log")
+            if work_log_idx != -1:
+                sprint_blocks = "\n\n" + existing[work_log_idx:].rstrip()
+                # Remove sprint blocks from preamble if duplicated
+                preamble_wl = preamble.find("## Recent Work Log")
+                if preamble_wl != -1:
+                    preamble = preamble[:preamble_wl].rstrip()
+
+            # Also remove old Session Log from preamble
+            preamble_sl = preamble.find("## Session Log")
+            if preamble_sl != -1:
+                preamble = preamble[:preamble_sl].rstrip()
+
+            new_content = (
+                preamble + "\n\n"
+                + SESSION_HEADER + "\n"
+                + "\n".join(session_entries) + "\n"
+                + sprint_blocks + "\n"
+            )
+            memory_path.write_text(new_content.strip() + "\n", encoding="utf-8")
+            result["agents_updated"].append(agent_name)
+        except Exception as e:
+            result["errors"].append(f"{agent_name}: {e}")
+
+    return result
+
+
+@router.post("/api/save-memories")
+async def save_memories():
+    """Save memory.md for all agents based on recent chat history."""
+    return _save_all_agent_memories()
+
+
 @router.post("/api/shutdown")
 async def shutdown():
-    """Shut down the server."""
+    """Shut down the server. Saves agent memories before exit."""
     print("\n  Shutdown request received...")
+    # Save all agent memories before shutting down
+    try:
+        mem_result = _save_all_agent_memories()
+        print(f"  Memory saved: {mem_result.get('agents_updated', [])}")
+    except Exception as e:
+        print(f"  Memory save error: {e}")
     stop_claude_api()
     # Shut down server after a short delay (so the response can be sent)
     asyncio.get_event_loop().call_later(0.5, lambda: os._exit(0))
@@ -67,6 +209,17 @@ async def get_status():
     """System status."""
     claude_api_running = app_state.claude_api_process is not None and app_state.claude_api_process.poll() is None
     project = get_current_project()
+
+    # Read Tayfa template version from sync_manifest.json
+    tayfa_version = None
+    try:
+        manifest_path = KOK_DIR / "template_tayfa" / "sync_manifest.json"
+        if manifest_path.exists():
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            tayfa_version = manifest.get("template_version")
+    except Exception:
+        pass
+
     return {
         "claude_api_running": claude_api_running,
         "api_running": app_state.api_running,
@@ -78,6 +231,7 @@ async def get_status():
         "current_project": project,
         "has_project": project is not None,
         "locked_project": app_state.LOCKED_PROJECT_PATH,
+        "tayfa_version": tayfa_version,
     }
 
 
@@ -385,3 +539,241 @@ async def telegram_disconnect():
     await stop_telegram_bot()
     set_telegram_settings("", "")
     return {"status": "disconnected"}
+
+
+# ── Updates ───────────────────────────────────────────────────────────────────
+
+
+def _find_git_root() -> Path | None:
+    """Find the git root directory for Tayfa.
+    Searches: TAYFA_ROOT_WIN itself, parent dirs (up to 5 levels),
+    and sibling dirs with 'tayfa' in the name (e.g. ../Tayfa alongside ../Tayfa_new)."""
+    resolved = TAYFA_ROOT_WIN.resolve()
+
+    # 1. Walk up from TAYFA_ROOT_WIN
+    current = resolved
+    for _ in range(5):
+        if (current / ".git").exists():
+            return current
+        parent = current.parent
+        if parent == current:
+            break
+        current = parent
+
+    # 2. Check sibling directories (same parent) with "tayfa" in name
+    parent_dir = resolved.parent
+    if parent_dir.exists():
+        for sibling in parent_dir.iterdir():
+            if sibling.is_dir() and "tayfa" in sibling.name.lower() and (sibling / ".git").exists():
+                return sibling
+
+    return None
+
+
+def _get_configured_repo_url() -> str | None:
+    """Build the expected GitHub remote URL from settings (githubOwner) and
+    project config (repoName).  Returns e.g. 'https://github.com/milgrig/tayfa'
+    or None when the config is incomplete."""
+    from settings_manager import load_public_settings
+    from project_manager import get_project_repo_name
+
+    settings = load_public_settings()
+    owner = (settings.get("git", {}).get("githubOwner") or "").strip()
+    repo = (get_project_repo_name() or "").strip()
+    if owner and repo:
+        return f"https://github.com/{owner}/{repo}"
+    return None
+
+
+def _find_tayfa_remote(cwd: str) -> str:
+    """Find the git remote whose fetch URL matches the configured GitHub repo.
+    When a configured URL is available, it is compared against every remote;
+    if none matches, a temporary remote 'tayfa-updates' is created so that
+    fetch/pull work correctly.  Falls back to 'origin' when config is absent."""
+    configured_url = _get_configured_repo_url()
+
+    try:
+        proc = subprocess.run(
+            ["git", "remote", "-v"],
+            cwd=cwd, capture_output=True, text=True, timeout=10, encoding="utf-8",
+        )
+        if proc.returncode != 0:
+            return "origin"
+
+        remotes: list[tuple[str, str]] = []
+        for line in proc.stdout.strip().split("\n"):
+            parts = line.split()
+            if len(parts) >= 2 and "(fetch)" in line:
+                remotes.append((parts[0], parts[1].rstrip("/")))
+
+        if configured_url:
+            norm = configured_url.lower().removesuffix(".git")
+            for name, url in remotes:
+                if url.lower().removesuffix(".git") == norm:
+                    return name
+
+            # No existing remote matches — create or update 'tayfa-updates'
+            remote_exists = any(n == "tayfa-updates" for n, _ in remotes)
+            if remote_exists:
+                _run_git(["remote", "set-url", "tayfa-updates", configured_url + ".git"], cwd)
+            else:
+                _run_git(["remote", "add", "tayfa-updates", configured_url + ".git"], cwd)
+            return "tayfa-updates"
+
+        # Fallback: look for any remote with "tayfa" in the repo name
+        for name, url in remotes:
+            repo_name = url.rsplit("/", 1)[-1].removesuffix(".git").lower()
+            if repo_name == "tayfa":
+                return name
+
+    except Exception:
+        pass
+    return "origin"
+
+
+def _run_git(args: list[str], cwd: str) -> dict:
+    """Run a git command and return stdout/stderr/returncode."""
+    try:
+        proc = subprocess.run(
+            ["git"] + args,
+            cwd=cwd,
+            capture_output=True,
+            text=True,
+            timeout=30,
+            encoding="utf-8",
+        )
+        return {
+            "returncode": proc.returncode,
+            "stdout": proc.stdout.strip(),
+            "stderr": proc.stderr.strip(),
+        }
+    except Exception as e:
+        return {"returncode": -1, "stdout": "", "stderr": str(e)}
+
+
+@router.get("/api/updates/check")
+async def check_for_updates():
+    """
+    Check if a new Tayfa version is available on GitHub.
+    Does git fetch + compares local HEAD vs remote HEAD.
+    Returns: current_version, latest_version, has_update, changelog (commit messages).
+    """
+    git_root = _find_git_root()
+    if not git_root:
+        raise HTTPException(status_code=400, detail="Git repository not found. Cannot check for updates.")
+
+    cwd = str(git_root)
+    remote = _find_tayfa_remote(cwd)
+
+    # Fetch latest from remote
+    fetch = _run_git(["fetch", remote, "--quiet"], cwd)
+    if fetch["returncode"] != 0:
+        raise HTTPException(
+            status_code=502,
+            detail=f"Failed to fetch from remote '{remote}': {fetch['stderr']}"
+        )
+
+    # Get current branch
+    branch_result = _run_git(["branch", "--show-current"], cwd)
+    branch = branch_result["stdout"] or "main"
+
+    # Get local and remote HEADs
+    local_head = _run_git(["rev-parse", "HEAD"], cwd)["stdout"]
+    remote_head = _run_git(["rev-parse", f"{remote}/{branch}"], cwd)["stdout"]
+
+    if not local_head or not remote_head:
+        raise HTTPException(status_code=500, detail="Could not determine local/remote versions")
+
+    has_update = local_head != remote_head
+
+    # Get commit count and messages between local and remote
+    changelog = []
+    commits_behind = 0
+    if has_update:
+        log_result = _run_git(
+            ["log", f"HEAD..{remote}/{branch}", "--oneline", "--no-decorate"],
+            cwd
+        )
+        if log_result["stdout"]:
+            changelog = log_result["stdout"].split("\n")
+            commits_behind = len(changelog)
+
+    # Get current Tayfa version from sync_manifest
+    tayfa_version = None
+    try:
+        manifest_path = KOK_DIR / "template_tayfa" / "sync_manifest.json"
+        if manifest_path.exists():
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            tayfa_version = manifest.get("template_version")
+    except Exception:
+        pass
+
+    return {
+        "has_update": has_update,
+        "current_commit": local_head[:8],
+        "latest_commit": remote_head[:8],
+        "commits_behind": commits_behind,
+        "changelog": changelog[:20],  # max 20 entries
+        "branch": branch,
+        "tayfa_version": tayfa_version,
+    }
+
+
+@router.post("/api/updates/install")
+async def install_update():
+    """
+    Install the latest Tayfa update: git pull origin <branch>.
+    Returns the pull result and suggests a server restart.
+    """
+    git_root = _find_git_root()
+    if not git_root:
+        raise HTTPException(status_code=400, detail="Git repository not found.")
+
+    cwd = str(git_root)
+    remote = _find_tayfa_remote(cwd)
+
+    # Get current branch
+    branch = _run_git(["branch", "--show-current"], cwd)["stdout"] or "main"
+
+    # Check for uncommitted changes
+    status = _run_git(["status", "--porcelain"], cwd)
+    if status["stdout"]:
+        # Stash changes before pull
+        _run_git(["stash", "push", "-m", "tayfa-auto-update"], cwd)
+
+    # Pull
+    pull = _run_git(["pull", remote, branch, "--ff-only"], cwd)
+
+    if pull["returncode"] != 0:
+        # Try to restore stash if we stashed
+        if status["stdout"]:
+            _run_git(["stash", "pop"], cwd)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Update failed: {pull['stderr']}. Try updating manually with 'git pull'."
+        )
+
+    # Pop stash if we stashed
+    stash_restored = False
+    if status["stdout"]:
+        pop = _run_git(["stash", "pop"], cwd)
+        stash_restored = pop["returncode"] == 0
+
+    # Read new version after update
+    new_version = None
+    try:
+        manifest_path = KOK_DIR / "template_tayfa" / "sync_manifest.json"
+        if manifest_path.exists():
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            new_version = manifest.get("template_version")
+    except Exception:
+        pass
+
+    return {
+        "status": "updated",
+        "pull_output": pull["stdout"],
+        "new_version": new_version,
+        "stash_restored": stash_restored,
+        "restart_required": True,
+        "message": "Update installed! Restart the server to apply changes.",
+    }

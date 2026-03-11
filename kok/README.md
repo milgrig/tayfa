@@ -29,8 +29,8 @@ The file system is the primary means of communication between agents:
 
 ```
 Tayfa/
-  Personel/
-    Rules/          — shared rules for all agents
+  .tayfa/
+    common/Rules/   — shared rules for all agents
     boss/           — manager
     hr/             — HR manager
     <name>/         — any employee's directory
@@ -106,7 +106,7 @@ Content-Type: application/json
 ```json
 {
   "name": "developer_python",
-  "system_prompt_file": "Personel/developer_python/prompt.md",
+  "system_prompt_file": ".tayfa/developer_python/prompt.md",
   "workdir": "<WSL-path-to-Tayfa>",
   "allowed_tools": "Read Edit Bash"
 }
@@ -247,4 +247,4 @@ Call timeout: 600 s. The `agent` command must be in `PATH` in WSL (typically `~/
 | List agents | `GET /agents` |
 | Delete an agent | `DELETE /agents/<name>` |
 | Agent registry | `~/claude_agents.json` (WSL) |
-| Agent rules | `<path-to-Tayfa>\Personel\Rules\` |
+| Agent rules | `<project-root>\.tayfa\common\Rules\` |

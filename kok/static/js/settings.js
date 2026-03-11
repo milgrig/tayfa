@@ -240,3 +240,87 @@ async function saveSettingMaxTasks(value) {
         alert('Error saving: ' + error.message);
     }
 }
+
+
+// ── Updates ─────────────────────────────────────────────────────────────────
+
+let _lastUpdateCheck = null;
+
+async function checkForUpdates() {
+    const statusEl = document.getElementById('updateStatus');
+    const btnCheck = document.getElementById('btnCheckUpdate');
+    const btnInstall = document.getElementById('btnInstallUpdate');
+    const changelogEl = document.getElementById('updateChangelog');
+
+    btnCheck.disabled = true;
+    btnCheck.textContent = 'Checking...';
+    statusEl.textContent = 'Checking for updates...';
+    statusEl.style.color = 'var(--text-dim)';
+    changelogEl.style.display = 'none';
+    btnInstall.style.display = 'none';
+
+    try {
+        const data = await api('GET', '/api/updates/check');
+        _lastUpdateCheck = data;
+
+        if (data.has_update) {
+            statusEl.textContent = `Update available! ${data.commits_behind} new commit${data.commits_behind > 1 ? 's' : ''} (${data.current_commit} → ${data.latest_commit})`;
+            statusEl.style.color = 'var(--accent)';
+            btnInstall.style.display = '';
+
+            if (data.changelog && data.changelog.length > 0) {
+                changelogEl.innerHTML = data.changelog.map(line => {
+                    const hash = line.substring(0, 7);
+                    const msg = line.substring(8);
+                    return `<div style="margin-bottom:4px;"><span style="color:var(--accent);">${hash}</span> ${msg}</div>`;
+                }).join('');
+                changelogEl.style.display = 'block';
+            }
+        } else {
+            statusEl.textContent = `Up to date (v${data.tayfa_version || '?'}, commit ${data.current_commit})`;
+            statusEl.style.color = 'var(--success)';
+        }
+    } catch (e) {
+        statusEl.textContent = 'Failed to check: ' + (e.message || e);
+        statusEl.style.color = 'var(--danger)';
+    } finally {
+        btnCheck.disabled = false;
+        btnCheck.textContent = 'Check for updates';
+    }
+}
+
+async function installUpdate() {
+    const statusEl = document.getElementById('updateStatus');
+    const btnInstall = document.getElementById('btnInstallUpdate');
+    const changelogEl = document.getElementById('updateChangelog');
+
+    if (!confirm('Install the latest Tayfa update? The server will need to be restarted after installation.')) {
+        return;
+    }
+
+    btnInstall.disabled = true;
+    btnInstall.textContent = 'Installing...';
+    statusEl.textContent = 'Installing update...';
+    statusEl.style.color = 'var(--text-dim)';
+
+    try {
+        const data = await api('POST', '/api/updates/install');
+        statusEl.textContent = `Updated to v${data.new_version || '?'}! Restart server to apply.`;
+        statusEl.style.color = 'var(--success)';
+        btnInstall.style.display = 'none';
+        changelogEl.style.display = 'none';
+
+        // Offer restart
+        if (confirm('Update installed! Restart the server now?')) {
+            try {
+                await api('POST', '/api/shutdown');
+            } catch { }
+            statusEl.textContent = 'Server is restarting...';
+        }
+    } catch (e) {
+        statusEl.textContent = 'Update failed: ' + (e.message || e);
+        statusEl.style.color = 'var(--danger)';
+        btnInstall.disabled = false;
+        btnInstall.textContent = 'Install update';
+    }
+}

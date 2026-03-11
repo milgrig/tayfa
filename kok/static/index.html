@@ -39,14 +39,14 @@
 
 <!-- Claude API Warning Banner -->
 <div id="claude-api-warning-banner" role="alert">
-    <span>⚠️ Warning: Claude API is unreachable. Tasks will fail until it is restored.</span>
+    <span>⚠️ Claude API is unreachable. Claude agents (opus/sonnet/haiku) won't work. Cursor CLI agents can still run.</span>
     <button class="banner-dismiss" onclick="document.getElementById('claude-api-warning-banner').classList.remove('visible'); document.getElementById('claude-api-warning-banner').style.display='none';" title="Dismiss">✕</button>
 </div>
 
 <!-- Header -->
 <div class="header">
     <div class="header-left">
-        <h1><span>Tayfa</span></h1>
+        <h1><span>Tayfa</span> <span id="tayfaVersionBadge" style="font-size:11px; font-weight:400; color:var(--text-dim); opacity:0.7; vertical-align:middle;"></span></h1>
         <div class="current-project" id="currentProjectBadge" onclick="switchProject()" title="Switch project">
             <span class="project-icon">📁</span>
             <span class="project-name" id="currentProjectName">—</span>
@@ -106,6 +106,9 @@
             <div class="settings-divider"></div>
             <div class="settings-item danger" onclick="stopServer()">
                 <span>❌</span> Stop server
+            </div>
+            <div class="settings-item danger" onclick="closeTayfa()">
+                <span>🔒</span> Close Tayfa
             </div>
         </div>
     </div>
@@ -287,6 +290,10 @@
                         <h3 style="font-size:14px; color:var(--text-bright); margin-bottom:12px;">🖥️ Server</h3>
                         <div style="display:flex; flex-direction:column; gap:10px;">
                             <div style="display:flex; justify-content:space-between; align-items:center;">
+                                <span style="color:var(--text-dim); font-size:13px;">Tayfa version</span>
+                                <span id="settingsTayfaVersion" style="font-family:var(--mono); color:var(--accent); font-size:13px; font-weight:600;">—</span>
+                            </div>
+                            <div style="display:flex; justify-content:space-between; align-items:center;">
                                 <span style="color:var(--text-dim); font-size:13px;">Orchestrator port</span>
                                 <span id="settingsPort" style="font-family:var(--mono); color:var(--text); font-size:13px;">—</span>
                             </div>
@@ -294,6 +301,21 @@
                                 <span style="color:var(--text-dim); font-size:13px;">Interface language</span>
                                 <span id="settingsLanguage" style="color:var(--text); font-size:13px;">—</span>
                             </div>
+                        </div>
+                    </div>
+
+                    <!-- Updates -->
+                    <div style="background:var(--bg-card); border:1px solid var(--border); border-radius:var(--radius); padding:20px; margin-bottom:16px;">
+                        <h3 style="font-size:14px; color:var(--text-bright); margin-bottom:12px;">🔄 Updates</h3>
+                        <div style="display:flex; flex-direction:column; gap:10px;">
+                            <div style="display:flex; justify-content:space-between; align-items:center;">
+                                <span id="updateStatus" style="color:var(--text-dim); font-size:13px;">Click to check for updates</span>
+                                <div style="display:flex; gap:8px;">
+                                    <button class="btn sm" id="btnCheckUpdate" onclick="checkForUpdates()">Check for updates</button>
+                                    <button class="btn sm" id="btnInstallUpdate" onclick="installUpdate()" style="display:none; background:var(--accent); color:#fff;">Install update</button>
+                                </div>
+                            </div>
+                            <div id="updateChangelog" style="display:none; max-height:150px; overflow-y:auto; background:var(--bg-input); border-radius:6px; padding:10px; font-size:12px; font-family:var(--mono); color:var(--text-dim);"></div>
                         </div>
                     </div>
 
@@ -437,13 +459,58 @@
                 <label>Model</label>
                 <select id="cfgModel">
                     <option value="">Default</option>
-                    <optgroup label="Claude">
+                    <optgroup label="Claude (API)">
                         <option value="opus">Claude Opus</option>
                         <option value="sonnet">Claude Sonnet</option>
                         <option value="haiku">Claude Haiku</option>
                     </optgroup>
-                    <optgroup label="Cursor">
-                        <option value="composer">Cursor Composer</option>
+                    <optgroup label="Cursor (ID как в CLI)">
+                        <option value="auto">Auto</option>
+                        <option value="composer-1.5">Composer 1.5</option>
+                        <option value="composer-1">Composer 1</option>
+                        <option value="gpt-5.3-codex-low">GPT-5.3 Codex Low</option>
+                        <option value="gpt-5.3-codex-low-fast">GPT-5.3 Codex Low Fast</option>
+                        <option value="gpt-5.3-codex">GPT-5.3 Codex</option>
+                        <option value="gpt-5.3-codex-fast">GPT-5.3 Codex Fast</option>
+                        <option value="gpt-5.3-codex-high">GPT-5.3 Codex High</option>
+                        <option value="gpt-5.3-codex-high-fast">GPT-5.3 Codex High Fast</option>
+                        <option value="gpt-5.3-codex-xhigh">GPT-5.3 Codex XHigh</option>
+                        <option value="gpt-5.3-codex-xhigh-fast">GPT-5.3 Codex XHigh Fast</option>
+                        <option value="gpt-5.2">GPT-5.2</option>
+                        <option value="gpt-5.3-codex-spark-preview">GPT-5.3 Codex Spark Preview</option>
+                        <option value="gpt-5.2-codex-low">GPT-5.2 Codex Low</option>
+                        <option value="gpt-5.2-codex-low-fast">GPT-5.2 Codex Low Fast</option>
+                        <option value="gpt-5.2-codex">GPT-5.2 Codex</option>
+                        <option value="gpt-5.2-codex-fast">GPT-5.2 Codex Fast</option>
+                        <option value="gpt-5.2-codex-high">GPT-5.2 Codex High</option>
+                        <option value="gpt-5.2-codex-high-fast">GPT-5.2 Codex High Fast</option>
+                        <option value="gpt-5.2-codex-xhigh">GPT-5.2 Codex XHigh</option>
+                        <option value="gpt-5.2-codex-xhigh-fast">GPT-5.2 Codex XHigh Fast</option>
+                        <option value="gpt-5.1-codex-max">GPT-5.1 Codex Max</option>
+                        <option value="gpt-5.1-codex-max-high">GPT-5.1 Codex Max High</option>
+                        <option value="gpt-5.4-high">GPT-5.4 High</option>
+                        <option value="opus-4.6-thinking">Opus 4.6 Thinking</option>
+                        <option value="gpt-5.4-low">GPT-5.4 Low</option>
+                        <option value="gpt-5.4-medium">GPT-5.4 Medium</option>
+                        <option value="gpt-5.4-medium-fast">GPT-5.4 Medium Fast</option>
+                        <option value="gpt-5.4-high-fast">GPT-5.4 High Fast</option>
+                        <option value="gpt-5.4-xhigh">GPT-5.4 XHigh</option>
+                        <option value="gpt-5.4-xhigh-fast">GPT-5.4 XHigh Fast</option>
+                        <option value="sonnet-4.6">Sonnet 4.6</option>
+                        <option value="sonnet-4.6-thinking">Sonnet 4.6 Thinking</option>
+                        <option value="opus-4.6">Opus 4.6</option>
+                        <option value="opus-4.5">Opus 4.5</option>
+                        <option value="opus-4.5-thinking">Opus 4.5 Thinking</option>
+                        <option value="gpt-5.2-high">GPT-5.2 High</option>
+                        <option value="gemini-3.1-pro">Gemini 3.1 Pro</option>
+                        <option value="grok">Grok</option>
+                        <option value="sonnet-4.5">Sonnet 4.5</option>
+                        <option value="sonnet-4.5-thinking">Sonnet 4.5 Thinking</option>
+                        <option value="gpt-5.1-high">GPT-5.1 High</option>
+                        <option value="gemini-3-pro">Gemini 3 Pro</option>
+                        <option value="gemini-3-flash">Gemini 3 Flash</option>
+                        <option value="gpt-5.1-codex-mini">GPT-5.1 Codex Mini</option>
+                        <option value="kimi-k2.5">Kimi K2.5</option>
                     </optgroup>
                 </select>
             </div>

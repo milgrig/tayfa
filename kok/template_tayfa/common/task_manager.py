@@ -56,33 +56,87 @@ def _get_project_root() -> Path | None:
 
 
 def _get_github_token() -> str:
-    """Get GitHub token from kok/secret_settings.json."""
+    """
+    Get GitHub token. Search order:
+    1. {project_root}/kok/secret_settings.json (legacy local path)
+    2. Central orchestrator: scan parent directories for */kok/secret_settings.json
+    """
+    # 1. Local project path
     project_root = _get_project_root()
-    if not project_root:
-        return ""
-    secret_path = project_root / "kok" / "secret_settings.json"
-    if not secret_path.exists():
-        return ""
-    try:
-        settings = json.loads(secret_path.read_text(encoding="utf-8"))
-        return settings.get("githubToken", "").strip()
-    except Exception:
-        return ""
+    if project_root:
+        secret_path = project_root / "kok" / "secret_settings.json"
+        if secret_path.exists():
+            try:
+                settings = json.loads(secret_path.read_text(encoding="utf-8"))
+                token = settings.get("githubToken", "").strip()
+                if token:
+                    return token
+            except Exception:
+                pass
+
+    # 2. Search up from project root for sibling directories with kok/
+    if project_root:
+        search_dir = project_root.parent
+        for _ in range(3):  # Go up max 3 levels
+            if search_dir and search_dir.exists():
+                try:
+                    for candidate in search_dir.iterdir():
+                        if candidate.is_dir():
+                            secret_path = candidate / "kok" / "secret_settings.json"
+                            if secret_path.exists():
+                                try:
+                                    settings = json.loads(secret_path.read_text(encoding="utf-8"))
+                                    token = settings.get("githubToken", "").strip()
+                                    if token:
+                                        return token
+                                except Exception:
+                                    pass
+                except PermissionError:
+                    pass
+                search_dir = search_dir.parent
+
+    return ""
 
 
 def _get_github_owner() -> str:
-    """Get GitHub owner from kok/settings.json -> git.githubOwner."""
+    """
+    Get GitHub owner. Search order:
+    1. {project_root}/kok/settings.json -> git.githubOwner
+    2. Central orchestrator: scan parent directories for */kok/settings.json
+    """
     project_root = _get_project_root()
-    if not project_root:
-        return ""
-    settings_path = project_root / "kok" / "settings.json"
-    if not settings_path.exists():
-        return ""
-    try:
-        settings = json.loads(settings_path.read_text(encoding="utf-8"))
-        return settings.get("git", {}).get("githubOwner", "").strip()
-    except Exception:
-        return ""
+
+    def _try_read_owner(path: Path) -> str:
+        if not path.exists():
+            return ""
+        try:
+            settings = json.loads(path.read_text(encoding="utf-8"))
+            return settings.get("git", {}).get("githubOwner", "").strip()
+        except Exception:
+            return ""
+
+    # 1. Local project path
+    if project_root:
+        owner = _try_read_owner(project_root / "kok" / "settings.json")
+        if owner:
+            return owner
+
+    # 2. Search up from project root
+    if project_root:
+        search_dir = project_root.parent
+        for _ in range(3):
+            if search_dir and search_dir.exists():
+                try:
+                    for candidate in search_dir.iterdir():
+                        if candidate.is_dir():
+                            owner = _try_read_owner(candidate / "kok" / "settings.json")
+                            if owner:
+                                return owner
+                except PermissionError:
+                    pass
+                search_dir = search_dir.parent
+
+    return ""
 
 
 def _get_repo_name() -> str:
@@ -448,6 +502,97 @@ def set_tasks_file(path: str | Path) -> None:
 
 
 STATUSES = ["new", "done", "questions", "cancelled"]
+
+
+def _update_agent_memories_for_sprint(sprint_id: str) -> dict:
+    """Update memory.md for every agent that participated in the sprint.
+
+    Collects all tasks grouped by executor, reads each agent's existing
+    memory.md and appends a sprint summary block.  Creates the file if
+    it doesn't exist yet.
+
+    Returns {"agents_updated": [...], "errors": [...]}.
+    """
+    result = {"agents_updated": [], "errors": []}
+    tasks = get_tasks(sprint_id=sprint_id)
+    sprint = get_sprint(sprint_id)
+    sprint_title = sprint.get("title", sprint_id) if sprint else sprint_id
+
+    # Group tasks by executor
+    agent_tasks: dict[str, list[dict]] = {}
+    for t in tasks:
+        executor = t.get("executor", "")
+        if not executor:
+            continue
+        agent_tasks.setdefault(executor, []).append(t)
+
+    # .tayfa dir — sibling of common/
+    tayfa_dir = TASKS_FILE.parent.parent  # .tayfa/common -> .tayfa
+
+    for agent_name, atasks in agent_tasks.items():
+        try:
+            memory_path = tayfa_dir / agent_name / "memory.md"
+            memory_path.parent.mkdir(parents=True, exist_ok=True)
+
+            # Read existing memory
+            existing = ""
+            if memory_path.exists():
+                existing = memory_path.read_text(encoding="utf-8")
+
+            # Build sprint summary for this agent
+            lines = [
+                f"\n## Sprint {sprint_id}: {sprint_title}",
+                f"Completed: {_now()}",
+                "",
+            ]
+            for t in atasks:
+                status_icon = "✅" if t["status"] == "done" else ("🚫" if t["status"] == "cancelled" else "❓")
+                task_result = (t.get("result") or "").strip()
+                # Truncate long results
+                if len(task_result) > 150:
+                    task_result = task_result[:147] + "..."
+                lines.append(f"- {status_icon} **{t['id']}** {t.get('title', '')}: {task_result}")
+            lines.append("")
+
+            sprint_block = "\n".join(lines)
+
+            # --- Build / update the Recent Work Log section ---
+            WORK_LOG_HEADER = "## Recent Work Log"
+            MAX_SPRINT_BLOCKS = 3  # keep last N sprint summaries
+
+            # Separate preamble (role, project info) from work log
+            idx = existing.find(WORK_LOG_HEADER)
+            if idx == -1:
+                preamble = existing.rstrip()
+                work_log = ""
+            else:
+                preamble = existing[:idx].rstrip()
+                work_log = existing[idx + len(WORK_LOG_HEADER):]
+
+            # Split work log into sprint blocks (each starts with "\n## Sprint S")
+            import re as _re
+            blocks = _re.split(r"(?=\n## Sprint S)", work_log)
+            blocks = [b for b in blocks if b.strip()]
+            blocks.append(sprint_block)
+
+            # Trim to last N blocks
+            if len(blocks) > MAX_SPRINT_BLOCKS:
+                blocks = blocks[-MAX_SPRINT_BLOCKS:]
+
+            # If no preamble yet — create a minimal one
+            if not preamble.strip():
+                preamble = (
+                    f"# Agent: {agent_name}\n"
+                    f"Project: {sprint_title.split(':')[0] if ':' in sprint_title else 'current'}\n"
+                )
+
+            new_content = preamble + "\n\n" + WORK_LOG_HEADER + "\n" + "\n".join(blocks) + "\n"
+            memory_path.write_text(new_content, encoding="utf-8")
+            result["agents_updated"].append(agent_name)
+        except Exception as e:
+            result["errors"].append(f"{agent_name}: {e}")
+
+    return result
 SPRINT_STATUSES = ["active", "completed", "released"]
 
 # For "new" tasks: agent resolves from task field "executor"
@@ -1022,6 +1167,14 @@ def update_task_status(task_id: str, new_status: str) -> dict:
                                 result["sprint_report"] = report_result["path"]
                         except Exception:
                             pass  # Report failure must not block task completion
+
+                        # Update agent memories with sprint results
+                        try:
+                            memory_result = _update_agent_memories_for_sprint(sprint_id)
+                            if memory_result.get("agents_updated"):
+                                result["memory_updated"] = memory_result["agents_updated"]
+                        except Exception:
+                            pass  # Memory update failure must not block task completion
 
             return result
     return {"error": f"Task {task_id} not found"}

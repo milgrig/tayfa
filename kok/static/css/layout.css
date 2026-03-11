@@ -297,7 +297,14 @@
         .model-opus { background: rgba(168,85,247,0.15); color: #a855f7; }
         .model-sonnet { background: rgba(52,211,153,0.15); color: #34d399; }
         .model-haiku { background: rgba(251,191,36,0.15); color: #fbbf24; }
+        .model-gpt { background: rgba(16,163,127,0.15); color: #10a37f; }
+        .model-gemini { background: rgba(66,133,244,0.15); color: #4285f4; }
+        .model-grok { background: rgba(239,68,68,0.15); color: #ef4444; }
+        .model-kimi { background: rgba(139,92,246,0.15); color: #8b5cf6; }
         .model-composer { background: rgba(79,110,247,0.15); color: #4f6ef7; }
+        .model-auto { background: rgba(148,163,184,0.15); color: #94a3b8; }
+        .model-cursor { background: rgba(79,110,247,0.15); color: #4f6ef7; }
+        .model-unknown { background: rgba(148,163,184,0.1); color: #64748b; }
 
         /* (send-target-row removed — runtime selection moved to agent sidebar badges) */
 

@@ -82,6 +82,13 @@ Check that executor provided complete result:
 
 Incomplete result → return for rework.
 
+## Known Bugs System
+
+The file `.tayfa/common/known_bugs.md` tracks recurring bug patterns.
+- When a bug is reported that has happened before — check if it's in known_bugs.md
+- If NOT — tell the fixing agent to add it after fixing
+- All agents are instructed to read this file before every task
+
 ## Working Directories
 
 - **Your folder**: `.tayfa/boss/`

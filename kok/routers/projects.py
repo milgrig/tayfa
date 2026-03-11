@@ -12,7 +12,7 @@ import app_state
 from app_state import (
     list_projects, get_current_project, is_new_user,
     get_project_repo_name, set_project_repo_name,
-    open_project, init_project, add_project, remove_project,
+    open_project, sync_project, init_project, add_project, remove_project,
     set_tasks_file, set_employees_file, set_backlog_file,
     set_chat_history_tayfa_dir, set_memory_tayfa_dir,
     _get_employees, get_employee, register_employee, remove_employee,
@@ -105,14 +105,107 @@ async def api_open_project(data: dict):
     except Exception as e:
         print(f"[api_open_project] Error recreating agents (non-critical): {e}")
 
+    # Notify boss-agent about sync if infrastructure was updated
+    sync_data = result.get("sync")
+    if sync_data and sync_data.get("status") == "synced":
+        await _notify_boss_about_sync(sync_data)
+
     response = {
         "status": "opened",
         "project": result.get("project"),
         "init": result.get("init"),
-        "tayfa_path": result.get("tayfa_path")
+        "tayfa_path": result.get("tayfa_path"),
     }
+    if sync_data:
+        response["sync"] = sync_data
     print(f"[api_open_project] Response: {response}")
     return response
+
+
+async def _notify_boss_about_sync(sync_result: dict):
+    """
+    Send a chat message to boss-agent about infrastructure sync.
+    Boss sees it as a regular conversation message and responds in the dialog.
+    """
+    if sync_result.get("status") != "synced":
+        return
+
+    from_v = sync_result.get("from_version", "?")
+    to_v = sync_result.get("to_version", "?")
+    added = sync_result.get("added", [])
+    updated = sync_result.get("updated", [])
+    changelog = sync_result.get("changelog", [])
+    backups = sync_result.get("backups", [])
+
+    lines = [
+        f"🔄 **Tayfa Infrastructure Update** (v{from_v} → v{to_v})",
+        "",
+    ]
+
+    if changelog:
+        lines.append("**What changed:**")
+        for entry in changelog:
+            lines.append(f"- {entry}")
+        lines.append("")
+
+    if added:
+        lines.append(f"**New files added ({len(added)}):**")
+        for f in added:
+            lines.append(f"- `{f}`")
+        lines.append("")
+
+    if updated:
+        lines.append(f"**Files updated ({len(updated)}):**")
+        for f in updated:
+            lines.append(f"- `{f}`")
+        lines.append("")
+
+    if backups:
+        lines.append(f"Previous versions saved as `.local` backups ({len(backups)} files).")
+        lines.append("")
+
+    lines.append("Please review and acknowledge. If any updated file affects current sprint work, inform the team.")
+
+    message = "\n".join(lines)
+
+    try:
+        from routers.agents import send_prompt
+        await send_prompt({
+            "name": "boss",
+            "prompt": message,
+            "runtime": "haiku",  # Use cheap model for acknowledgement
+        })
+        logger.info(f"Boss notified about sync v{from_v} → v{to_v}")
+    except Exception as e:
+        logger.warning(f"Failed to notify boss about sync: {e}")
+
+
+@router.post("/api/projects/sync")
+async def api_sync_project(data: dict = None):
+    """
+    Manually sync infrastructure files from template to project.
+    Body: {"path": "C:\\Projects\\App"} or empty (uses current project).
+    """
+    if data and data.get("path"):
+        path = data["path"]
+    else:
+        current = get_current_project()
+        if not current:
+            raise HTTPException(status_code=400, detail="No current project. Specify path or open a project first.")
+        path = current.get("path")
+        if not path:
+            raise HTTPException(status_code=400, detail="Current project has no path")
+
+    result = sync_project(path)
+
+    if result.get("status") == "error":
+        raise HTTPException(status_code=400, detail=result.get("error", "Sync error"))
+
+    # Notify boss-agent if sync happened
+    if result.get("status") == "synced":
+        await _notify_boss_about_sync(result)
+
+    return result
 
 
 @router.post("/api/projects/init")

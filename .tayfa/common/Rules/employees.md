@@ -34,13 +34,9 @@ Source of truth: **`.tayfa/common/employees.json`**
 
 **Role**: System analyst, requirements and task specification.
 
-**Capabilities**: detail requirements from boss, write acceptance criteria (3-5 per task), define test cases (2-3 per task), decompose complex requirements.
-
-**Does NOT**: implement code, run tests, verify implementation.
+**Capabilities**: detail requirements, write user stories, acceptance criteria, decompose tasks.
 
 **Task role**: Executor (details requirements, analyzes).
-
-**Model**: Claude Sonnet — standard analytical tasks.
 
 ---
 
@@ -48,13 +44,9 @@ Source of truth: **`.tayfa/common/employees.json`**
 
 **Role**: Application developer.
 
-**Capabilities**: implement features per specifications, fix bugs, write unit tests, run code and verify it works before handoff.
+**Capabilities**: implement features, fix bugs, refactor, write tests.
 
-**Must**: install dependencies, run pytest, ensure code starts properly.
-
-**Task role**: Developer (implements per analyst's spec, verified by tester).
-
-**Model**: Claude Opus — all development requires high code quality.
+**Task role**: Executor (implements per spec).
 
 ---
 
@@ -62,13 +54,9 @@ Source of truth: **`.tayfa/common/employees.json`**
 
 **Role**: QA Engineer.
 
-**Capabilities**: verify implementation against acceptance criteria, run tests (pytest), check code startup and functionality, document bugs clearly, return tasks if verification fails.
+**Capabilities**: test functionality, verify acceptance criteria, document bugs.
 
-**First step**: always run the code before checking functionality.
-
-**Task role**: Tester (verifies developer's work, final checkpoint before completion).
-
-**Model**: Claude Sonnet — testing and verification tasks.
+**Task role**: Executor (verifies and accepts/returns).
 
 ---
 
@@ -93,102 +81,6 @@ Source of truth: **`.tayfa/common/employees.json`**
 **Does NOT**: ask questions, research code, add own requirements.
 
 **Model**: Claude Haiku — for fast template operations.
-
----
-
-## agent_specialist
-
-**Role**: AI Agent Architecture Specialist.
-
-**Capabilities**: research and design AI agent architectures, analyze and improve existing agent prompts, create SKILL.md files, evaluate orchestration approaches, research Claude Code CLI features.
-
-**Key trait**: research-first approach — always searches the web for current information rather than relying on potentially outdated knowledge.
-
-**Does NOT**: write application code, run tests, detail business requirements.
-
-**Model**: Claude Opus — complex research and architectural analysis.
-
-**Who can contact**: boss, hr.
-
----
-
-## developer_2
-
-**Role**: Application developer (secondary).
-
-**Capabilities**: implement features per specifications, fix bugs, write unit tests, handle parallel tasks alongside primary developer.
-
-**Must**: install dependencies, run pytest, ensure code starts properly.
-
-**Task role**: Developer (implements per spec, verified by tester or reviewer).
-
-**Model**: Claude Sonnet — medium-complexity development tasks.
-
----
-
-## reviewer
-
-**Role**: Code Reviewer.
-
-**Capabilities**: fast code review, check code quality, find bugs, verify style consistency, ensure implementation matches acceptance criteria.
-
-**Key trait**: concise and focused — flags real issues, not nitpicks.
-
-**Task role**: Tester (lightweight code review checkpoint).
-
-**Model**: Claude Haiku — fast, cheap turnaround on reviews.
-
----
-
-## devops
-
-**Role**: DevOps Engineer.
-
-**Capabilities**: CI/CD pipelines, deployment scripts, build automation, environment configuration, git hooks and workflows, cross-platform shell/Python scripts.
-
-**Task role**: Developer (for infrastructure/automation tasks).
-
-**Model**: Claude Haiku — routine automation and scripting.
-
----
-
-## tech_writer
-
-**Role**: Technical Writer.
-
-**Capabilities**: write and maintain README, CHANGELOG, API docs, user guides, sprint reports, architecture documentation. Keeps docs in sync with codebase.
-
-**Task role**: Developer (for documentation tasks).
-
-**Model**: Claude Haiku — routine documentation work.
-
----
-
-## tester_2
-
-**Role**: QA Engineer.
-
-**Capabilities**: verify implementation against acceptance criteria, run tests (pytest), check code startup and functionality, document bugs clearly, return tasks if verification fails.
-
-**First step**: always run the code before checking functionality.
-
-**Task role**: Tester (verifies developer_2's work, final checkpoint before completion).
-
-**Model**: Claude Sonnet — testing and verification tasks.
-
----
-
-## qa_manager
-
-**Role**: QA Manager — AI Testing Specialist.
-
-**Capabilities**: design testing strategies for AI agent systems, build automated test suites (pytest), define quality gates and acceptance criteria standards, analyze test failure patterns, create test infrastructure (fixtures, mocks, test data), ensure comprehensive test coverage.
-
-**Task role**: Executor — depending on task (testing strategy, test frameworks, quality verification).
-
-**Model**: Claude Opus — complex testing architecture and strategy.
-
-**Who can contact**: boss.
 
 ---
 
