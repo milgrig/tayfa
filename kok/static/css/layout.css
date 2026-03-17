@@ -96,16 +96,27 @@
         .btn.warning:hover { background: rgba(251,191,36,0.1); }
 
         /* ── Layout ─────────────────────── */
-        .main { display: grid; grid-template-columns: 320px 1fr; height: calc(100vh - 57px); }
-        .main.panel-open { grid-template-columns: 320px 1fr 360px; }
+        .main {
+            position: relative;
+            display: grid;
+            grid-template-columns: 320px 1fr;
+            grid-template-rows: 1fr;
+            height: calc(100vh - 57px);
+            overflow: hidden;
+        }
+        .main.panel-open { grid-template-columns: 320px 1fr; }
+        .main.panel-open .content { margin-right: 360px; }
 
         /* ── Agent Panel ───────────────── */
         .agent-panel {
+            position: absolute;
+            top: 0; right: 0; bottom: 0;
+            width: 360px;
             border-left: 1px solid var(--border);
             display: flex; flex-direction: column;
             background: var(--bg-card);
             overflow: hidden;
-            height: 100%;
+            z-index: 10;
         }
         .agent-panel-header {
             padding: 12px 16px;
@@ -249,7 +260,7 @@
         }
 
         /* ── Sidebar ────────────────────── */
-        .sidebar { border-right: 1px solid var(--border); overflow-y: auto; background: var(--bg-card); }
+        .sidebar { border-right: 1px solid var(--border); overflow-y: auto; background: var(--bg-card); min-height: 0; }
         .sidebar-section { padding: 16px; border-bottom: 1px solid var(--border); }
         .sidebar-section h3 {
             font-size: 11px; text-transform: uppercase; letter-spacing: 1px;
@@ -309,7 +320,7 @@
         /* (send-target-row removed — runtime selection moved to agent sidebar badges) */
 
         /* ── Content Area ───────────────── */
-        .content { display: flex; flex-direction: column; height: 100%; overflow: hidden; }
+        .content { display: flex; flex-direction: column; height: 100%; overflow: hidden; min-height: 0; }
         .content-header {
             padding: 16px 24px; border-bottom: 1px solid var(--border);
             display: flex; align-items: center; justify-content: space-between; min-height: 60px;
@@ -383,6 +394,61 @@
         .input-area textarea::placeholder { color: var(--text-dim); }
 
         .empty-state { font-size: 13px; color: var(--text-dim); text-align: center; padding: 16px; }
+
+        /* ── Attach Button ─────────────── */
+        .btn-attach {
+            background: none; border: 1px solid var(--border); border-radius: 8px;
+            color: var(--text-dim); cursor: pointer; padding: 10px;
+            display: flex; align-items: center; justify-content: center;
+            transition: all 0.15s ease; flex-shrink: 0;
+        }
+        .btn-attach:hover { color: var(--accent); border-color: var(--accent); background: rgba(79,110,247,0.06); }
+
+        /* ── Image Preview Container ──── */
+        .image-preview-container {
+            display: none; gap: 8px; padding: 8px 24px 0;
+            flex-wrap: wrap; align-items: center;
+        }
+        .image-preview-thumb {
+            position: relative; width: 64px; height: 64px;
+            border-radius: 8px; overflow: hidden;
+            border: 1px solid var(--border); flex-shrink: 0;
+        }
+        .image-preview-thumb img {
+            width: 100%; height: 100%; object-fit: cover; display: block;
+        }
+        .image-preview-remove {
+            position: absolute; top: 2px; right: 2px;
+            width: 18px; height: 18px; border-radius: 50%;
+            background: rgba(0,0,0,0.65); color: #fff;
+            border: none; cursor: pointer; font-size: 12px; line-height: 18px;
+            text-align: center; padding: 0; transition: background 0.15s;
+        }
+        .image-preview-remove:hover { background: var(--danger); }
+
+        /* ── Chat Images ───────────────── */
+        .chat-images { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 8px; }
+        .chat-image-thumb {
+            width: 120px; height: 90px; object-fit: cover;
+            border-radius: 6px; cursor: pointer;
+            border: 1px solid rgba(255,255,255,0.1);
+            transition: transform 0.15s, box-shadow 0.15s;
+        }
+        .chat-image-thumb:hover { transform: scale(1.05); box-shadow: 0 4px 12px rgba(0,0,0,0.3); }
+
+        /* ── Fullscreen Image Overlay ──── */
+        .image-fullscreen-overlay {
+            position: fixed; inset: 0; background: rgba(0,0,0,0.85);
+            display: flex; align-items: center; justify-content: center;
+            z-index: 2000; cursor: pointer; backdrop-filter: blur(4px);
+        }
+        .image-fullscreen-overlay img {
+            max-width: 90vw; max-height: 90vh; border-radius: 8px;
+            box-shadow: 0 8px 32px rgba(0,0,0,0.5); cursor: default;
+        }
+
+        /* ── Drag-over state ───────────── */
+        #chatScreen.drag-over { outline: 2px dashed var(--accent); outline-offset: -4px; }
 
         /* ── Modal ──────────────────────── */
         .modal-overlay {

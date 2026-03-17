@@ -224,11 +224,13 @@ async function loadChatHistory(agentName) {
         for (const msg of data.messages || []) {
             // User prompt
             if (msg.prompt) {
-                chatHistories[agentName].push({
+                const userMsg = {
                     type: 'user',
                     text: msg.prompt,
                     meta: formatChatTime(msg.timestamp)
-                });
+                };
+                if (msg.images && msg.images.length > 0) userMsg.images = msg.images;
+                chatHistories[agentName].push(userMsg);
             }
             // Agent response
             if (msg.result) {
@@ -275,6 +277,20 @@ function renderChat() {
         const div = document.createElement('div');
         div.className = `message ${msg.type}`;
         div.textContent = msg.text;
+        // Render attached images
+        if (msg.images && msg.images.length > 0) {
+            const imagesWrap = document.createElement('div');
+            imagesWrap.className = 'chat-images';
+            for (const img of msg.images) {
+                const imgEl = document.createElement('img');
+                imgEl.src = `data:${img.mime};base64,${img.data}`;
+                imgEl.className = 'chat-image-thumb';
+                imgEl.alt = 'Attached image';
+                imgEl.onclick = () => _openImageFullscreen(imgEl.src);
+                imagesWrap.appendChild(imgEl);
+            }
+            div.appendChild(imagesWrap);
+        }
         if (msg.meta) {
             const metaDiv = document.createElement('div');
             metaDiv.className = 'meta';
@@ -286,9 +302,22 @@ function renderChat() {
     area.scrollTop = area.scrollHeight;
 }
 
-function addChatMessage(agent, type, text, meta = '') {
+function _openImageFullscreen(src) {
+    const overlay = document.createElement('div');
+    overlay.className = 'image-fullscreen-overlay';
+    overlay.onclick = () => overlay.remove();
+    const img = document.createElement('img');
+    img.src = src;
+    img.onclick = (e) => e.stopPropagation();
+    overlay.appendChild(img);
+    document.body.appendChild(overlay);
+}
+
+function addChatMessage(agent, type, text, meta = '', images = []) {
     if (!chatHistories[agent]) chatHistories[agent] = [];
-    chatHistories[agent].push({ type, text, meta });
+    const msg = { type, text, meta };
+    if (images && images.length > 0) msg.images = images;
+    chatHistories[agent].push(msg);
     if (agent === currentAgent) renderChat();
 }
 
@@ -313,13 +342,15 @@ async function sendPrompt() {
 
     const input = document.getElementById('promptInput');
     const text = input.value.trim();
-    if (!text) return;
+    const images = _getPendingImagesAndClear();
+    if (!text && images.length === 0) return;
     input.value = ''; input.style.height = 'auto';
 
     // Clear draft of current agent after sending
     delete agentDrafts[currentAgent];
 
-    addChatMessage(currentAgent, 'user', text);
+    const displayText = text || (images.length > 0 ? '' : '');
+    addChatMessage(currentAgent, 'user', displayText, '', images);
 
     const agentForRequest = currentAgent;  // Save agent for this request
     const btn = document.getElementById('btnSend');
@@ -331,21 +362,23 @@ async function sendPrompt() {
 
     try {
         if (isAgentOllama(agentForRequest)) {
-            const result = await api('POST', '/api/send-prompt-ollama', { name: agentForRequest, prompt: text, model: runtime });
+            const result = await api('POST', '/api/send-prompt-ollama', { name: agentForRequest, prompt: text || 'Describe this image', model: runtime });
             if (result.is_error) {
                 addChatMessage(agentForRequest, 'error', result.error || 'Ollama Error');
             } else {
                 addChatMessage(agentForRequest, 'agent', result.result || '(Empty response)', 'Ollama (local)');
             }
         } else if (isAgentCursor(agentForRequest)) {
-            const result = await api('POST', '/api/send-prompt-cursor', { name: agentForRequest, prompt: text });
+            const result = await api('POST', '/api/send-prompt-cursor', { name: agentForRequest, prompt: text || 'Describe this image' });
             if (result.success) {
                 addChatMessage(agentForRequest, 'agent', result.result || '(Empty response)', result.stderr ? `Cursor CLI` : 'Cursor CLI');
             } else {
                 addChatMessage(agentForRequest, 'error', (result.stderr || result.result || 'Cursor CLI Error').trim());
             }
         } else {
-            const result = await api('POST', '/api/send-prompt', { name: agentForRequest, prompt: text, runtime: runtime });
+            const payload = { name: agentForRequest, prompt: text, runtime: runtime };
+            if (images.length > 0) payload.images = images;
+            const result = await api('POST', '/api/send-prompt', payload);
             const response = result.result || result.stdout || JSON.stringify(result);
             const meta = [];
             if (result.cost_usd) meta.push(`$${result.cost_usd.toFixed(4)}`);
@@ -364,6 +397,105 @@ async function sendPrompt() {
 
 function handleKeyDown(e) { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendPrompt(); } }
 function autoGrow(el) { el.style.height = 'auto'; el.style.height = Math.min(el.scrollHeight, 200) + 'px'; }
+
+// ── Image Attachment ────────────────────────────────────────────────────────
+
+let pendingImages = []; // Array of { data: 'base64...', mime: 'image/png' }
+
+function handleImageFileSelect(files) {
+    for (const file of files) {
+        if (!file.type.startsWith('image/')) continue;
+        _readImageFile(file);
+    }
+    // Reset file input so same file can be re-selected
+    document.getElementById('imageFileInput').value = '';
+}
+
+function _readImageFile(file) {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+        const dataUrl = e.target.result;
+        // Extract base64 part after "data:image/png;base64,"
+        const base64 = dataUrl.split(',')[1];
+        const mime = file.type || 'image/png';
+        pendingImages.push({ data: base64, mime });
+        _renderImagePreviews();
+    };
+    reader.readAsDataURL(file);
+}
+
+function _removePendingImage(index) {
+    pendingImages.splice(index, 1);
+    _renderImagePreviews();
+}
+
+function _renderImagePreviews() {
+    const container = document.getElementById('imagePreviewContainer');
+    container.innerHTML = '';
+    if (pendingImages.length === 0) {
+        container.style.display = 'none';
+        return;
+    }
+    container.style.display = 'flex';
+    pendingImages.forEach((img, i) => {
+        const wrap = document.createElement('div');
+        wrap.className = 'image-preview-thumb';
+        const imgEl = document.createElement('img');
+        imgEl.src = `data:${img.mime};base64,${img.data}`;
+        imgEl.alt = 'Preview';
+        wrap.appendChild(imgEl);
+        const removeBtn = document.createElement('button');
+        removeBtn.className = 'image-preview-remove';
+        removeBtn.textContent = '\u00d7';
+        removeBtn.onclick = () => _removePendingImage(i);
+        wrap.appendChild(removeBtn);
+        container.appendChild(wrap);
+    });
+}
+
+function _getPendingImagesAndClear() {
+    if (pendingImages.length === 0) return [];
+    const images = [...pendingImages];
+    pendingImages = [];
+    _renderImagePreviews();
+    return images;
+}
+
+// Paste handler — detect images from clipboard
+document.addEventListener('DOMContentLoaded', () => {
+    const input = document.getElementById('promptInput');
+    if (!input) return;
+
+    input.addEventListener('paste', (e) => {
+        const items = e.clipboardData && e.clipboardData.items;
+        if (!items) return;
+        for (const item of items) {
+            if (item.type.startsWith('image/')) {
+                e.preventDefault();
+                const file = item.getAsFile();
+                if (file) _readImageFile(file);
+            }
+        }
+    });
+
+    // Drag-and-drop on chat area
+    const chatScreen = document.getElementById('chatScreen');
+    if (!chatScreen) return;
+
+    chatScreen.addEventListener('dragover', (e) => {
+        e.preventDefault();
+        chatScreen.classList.add('drag-over');
+    });
+    chatScreen.addEventListener('dragleave', (e) => {
+        if (!chatScreen.contains(e.relatedTarget)) chatScreen.classList.remove('drag-over');
+    });
+    chatScreen.addEventListener('drop', (e) => {
+        e.preventDefault();
+        chatScreen.classList.remove('drag-over');
+        const files = e.dataTransfer && e.dataTransfer.files;
+        if (files) handleImageFileSelect(files);
+    });
+});
 
 // ── Ensure Agents ──────────────────────────────────────────────────────────
 

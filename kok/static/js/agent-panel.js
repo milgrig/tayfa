@@ -230,13 +230,15 @@ async function sendPromptStreaming() {
     if (!currentAgent) return;
     const input = document.getElementById('promptInput');
     const text = input.value.trim();
-    if (!text) return;
+    const images = _getPendingImagesAndClear();
+    if (!text && images.length === 0) return;
     input.value = ''; input.style.height = 'auto';
 
     // Clear draft
     delete agentDrafts[currentAgent];
 
-    addChatMessage(currentAgent, 'user', text);
+    const displayText = text || (images.length > 0 ? '' : '');
+    addChatMessage(currentAgent, 'user', displayText, '', images);
 
     const agentForRequest = currentAgent;
     const btn = document.getElementById('btnSend');
@@ -264,6 +266,7 @@ async function sendPromptStreaming() {
             : isCursor ? '/api/send-prompt-cursor-stream'
             : '/api/send-prompt-stream';
         const payload = { name: agentForRequest, prompt: text, runtime: runtime };
+        if (images.length > 0) payload.images = images;
         if (isOllama) payload.model = runtime;
         const response = await fetch(streamUrl, {
             method: 'POST',

@@ -1,5 +1,5 @@
 {
-  "template_version": 5,
+  "template_version": 6,
   "changelog": {
     "2": [
       "Added known_bugs.md system — agents track recurring bugs and learn from them",
@@ -23,6 +23,10 @@
       "Update check uses configured GitHub repository from Settings (githubOwner + repoName)",
       "Auto-creates 'tayfa-updates' remote when no matching remote exists",
       "Application works fully without Claude API — employee list always loads from registry"
+    ],
+    "6": [
+      "Image attachment support in chat — paste from clipboard, drag-and-drop, and file picker",
+      "Stream/Config panel restored to right-side layout"
     ]
   },
   "files": [
