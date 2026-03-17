@@ -1,0 +1,77 @@
+        :root, [data-theme="dark"] {
+            --bg: #0f1117;
+            --bg-card: #1a1d27;
+            --bg-card-hover: #22263a;
+            --bg-input: #12141c;
+            --border: #2a2e3e;
+            --border-active: #4f6ef7;
+            --text: #e1e4ed;
+            --text-dim: #7a7f92;
+            --text-bright: #ffffff;
+            --accent: #4f6ef7;
+            --accent-hover: #6b84ff;
+            --success: #34d399;
+            --warning: #fbbf24;
+            --danger: #f87171;
+            --purple: #a78bfa;
+            --font: 'Segoe UI', -apple-system, BlinkMacSystemFont, sans-serif;
+            --mono: 'Cascadia Code', 'Fira Code', 'Consolas', monospace;
+            --radius: 10px;
+            --shadow: 0 4px 24px rgba(0,0,0,0.3);
+        }
+
+        [data-theme="light"] {
+            --bg: #f0f2f5;
+            --bg-card: #ffffff;
+            --bg-card-hover: #e8eaed;
+            --bg-input: #ffffff;
+            --border: #c9cdd4;
+            --border-active: #4f6ef7;
+            --text: #24292e;
+            --text-dim: #525960;
+            --text-bright: #1b1f23;
+            --accent: #4f6ef7;
+            --accent-hover: #3a5bd9;
+            --success: #22c55e;
+            --warning: #f59e0b;
+            --danger: #ef4444;
+            --purple: #8b5cf6;
+            --shadow: 0 2px 8px rgba(0,0,0,0.08);
+        }
+
+        [data-theme="blue"] {
+            --bg: #0a192f;
+            --bg-card: #112240;
+            --bg-card-hover: #1d3557;
+            --bg-input: #0a192f;
+            --border: #233554;
+            --border-active: #64ffda;
+            --text: #8892b0;
+            --text-dim: #495670;
+            --text-bright: #ccd6f6;
+            --accent: #64ffda;
+            --accent-hover: #4fd1c5;
+            --success: #64ffda;
+            --warning: #ffd166;
+            --danger: #ff6b6b;
+            --purple: #bd93f9;
+        }
+
+        [data-theme="girly"] {
+            --bg: #1a1218;
+            --bg-card: #251a22;
+            --bg-card-hover: #2f2329;
+            --bg-input: #1a1218;
+            --border: #3d2d38;
+            --border-active: #e879a9;
+            --text: #e8d5e0;
+            --text-dim: #9a8492;
+            --text-bright: #fff0f5;
+            --accent: #e879a9;
+            --accent-hover: #f4a0c4;
+            --success: #7dd3a8;
+            --warning: #f9c784;
+            --danger: #f87171;
+            --purple: #c4a7e7;
+            --shadow: 0 4px 24px rgba(232,121,169,0.15);
+        }

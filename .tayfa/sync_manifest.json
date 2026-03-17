@@ -1,0 +1,57 @@
+{
+  "template_version": 5,
+  "changelog": {
+    "2": [
+      "Added known_bugs.md system — agents track recurring bugs and learn from them",
+      "Updated agent-base.md — section 5.1 with Known Bugs rules",
+      "Updated boss/prompt.md — added Known Bugs System section",
+      "Improved _get_github_token() — searches for token in sibling directories",
+      "Auto-inject known_bugs.md into every task prompt"
+    ],
+    "3": [
+      "Playwright is now the standard E2E testing tool for all Tayfa projects",
+      "Updated testing.md — full Playwright E2E guide, project structure, best practices, CI/CD examples",
+      "Updated agent-base.md — section 6 now includes E2E test commands (run_tests.sh unit/e2e/smoke)",
+      "Updated tester_checklist.md — added E2E tests section with Playwright commands",
+      "Added memory system — agents save important context (sprint finalization, app shutdown, self-save)"
+    ],
+    "4": [
+      "Cursor model badges — employee list shows colored labels for GPT, Gemini, Grok, Kimi and all Claude versions",
+      "Model family classification — _modelFamily() and _modelDisplayLabel() produce readable short names"
+    ],
+    "5": [
+      "Update check uses configured GitHub repository from Settings (githubOwner + repoName)",
+      "Auto-creates 'tayfa-updates' remote when no matching remote exists",
+      "Application works fully without Claude API — employee list always loads from registry"
+    ]
+  },
+  "files": [
+    "common/task_manager.py",
+    "common/backlog_manager.py",
+    "common/chat_history_manager.py",
+    "common/employee_manager.py",
+    "common/memory_manager.py",
+    "common/tester_checklist.md",
+    "common/Rules/agent-base.md",
+    "common/Rules/backlog.md",
+    "common/Rules/employees.md",
+    "common/Rules/git-workflow.md",
+    "common/Rules/sprint-archive.md",
+    "common/Rules/teamwork.md",
+    "common/Rules/testing.md",
+    "common/skills/SKILL-creator.md",
+    "common/skills/agents-and-skills-guide.md",
+    "boss/prompt.md",
+    "boss/profile.md",
+    "boss/skills/SKILL-project-tracking.md",
+    "boss/skills/SKILL-task-decomposer.md",
+    "boss/skills/SKILL-team-assignment.md",
+    "hr/prompt.md",
+    "hr/profile.md",
+    "hr/create_employee.py"
+  ],
+  "seed_on_create": [
+    "common/known_bugs.md",
+    "config.json"
+  ]
+}

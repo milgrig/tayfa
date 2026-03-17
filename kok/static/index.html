@@ -1,0 +1,649 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Tayfa — Orchestrator</title>
+    <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
+    <link rel="icon" type="image/png" href="/static/tayfa-icon.png">
+    <link rel="stylesheet" href="/static/css/themes.css">
+    <link rel="stylesheet" href="/static/css/layout.css">
+    <link rel="stylesheet" href="/static/css/screens.css">
+</head>
+<body>
+
+<!-- Project Picker -->
+<div class="project-picker" id="projectPicker">
+    <div class="project-picker-card">
+        <button class="project-picker-close" id="projectPickerClose" onclick="tryCloseProjectPicker()" title="Close">×</button>
+        <div class="project-picker-logo">
+            <h1><span>Tayfa</span></h1>
+        </div>
+        <h2>Select project</h2>
+        <div class="project-list" id="projectList">
+            <div class="project-empty">
+                <div class="project-empty-icon">📂</div>
+                <p>Loading...</p>
+            </div>
+        </div>
+        <div class="project-picker-actions">
+            <button class="btn primary" onclick="openFolderDialog()">📁 Open folder</button>
+            <button class="btn" onclick="openFolderManual()">✏️ Enter path</button>
+            <button class="btn" id="projectPickerCancel" onclick="tryCloseProjectPicker()">Cancel</button>
+        </div>
+    </div>
+</div>
+
+<!-- Main App Container -->
+<div id="mainApp">
+
+<!-- Claude Warning Banner -->
+<div id="claude-api-warning-banner" role="alert">
+    <span>⚠️ Claude server is not running. Start it to use Claude models (Opus, Sonnet, Haiku).</span>
+    <button class="banner-dismiss" onclick="document.getElementById('claude-api-warning-banner').classList.remove('visible'); document.getElementById('claude-api-warning-banner').style.display='none';" title="Dismiss">✕</button>
+</div>
+
+<!-- Header -->
+<div class="header">
+    <div class="header-left">
+        <h1><span>Tayfa</span> <span id="tayfaVersionBadge" style="font-size:11px; font-weight:400; color:var(--text-dim); opacity:0.7; vertical-align:middle;"></span></h1>
+        <div class="current-project" id="currentProjectBadge" onclick="switchProject()" title="Switch project">
+            <span class="project-icon">📁</span>
+            <span class="project-name" id="currentProjectName">—</span>
+        </div>
+        <button class="btn sm" id="btnNewWindow" onclick="openProjectInNewWindow()" title="Open project in new window">🪟 New Window</button>
+    </div>
+    <div class="status-bar">
+        <div class="status-item" title="Claude API server status">
+            <span class="status-dot off" id="claudeDot"></span>
+            Claude: <span id="claudeStatus">off</span>
+        </div>
+        <div class="status-item" title="Cursor Agent CLI status">
+            <span class="status-dot off" id="cursorDot"></span>
+            Cursor: <span id="cursorStatus">off</span>
+        </div>
+        <div class="status-item git-status-indicator" id="gitStatusIndicator" title="Git status">
+            <span class="git-branch-icon-header">⎇</span>
+            <span id="gitBranchHeader">—</span>
+            <span class="git-dot" id="gitDotHeader"></span>
+            <button class="btn-git-init-header" id="gitInitBtnHeader"
+                    onclick="initGitRepo(); event.stopPropagation();"
+                    style="display:none;"
+                    title="Initialize Git repository">Init</button>
+        </div>
+        <div class="status-item" id="runningTasksIndicator" style="display:none; cursor:pointer;" onclick="showTasksBoard()">
+            <span class="status-dot loading"></span>
+            <span id="runningTasksCount">0</span> tasks running
+        </div>
+        <select id="themeSelect" onchange="changeTheme(this.value)" class="theme-select">
+            <option value="dark">🌙 Dark</option>
+            <option value="light">☀️ Light</option>
+            <option value="blue">🌊 Blue</option>
+            <option value="girly">💖 Girly</option>
+        </select>
+        <button class="btn success btn-start-server" id="btnStartServer" onclick="startServer()">Start server</button>
+        <button class="btn danger" id="btnStopServer" onclick="stopServer()" style="display:none;">Stop</button>
+        <button class="btn primary" onclick="ensureAgents()">Ensure agents</button>
+        <button class="btn" onclick="refreshAll()">Refresh</button>
+        <button class="settings-btn" onclick="toggleSettingsDropdown(event)" title="Settings">⚙️</button>
+        <!-- Settings Dropdown -->
+        <div class="settings-dropdown" id="settingsDropdown">
+            <div class="settings-item" onclick="switchProject()">
+                <span>📁</span> Switch project
+            </div>
+            <div class="settings-item" onclick="openProjectInNewWindow()">
+                <span>🪟</span> New Window
+            </div>
+            <div class="settings-item" onclick="showSettingsScreen()">
+                <span>🎨</span> Appearance
+            </div>
+            <div class="settings-item" onclick="ensureAgents()">
+                <span>🔄</span> Restart agents
+            </div>
+            <div class="settings-item danger" onclick="killAllAgents()">
+                <span>💀</span> Kill all agents
+            </div>
+            <div class="settings-divider"></div>
+            <div class="settings-item danger" onclick="stopServer()">
+                <span>❌</span> Stop server
+            </div>
+            <div class="settings-item danger" onclick="closeTayfa()">
+                <span>🔒</span> Close Tayfa
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Main -->
+<div class="main">
+    <!-- Sidebar -->
+    <div class="sidebar">
+        <!-- Agents (Employees) -->
+        <div class="sidebar-section">
+            <h3>Employees</h3>
+            <ul class="agent-list" id="agentList">
+                <li class="empty-state">Loading...</li>
+            </ul>
+        </div>
+
+        <!-- Navigation -->
+        <div class="sidebar-section">
+            <h3>Navigation</h3>
+            <div style="display: flex; flex-direction: column; gap: 6px;">
+                <button class="btn primary" onclick="showTasksBoard()">Task board</button>
+                <button class="btn" onclick="showBacklogScreen()">📋 Backlog</button>
+                <button class="btn" onclick="showAgentLoadScreen()">📊 Agent Load</button>
+                <button class="btn" onclick="showOldTasksBoard()">Tasks (tasks.md)</button>
+                <button class="btn" onclick="showSettingsScreen()">⚙️ Settings</button>
+            </div>
+        </div>
+
+        <!-- Git Section -->
+        <div class="sidebar-section" id="gitSection">
+            <h3>Git</h3>
+            <div id="gitStatusContainer">
+                <div class="git-unavailable">
+                    <div class="icon">⏳</div>
+                    <p>Loading...</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Content -->
+    <div class="content" id="contentArea">
+        <!-- Welcome Screen -->
+        <div class="welcome" id="welcomeScreen">
+            <h2>Tayfa Orchestrator</h2>
+            <p>Multi-agent system on Claude Code.<br>Start the server, check agents and begin working.</p>
+            <div class="actions">
+                <button class="btn primary" onclick="showTasksBoard()">Task board</button>
+                <button class="btn" onclick="startServer()">Start server</button>
+                <button class="btn" onclick="ensureAgents()">Ensure agents</button>
+            </div>
+        </div>
+
+        <!-- Tasks Board Screen (NEW — kanban) -->
+        <div id="tasksBoardScreen" style="display:none; flex-direction:column; height:100%; overflow:hidden;">
+            <div class="content-header">
+                <h2>Task board</h2>
+                <div style="display:flex; gap:8px; align-items:center;">
+                    <div class="max-concurrent-inline">
+                        <label>Max tasks in progress:</label>
+                        <input type="number" id="maxConcurrentInput" value="5" min="1" max="50">
+                    </div>
+                    <button class="btn sm primary" onclick="showCreateSprintModal()">+ Sprint</button>
+                    <button class="btn sm" onclick="showCreateTaskModal()">+ Task</button>
+                    <button class="btn sm danger" onclick="showReportBugModal()">🐛 Bug</button>
+                    <button class="btn sm" onclick="showCreateBacklogModal()">+ Backlog</button>
+                    <button class="btn sm" onclick="refreshTasksBoardNew()">Refresh</button>
+                </div>
+            </div>
+            <div class="tasks-board-wrap" id="tasksBoardWrap">
+                <div class="empty-state">Loading...</div>
+            </div>
+        </div>
+
+        <!-- Old Tasks Board Screen (tasks.md) -->
+        <div id="tasksScreen" style="display:none; flex-direction:column; height:100%; overflow:hidden;">
+            <div class="content-header">
+                <h2>Tasks (tasks.md)</h2>
+                <button class="btn sm" onclick="refreshOldTasksBoard()">Refresh</button>
+            </div>
+            <div style="flex:1; overflow-y:auto; padding:20px 24px;">
+                <pre id="oldTasksBoardContent" style="white-space:pre-wrap; word-wrap:break-word; font-family:var(--mono); font-size:13px; color:var(--text); margin:0;"></pre>
+            </div>
+        </div>
+
+        <!-- Chat Screen -->
+        <div id="chatScreen" style="display:none; flex-direction:column; height:100%;">
+            <div class="content-header">
+                <div><h2 id="chatAgentName">—</h2></div>
+                <div style="display:flex; gap:8px;">
+                    <button class="btn sm" onclick="clearChatHistory()">Clear history</button>
+                    <button class="btn sm" onclick="resetCurrentAgent()">Reset memory</button>
+                    <button class="btn sm danger" onclick="deleteCurrentAgent()">Delete</button>
+                </div>
+            </div>
+            <div class="chat-area" id="chatArea"></div>
+            <div class="typing-indicator" id="typingIndicator"><span></span><span></span><span></span></div>
+            <div class="input-area">
+                <textarea id="promptInput" placeholder="Enter message for agent..." rows="1"
+                    onkeydown="handleKeyDown(event)" oninput="autoGrow(this)"></textarea>
+                <button class="btn primary" id="btnSend" onclick="sendPrompt()">Send</button>
+            </div>
+        </div>
+
+        <!-- Backlog Screen -->
+        <div id="backlogScreen" style="display:none; flex-direction:column; height:100%; overflow:hidden;">
+            <div class="content-header">
+                <h2>📋 Backlog</h2>
+                <div style="display:flex; gap:8px; align-items:center;">
+                    <select id="backlogFilterPriority" onchange="refreshBacklog()" style="padding:6px 10px; background:var(--bg-input); border:1px solid var(--border); border-radius:6px; color:var(--text); font-size:13px;">
+                        <option value="">All priorities</option>
+                        <option value="high">High</option>
+                        <option value="medium">Medium</option>
+                        <option value="low">Low</option>
+                    </select>
+                    <label style="display:flex; align-items:center; gap:6px; cursor:pointer;">
+                        <input type="checkbox" id="backlogFilterNextSprint" onchange="refreshBacklog()" style="accent-color:var(--accent);">
+                        <span style="font-size:13px; color:var(--text);">Only "Add to next sprint"</span>
+                    </label>
+                    <button class="btn sm" onclick="refreshBacklog()">Refresh</button>
+                </div>
+            </div>
+            <div style="flex:1; overflow-y:auto; padding:20px 24px;">
+                <div id="backlogContainer" class="backlog-grid">
+                    <div class="empty-state">Loading...</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Agent Load Screen -->
+        <div id="agentLoadScreen" style="display:none; flex-direction:column; height:100%; overflow:hidden;">
+            <div class="content-header">
+                <h2>📊 Agent Load</h2>
+                <div style="display:flex; gap:8px; align-items:center;">
+                    <span class="agent-load-auto-refresh" id="agentLoadAutoRefresh">Auto-refresh: 5s</span>
+                    <button class="btn sm" onclick="refreshAgentLoad()">Refresh</button>
+                </div>
+            </div>
+            <div style="flex:1; overflow-y:auto; padding:20px 24px;">
+                <div id="agentLoadContainer" class="agent-load-grid">
+                    <div class="empty-state">Loading metrics...</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Settings Screen -->
+        <div id="settingsScreen" style="display:none; flex-direction:column; height:100%;">
+            <div class="content-header">
+                <h2>⚙️ Settings</h2>
+            </div>
+            <div style="flex:1; overflow-y:auto; padding:24px;">
+                <div style="max-width:600px;">
+                    <!-- Theme -->
+                    <div style="background:var(--bg-card); border:1px solid var(--border); border-radius:var(--radius); padding:20px; margin-bottom:16px;">
+                        <h3 style="font-size:14px; color:var(--text-bright); margin-bottom:12px;">🎨 Theme</h3>
+                        <div style="display:flex; gap:12px; flex-wrap:wrap;">
+                            <label style="display:flex; align-items:center; gap:8px; cursor:pointer; padding:10px 16px; background:var(--bg-input); border:1px solid var(--border); border-radius:8px; transition:all 0.15s;" class="theme-option" data-theme="dark">
+                                <input type="radio" name="settingsTheme" value="dark" style="accent-color:var(--accent);">
+                                <span>🌙 Dark</span>
+                            </label>
+                            <label style="display:flex; align-items:center; gap:8px; cursor:pointer; padding:10px 16px; background:var(--bg-input); border:1px solid var(--border); border-radius:8px; transition:all 0.15s;" class="theme-option" data-theme="light">
+                                <input type="radio" name="settingsTheme" value="light" style="accent-color:var(--accent);">
+                                <span>☀️ Light</span>
+                            </label>
+                            <label style="display:flex; align-items:center; gap:8px; cursor:pointer; padding:10px 16px; background:var(--bg-input); border:1px solid var(--border); border-radius:8px; transition:all 0.15s;" class="theme-option" data-theme="blue">
+                                <input type="radio" name="settingsTheme" value="blue" style="accent-color:var(--accent);">
+                                <span>🌊 Blue</span>
+                            </label>
+                            <label style="display:flex; align-items:center; gap:8px; cursor:pointer; padding:10px 16px; background:var(--bg-input); border:1px solid var(--border); border-radius:8px; transition:all 0.15s;" class="theme-option" data-theme="girly">
+                                <input type="radio" name="settingsTheme" value="girly" style="accent-color:var(--accent);">
+                                <span>💖 Pink</span>
+                            </label>
+                        </div>
+                    </div>
+
+                    <!-- Server information -->
+                    <div style="background:var(--bg-card); border:1px solid var(--border); border-radius:var(--radius); padding:20px; margin-bottom:16px;">
+                        <h3 style="font-size:14px; color:var(--text-bright); margin-bottom:12px;">🖥️ Server</h3>
+                        <div style="display:flex; flex-direction:column; gap:10px;">
+                            <div style="display:flex; justify-content:space-between; align-items:center;">
+                                <span style="color:var(--text-dim); font-size:13px;">Tayfa version</span>
+                                <span id="settingsTayfaVersion" style="font-family:var(--mono); color:var(--accent); font-size:13px; font-weight:600;">—</span>
+                            </div>
+                            <div style="display:flex; justify-content:space-between; align-items:center;">
+                                <span style="color:var(--text-dim); font-size:13px;">Orchestrator port</span>
+                                <span id="settingsPort" style="font-family:var(--mono); color:var(--text); font-size:13px;">—</span>
+                            </div>
+                            <div style="display:flex; justify-content:space-between; align-items:center;">
+                                <span style="color:var(--text-dim); font-size:13px;">Interface language</span>
+                                <span id="settingsLanguage" style="color:var(--text); font-size:13px;">—</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- CLI Tools -->
+                    <div style="background:var(--bg-card); border:1px solid var(--border); border-radius:var(--radius); padding:20px; margin-bottom:16px;">
+                        <h3 style="font-size:14px; color:var(--text-bright); margin-bottom:16px;">🔧 CLI Tools</h3>
+                        <div id="cliToolsContainer" style="display:flex; flex-direction:column; gap:16px;">
+                            <!-- Claude CLI -->
+                            <div style="padding:14px; background:var(--bg-input); border-radius:8px; border:1px solid var(--border);">
+                                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+                                    <div style="display:flex; align-items:center; gap:8px;">
+                                        <span style="font-size:15px; font-weight:600; color:var(--text-bright);">Claude CLI</span>
+                                        <span id="claudeCliStatus" style="font-size:11px; padding:2px 8px; border-radius:10px; font-weight:600;"></span>
+                                    </div>
+                                    <div style="display:flex; gap:6px;" id="claudeCliActions"></div>
+                                </div>
+                                <div id="claudeCliAccount" style="font-size:12px; color:var(--text-dim);"></div>
+                                <div id="claudeCliDetails" style="display:none; margin-top:10px; padding-top:10px; border-top:1px solid var(--border);">
+                                    <div id="claudeCliVersion" style="font-size:12px; color:var(--text-dim); margin-bottom:4px;"></div>
+                                    <a id="claudeCliDashboard" href="https://console.anthropic.com/settings/billing" target="_blank" rel="noopener"
+                                       style="font-size:12px; color:var(--accent); text-decoration:none; display:inline-flex; align-items:center; gap:4px;">
+                                        Usage &amp; Billing ↗
+                                    </a>
+                                </div>
+                            </div>
+                            <!-- Cursor Agent CLI -->
+                            <div style="padding:14px; background:var(--bg-input); border-radius:8px; border:1px solid var(--border);">
+                                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+                                    <div style="display:flex; align-items:center; gap:8px;">
+                                        <span style="font-size:15px; font-weight:600; color:var(--text-bright);">Cursor Agent CLI</span>
+                                        <span id="cursorCliStatus" style="font-size:11px; padding:2px 8px; border-radius:10px; font-weight:600;"></span>
+                                    </div>
+                                    <div style="display:flex; gap:6px;" id="cursorCliActions"></div>
+                                </div>
+                                <div id="cursorCliAccount" style="font-size:12px; color:var(--text-dim);"></div>
+                                <div id="cursorCliDetails" style="display:none; margin-top:10px; padding-top:10px; border-top:1px solid var(--border);">
+                                    <div id="cursorCliVersion" style="font-size:12px; color:var(--text-dim); margin-bottom:6px;"></div>
+                                    <div style="display:flex; gap:8px; flex-wrap:wrap;">
+                                        <a href="#" onclick="showCursorModelsModal(); return false;"
+                                           style="font-size:12px; color:var(--accent); text-decoration:none; display:inline-flex; align-items:center; gap:4px;">
+                                            Available Models
+                                        </a>
+                                        <span style="color:var(--border);">|</span>
+                                        <a id="cursorCliDashboard" href="https://www.cursor.com/settings" target="_blank" rel="noopener"
+                                           style="font-size:12px; color:var(--accent); text-decoration:none; display:inline-flex; align-items:center; gap:4px;">
+                                            Usage &amp; Billing ↗
+                                        </a>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                            <!-- Ollama (Local LLM) -->
+                            <div style="padding:14px; background:var(--bg-input); border-radius:8px; border:1px solid var(--border);">
+                                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+                                    <div style="display:flex; align-items:center; gap:8px;">
+                                        <span style="font-size:15px; font-weight:600; color:var(--text-bright);">Ollama (Local LLM)</span>
+                                        <span id="ollamaCliStatus" style="font-size:11px; padding:2px 8px; border-radius:10px; font-weight:600;"></span>
+                                    </div>
+                                    <div style="display:flex; gap:6px;" id="ollamaCliActions"></div>
+                                </div>
+                                <div id="ollamaCliAccount" style="font-size:12px; color:var(--text-dim);"></div>
+                                <div id="ollamaCliDetails" style="display:none; margin-top:10px; padding-top:10px; border-top:1px solid var(--border);">
+                                    <div id="ollamaModelsList" style="display:flex; flex-direction:column; gap:6px; margin-bottom:10px;"></div>
+                                    <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
+                                        <select id="ollamaPullModelSelect" style="padding:4px 8px; background:var(--bg-card); border:1px solid var(--border); border-radius:6px; color:var(--text); font-size:12px;">
+                                            <option value="qwen2.5-coder:14b">Qwen2.5 Coder 14B (code)</option>
+                                            <option value="qwen3:14b">Qwen3 14B (reasoning)</option>
+                                            <option value="qwen2.5:14b">Qwen2.5 14B (general)</option>
+                                            <option value="llama3.1:8b">Llama 3.1 8B (fast)</option>
+                                            <option value="deepseek-coder-v2:16b">DeepSeek Coder V2 16B</option>
+                                            <option value="gemma3:12b">Gemma 3 12B</option>
+                                            <option value="mistral:7b">Mistral 7B (fast)</option>
+                                            <option value="phi3:14b">Phi-3 14B</option>
+                                        </select>
+                                        <button class="btn sm primary" onclick="pullOllamaModel()" id="btnOllamaPull" style="font-size:11px;">Download</button>
+                                        <span id="ollamaPullStatus" style="font-size:11px; color:var(--text-dim);"></span>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Updates -->
+                    <div style="background:var(--bg-card); border:1px solid var(--border); border-radius:var(--radius); padding:20px; margin-bottom:16px;">
+                        <h3 style="font-size:14px; color:var(--text-bright); margin-bottom:12px;">🔄 Updates</h3>
+                        <div style="display:flex; flex-direction:column; gap:10px;">
+                            <div style="display:flex; justify-content:space-between; align-items:center;">
+                                <span id="updateStatus" style="color:var(--text-dim); font-size:13px;">Click to check for updates</span>
+                                <div style="display:flex; gap:8px;">
+                                    <button class="btn sm" id="btnCheckUpdate" onclick="checkForUpdates()">Check for updates</button>
+                                    <button class="btn sm" id="btnInstallUpdate" onclick="installUpdate()" style="display:none; background:var(--accent); color:#fff;">Install update</button>
+                                </div>
+                            </div>
+                            <div id="updateChangelog" style="display:none; max-height:150px; overflow-y:auto; background:var(--bg-input); border-radius:6px; padding:10px; font-size:12px; font-family:var(--mono); color:var(--text-dim);"></div>
+                        </div>
+                    </div>
+
+                    <!-- Auto-start -->
+                    <div style="background:var(--bg-card); border:1px solid var(--border); border-radius:var(--radius); padding:20px; margin-bottom:16px;">
+                        <h3 style="font-size:14px; color:var(--text-bright); margin-bottom:12px;">🚀 Automation</h3>
+                        <label style="display:flex; align-items:center; gap:10px; cursor:pointer;">
+                            <input type="checkbox" id="settingsAutoOpen" style="accent-color:var(--accent); width:18px; height:18px;" onchange="saveSettingAutoOpen(this.checked)">
+                            <div>
+                                <div style="font-size:13px; color:var(--text);">Open browser on startup</div>
+                                <div style="font-size:11px; color:var(--text-dim);">Automatically open web interface on server startup</div>
+                            </div>
+                        </label>
+                        <label style="display:flex; align-items:center; gap:10px; cursor:pointer; margin-top:12px;">
+                            <input type="checkbox" id="settingsAutoLaunch" style="accent-color:var(--accent); width:18px; height:18px;" onchange="saveSettingAutoLaunch(this.checked)">
+                            <div>
+                                <div style="font-size:13px; color:var(--text);">Auto-launch sprints</div>
+                                <div style="font-size:11px; color:var(--text-dim);">Automatically execute all tasks in sprints marked as "Ready to execute"</div>
+                            </div>
+                        </label>
+                    </div>
+
+                    <!-- Tasks -->
+                    <div style="background:var(--bg-card); border:1px solid var(--border); border-radius:var(--radius); padding:20px; margin-bottom:16px;">
+                        <h3 style="font-size:14px; color:var(--text-bright); margin-bottom:12px;">📋 Tasks</h3>
+                        <div style="display:flex; align-items:center; gap:10px;">
+                            <span style="color:var(--text-dim); font-size:13px;">Max concurrent tasks:</span>
+                            <input type="number" id="settingsMaxTasks" min="1" max="50" value="5"
+                                style="width:60px; padding:6px 10px; background:var(--bg-input); border:1px solid var(--border); border-radius:6px; color:var(--text); font-family:var(--mono); font-size:13px; text-align:center;"
+                                onchange="saveSettingMaxTasks(this.value)">
+                        </div>
+                    </div>
+
+                    <!-- Git / GitHub -->
+                    <div style="background:var(--bg-card); border:1px solid var(--border); border-radius:var(--radius); padding:20px;">
+                        <h3 style="font-size:14px; color:var(--text-bright); margin-bottom:12px;">🔧 Git / GitHub</h3>
+                        <div style="display:flex; flex-direction:column; gap:12px;">
+                            <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px;">
+                                <div>
+                                    <label style="display:block; color:var(--text-dim); font-size:12px; margin-bottom:4px;">Name (user.name)</label>
+                                    <input type="text" id="settingsGitUserName" placeholder="Your Name"
+                                        style="width:100%; padding:8px 12px; background:var(--bg-input); border:1px solid var(--border); border-radius:6px; color:var(--text); font-size:13px;"
+                                        onchange="saveSettingGit()">
+                                </div>
+                                <div>
+                                    <label style="display:block; color:var(--text-dim); font-size:12px; margin-bottom:4px;">Email (user.email)</label>
+                                    <input type="email" id="settingsGitUserEmail" placeholder="you@example.com"
+                                        style="width:100%; padding:8px 12px; background:var(--bg-input); border:1px solid var(--border); border-radius:6px; color:var(--text); font-size:13px;"
+                                        onchange="saveSettingGit()">
+                                </div>
+                            </div>
+                            <div>
+                                <label style="display:block; color:var(--text-dim); font-size:12px; margin-bottom:4px;">Default branch</label>
+                                <input type="text" id="settingsGitDefaultBranch" placeholder="main"
+                                    style="width:100%; padding:8px 12px; background:var(--bg-input); border:1px solid var(--border); border-radius:6px; color:var(--text); font-size:13px;"
+                                    onchange="saveSettingGit()">
+                            </div>
+                            <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px;">
+                                <div>
+                                    <label style="display:block; color:var(--text-dim); font-size:12px; margin-bottom:4px;">GitHub Owner (username or org)</label>
+                                    <input type="text" id="settingsGitHubOwner" placeholder="username"
+                                        style="width:100%; padding:8px 12px; background:var(--bg-input); border:1px solid var(--border); border-radius:6px; color:var(--text); font-family:var(--mono); font-size:12px;"
+                                        onchange="saveSettingGit()">
+                                </div>
+                                <div>
+                                    <label style="display:block; color:var(--text-dim); font-size:12px; margin-bottom:4px;">Repo Name (this project)</label>
+                                    <input type="text" id="settingsGitRepoName" placeholder="my-project"
+                                        style="width:100%; padding:8px 12px; background:var(--bg-input); border:1px solid var(--border); border-radius:6px; color:var(--text); font-family:var(--mono); font-size:12px;"
+                                        onchange="saveSettingRepoName()">
+                                </div>
+                            </div>
+                            <div>
+                                <label style="display:block; color:var(--text-dim); font-size:12px; margin-bottom:4px;">GitHub Token (Personal Access Token)</label>
+                                <input type="password" id="settingsGitHubToken" placeholder="ghp_xxxxxxxxxxxx"
+                                    style="width:100%; padding:8px 12px; background:var(--bg-input); border:1px solid var(--border); border-radius:6px; color:var(--text); font-family:var(--mono); font-size:12px;"
+                                    onchange="saveSettingGit()">
+                                <div style="font-size:10px; color:var(--text-dim); margin-top:4px;">
+                                    Token is needed for push/PR/auto repo creation. Create at <a href="https://github.com/settings/tokens" target="_blank" style="color:var(--accent);">github.com/settings/tokens</a>
+                                </div>
+                            </div>
+                            <div id="settingsComputedUrl" style="font-size:11px; color:var(--text-dim); padding:4px 0;">
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Telegram -->
+                    <div style="background:var(--bg-card); border:1px solid var(--border); border-radius:var(--radius); padding:20px; margin-top:16px;">
+                        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
+                            <h3 style="font-size:14px; color:var(--text-bright);">✈️ Telegram</h3>
+                            <span id="telegramStatus" style="font-size:11px; padding:3px 10px; border-radius:12px; font-weight:600;"></span>
+                        </div>
+                        <p style="font-size:12px; color:var(--text-dim); margin-bottom:14px;">
+                            Receive agent questions (AskUserQuestion) in Telegram with clickable answer buttons.
+                        </p>
+                        <div style="display:flex; flex-direction:column; gap:12px;">
+                            <div>
+                                <label style="display:block; color:var(--text-dim); font-size:12px; margin-bottom:4px;">Bot Token (from @BotFather)</label>
+                                <input type="password" id="settingsTelegramToken" placeholder="123456:ABC-DEF1234ghIkl-zyx57W2v..."
+                                    style="width:100%; padding:8px 12px; background:var(--bg-input); border:1px solid var(--border); border-radius:6px; color:var(--text); font-family:var(--mono); font-size:12px;">
+                            </div>
+                            <div>
+                                <label style="display:block; color:var(--text-dim); font-size:12px; margin-bottom:4px;">Chat ID</label>
+                                <input type="text" id="settingsTelegramChatId" placeholder="12345678"
+                                    style="width:100%; padding:8px 12px; background:var(--bg-input); border:1px solid var(--border); border-radius:6px; color:var(--text); font-family:var(--mono); font-size:12px;">
+                                <div style="font-size:10px; color:var(--text-dim); margin-top:4px;">
+                                    Send /start to your bot, then get chat_id via <code style="background:var(--bg-input); padding:1px 4px; border-radius:3px;">https://api.telegram.org/bot&lt;TOKEN&gt;/getUpdates</code>
+                                </div>
+                            </div>
+                            <div style="display:flex; gap:8px; margin-top:4px;">
+                                <button class="btn primary" onclick="saveTelegramSettings()" style="font-size:12px;">Connect</button>
+                                <button class="btn" onclick="testTelegram()" style="font-size:12px;">🧪 Test</button>
+                                <button class="btn danger" onclick="disconnectTelegram()" style="font-size:12px;">Disconnect</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Agent Panel (right side) -->
+    <div id="agentPanel" class="agent-panel" style="display:none;">
+        <div class="agent-panel-header">
+            <h3 id="agentPanelName">Agent</h3>
+            <button class="agent-panel-close" onclick="closeAgentPanel()" title="Close panel">&times;</button>
+        </div>
+        <div class="agent-panel-tabs">
+            <button class="agent-panel-tab active" data-tab="stream" onclick="switchPanelTab('stream')">Stream</button>
+            <button class="agent-panel-tab" data-tab="config" onclick="switchPanelTab('config')">Config</button>
+        </div>
+        <!-- Stream tab -->
+        <div class="agent-panel-stream" id="agentStreamTab">
+            <div class="stream-empty" id="streamEmpty">
+                <div>Send a message to see streaming output</div>
+            </div>
+            <div class="stream-content" id="streamContent"></div>
+        </div>
+        <!-- Config tab -->
+        <div class="agent-panel-config" id="agentConfigTab" style="display:none;">
+            <div class="config-group">
+                <label>Model</label>
+                <select id="cfgModel">
+                    <option value="">Default</option>
+                    <optgroup label="Claude (API)">
+                        <option value="opus">Claude Opus</option>
+                        <option value="sonnet">Claude Sonnet</option>
+                        <option value="haiku">Claude Haiku</option>
+                    </optgroup>
+                    <optgroup label="Local (Ollama)" id="cfgModelOllamaGroup">
+                    </optgroup>
+                    <optgroup label="Cursor">
+                        <option value="auto">Auto (Cursor selects)</option>
+                        <option value="composer-1.5">Composer 1.5</option>
+                        <option value="composer-1">Composer 1</option>
+                        <option value="opus-4.6-thinking">Claude 4.6 Opus (Thinking)</option>
+                        <option value="sonnet-4.6-thinking">Claude 4.6 Sonnet (Thinking)</option>
+                        <option value="opus-4.6">Claude 4.6 Opus</option>
+                        <option value="sonnet-4.6">Claude 4.6 Sonnet</option>
+                        <option value="opus-4.5-thinking">Claude 4.5 Opus (Thinking)</option>
+                        <option value="opus-4.5">Claude 4.5 Opus</option>
+                        <option value="sonnet-4.5">Claude 4.5 Sonnet</option>
+                        <option value="sonnet-4.5-thinking">Claude 4.5 Sonnet (Thinking)</option>
+                        <option value="gpt-5.4-high">GPT-5.4 High</option>
+                        <option value="gpt-5.4-medium">GPT-5.4</option>
+                        <option value="gpt-5.4-xhigh">GPT-5.4 Extra High</option>
+                        <option value="gpt-5.3-codex">GPT-5.3 Codex</option>
+                        <option value="gpt-5.3-codex-high">GPT-5.3 Codex High</option>
+                        <option value="gpt-5.3-codex-xhigh">GPT-5.3 Codex Extra High</option>
+                        <option value="gpt-5.2-codex">GPT-5.2 Codex</option>
+                        <option value="gpt-5.2-codex-high">GPT-5.2 Codex High</option>
+                        <option value="gpt-5.2">GPT-5.2</option>
+                        <option value="gpt-5.1-codex-max">GPT-5.1 Codex Max</option>
+                        <option value="gpt-5.1-codex-mini">GPT-5.1 Codex Mini</option>
+                        <option value="gemini-3.1-pro">Gemini 3.1 Pro</option>
+                        <option value="gemini-3-pro">Gemini 3 Pro</option>
+                        <option value="gemini-3-flash">Gemini 3 Flash</option>
+                        <option value="grok">Grok</option>
+                        <option value="kimi-k2.5">Kimi K2.5</option>
+                    </optgroup>
+                </select>
+            </div>
+            <div class="config-group">
+                <label>Allowed Tools</label>
+                <input type="text" id="cfgAllowedTools" placeholder="Read Edit Bash Write Glob Grep">
+            </div>
+            <div class="config-group">
+                <label>Permission Mode</label>
+                <select id="cfgPermissionMode">
+                    <option value="bypassPermissions">Bypass Permissions</option>
+                    <option value="acceptEdits">Accept Edits</option>
+                    <option value="default">Default (ask everything)</option>
+                    <option value="plan">Plan (read-only)</option>
+                    <option value="dontAsk">Don't Ask</option>
+                    <option value="delegate">Delegate</option>
+                </select>
+            </div>
+            <div class="config-group">
+                <label>Budget Limit ($)</label>
+                <input type="number" id="cfgBudgetLimit" step="0.5" min="0" placeholder="10.0">
+            </div>
+            <div class="config-group">
+                <label>Working Directory</label>
+                <input type="text" id="cfgWorkdir" placeholder="C:\Project\Path">
+            </div>
+            <div class="config-group">
+                <label>System Prompt File</label>
+                <input type="text" id="cfgSystemPromptFile" placeholder=".tayfa/agent/prompt.md">
+            </div>
+            <div class="config-group">
+                <label>System Prompt (inline)</label>
+                <textarea id="cfgSystemPrompt" rows="6" placeholder="Agent system prompt..."></textarea>
+            </div>
+            <div class="config-group">
+                <label>Sessions</label>
+                <div id="cfgSessions" style="font-size:12px; color:var(--text-dim); font-family:var(--mono);"></div>
+            </div>
+            <div class="config-actions">
+                <button class="btn primary sm" onclick="saveAgentConfig()">Save</button>
+                <button class="btn sm" onclick="loadAgentConfig(currentAgent)">Reset</button>
+                <button class="btn danger sm" onclick="resetAgentSession()">Clear Sessions</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+</div><!-- /mainApp -->
+
+<!-- Modal -->
+<div class="modal-overlay" id="modalOverlay">
+    <div class="modal" id="modalContent" onclick="event.stopPropagation()">
+        <h3 id="modalTitle">—</h3>
+        <div id="modalBody"></div>
+        <div class="btn-group" id="modalActions" style="margin-top: 16px;"></div>
+    </div>
+</div>
+
+<script src="/static/js/state.js?v=3"></script>
+<script src="/static/js/api.js?v=3"></script>
+<script src="/static/js/theme.js?v=3"></script>
+<script src="/static/js/projects.js?v=3"></script>
+<script src="/static/js/settings.js?v=3"></script>
+<script src="/static/js/agents.js?v=3"></script>
+<script src="/static/js/agent-panel.js?v=3"></script>
+<script src="/static/js/board.js?v=3"></script>
+<script src="/static/js/sprints.js?v=3"></script>
+<script src="/static/js/backlog.js?v=3"></script>
+<script src="/static/js/agent-load.js?v=3"></script>
+<script src="/static/js/git.js?v=3"></script>
+<script src="/static/js/init.js?v=3"></script>
+
+</body>
+</html>

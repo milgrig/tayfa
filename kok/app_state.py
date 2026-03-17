@@ -1,0 +1,694 @@
+"""
+Shared state, constants, and utilities for the Tayfa Orchestrator.
+
+All mutable globals and cross-cutting functions live here so that
+routers and app.py can import them without circular dependencies.
+"""
+
+import asyncio
+import json
+import logging
+import os
+import re
+import subprocess
+import sys
+import time as _time
+import webbrowser
+from datetime import datetime
+from pathlib import Path
+
+import httpx
+from fastapi import HTTPException
+
+# ── User data & migration ─────────────────────────────────────────────────
+
+from user_data import (  # noqa: E402 — must be early, before other kok imports
+    USER_DATA_DIR,
+    SERVER_LOG_FILE as _UD_SERVER_LOG,
+    CURSOR_CHATS_FILE as _UD_CURSOR_CHATS,
+    migrate_user_data,
+)
+
+migrate_user_data()
+
+# ── Logging ───────────────────────────────────────────────────────────────
+
+_APP_DIR = Path(__file__).resolve().parent
+_LOG_FILE = _UD_SERVER_LOG
+
+_log_formatter = logging.Formatter(
+    fmt='%(asctime)s [%(levelname)s] %(message)s',
+    datefmt='%Y-%m-%d %H:%M:%S',
+)
+_file_handler = logging.FileHandler(_LOG_FILE, encoding='utf-8')
+_file_handler.setFormatter(_log_formatter)
+_file_handler.setLevel(logging.DEBUG)
+
+_stream_handler = logging.StreamHandler(sys.stdout)
+_stream_handler.setFormatter(_log_formatter)
+_stream_handler.setLevel(logging.INFO)
+
+logger = logging.getLogger("tayfa")
+logger.setLevel(logging.DEBUG)
+# Only add handlers if not already present (prevents duplicate logs on reimport)
+if not logger.handlers:
+    logger.addHandler(_file_handler)
+    logger.addHandler(_stream_handler)
+logger.propagate = False
+
+# ── Directory paths ───────────────────────────────────────────────────────
+
+KOK_DIR = Path(__file__).resolve().parent          # TayfaWindows/kok/
+TAYFA_ROOT_WIN = KOK_DIR.parent                     # TayfaWindows/
+TAYFA_DATA_DIR = TAYFA_ROOT_WIN / ".tayfa"           # TayfaWindows/.tayfa/
+
+# ── sys.path setup for manager imports ────────────────────────────────────
+
+TEMPLATE_COMMON_DIR = KOK_DIR / "template_tayfa" / "common"
+if str(TEMPLATE_COMMON_DIR) not in sys.path:
+    sys.path.insert(0, str(TEMPLATE_COMMON_DIR))
+if str(KOK_DIR) not in sys.path:
+    sys.path.insert(0, str(KOK_DIR))
+
+# ── External manager imports ─────────────────────────────────────────────
+
+from employee_manager import (  # noqa: E402
+    get_employees as _get_employees,
+    get_employee,
+    register_employee,
+    update_employee,
+    remove_employee,
+    set_employees_file,
+)
+from task_manager import (  # noqa: E402
+    create_task, create_bug, create_backlog, update_task_status,
+    set_task_result, get_tasks, get_task, get_next_agent,
+    create_sprint, get_sprints, get_sprint, update_sprint_status,
+    update_sprint, update_sprint_release,
+    delete_sprint,
+    generate_sprint_report,
+    STATUSES as TASK_STATUSES, SPRINT_STATUSES,
+    set_tasks_file,
+)
+from chat_history_manager import (  # noqa: E402
+    save_message as save_chat_message,
+    get_history as get_chat_history,
+    clear_history as clear_chat_history,
+    set_tayfa_dir as set_chat_history_tayfa_dir,
+)
+from memory_manager import (  # noqa: E402
+    build_memory, update_memory, trim_memory,
+    set_tayfa_dir as set_memory_tayfa_dir,
+)
+from backlog_manager import (  # noqa: E402
+    get_backlog, get_backlog_item, create_backlog_item,
+    update_backlog_item, delete_backlog_item, toggle_next_sprint,
+    set_backlog_file,
+)
+from settings_manager import (  # noqa: E402
+    load_settings, update_settings, get_orchestrator_port,
+    get_current_version, get_next_version, save_version,
+    get_auto_shutdown_settings, migrate_remote_url,
+)
+from project_manager import (  # noqa: E402
+    list_projects, get_project, add_project, remove_project,
+    get_current_project as _pm_get_current_project,
+    set_current_project, init_project,
+    open_project, sync_project, get_tayfa_dir, has_tayfa, TAYFA_DIR_NAME,
+    is_new_user, get_project_repo_name, set_project_repo_name,
+)
+from git_manager import (  # noqa: E402
+    router as git_router,
+    run_git_command,
+    create_sprint_branch,
+    check_git_state,
+    commit_task,
+    release_sprint,
+)
+
+# ── Port configuration ────────────────────────────────────────────────────
+
+DEFAULT_ORCHESTRATOR_PORT = 8008
+DEFAULT_CLAUDE_API_PORT = 8788
+
+ACTUAL_ORCHESTRATOR_PORT = DEFAULT_ORCHESTRATOR_PORT
+ACTUAL_CLAUDE_API_PORT = DEFAULT_CLAUDE_API_PORT
+CLAUDE_API_URL = f"http://localhost:{DEFAULT_CLAUDE_API_PORT}"
+
+# ── Path helpers ──────────────────────────────────────────────────────────
+
+_FALLBACK_TAYFA_DIR = TAYFA_DATA_DIR
+
+
+def get_tayfa_dir() -> Path:
+    """Path to .tayfa of the current project."""
+    project = get_current_project()
+    if project:
+        return Path(project["path"]) / TAYFA_DIR_NAME
+    return _FALLBACK_TAYFA_DIR
+
+
+get_personel_dir = get_tayfa_dir
+
+
+def get_project_dir() -> Path | None:
+    """Path to the current project root. None if no project is selected."""
+    project = get_current_project()
+    return Path(project["path"]) if project else None
+
+
+def get_agent_workdir() -> str:
+    """workdir for agents — project root (Windows path)."""
+    project = get_current_project()
+    if project:
+        return str(Path(project["path"]))
+    return str(_FALLBACK_TAYFA_DIR.parent)
+
+
+def get_project_path_for_scoping() -> str:
+    """Return the current project path string for agent scoping."""
+    project = get_current_project()
+    if project:
+        return str(Path(project["path"]))
+    return ""
+
+
+# ── Configuration ─────────────────────────────────────────────────────────
+
+_DEFAULT_AGENT_TIMEOUT = 600.0
+_DEFAULT_MAX_ROLE_TRIGGERS = 2
+_DEFAULT_ARTIFACT_MAX_LINES = 300
+
+
+def _read_config_value(key: str, default, validator=None):
+    """Read a value from .tayfa/config.json. Fresh on every call."""
+    try:
+        config_path = get_tayfa_dir() / "config.json"
+        if not config_path.exists():
+            config_path = TAYFA_DATA_DIR / "config.json"
+        if config_path.exists():
+            data = json.loads(config_path.read_text(encoding="utf-8"))
+            val = data.get(key)
+            if val is not None and (validator is None or validator(val)):
+                return type(default)(val)
+    except Exception:
+        pass
+    return default
+
+
+def get_agent_timeout() -> float:
+    return _read_config_value(
+        "agent_timeout_seconds", _DEFAULT_AGENT_TIMEOUT,
+        lambda v: isinstance(v, (int, float)) and v > 0,
+    )
+
+
+def get_max_role_triggers() -> int:
+    return _read_config_value(
+        "max_role_triggers", _DEFAULT_MAX_ROLE_TRIGGERS,
+        lambda v: isinstance(v, int) and v > 0,
+    )
+
+
+def get_artifact_max_lines() -> int:
+    return _read_config_value(
+        "artifact_max_lines", _DEFAULT_ARTIFACT_MAX_LINES,
+        lambda v: isinstance(v, int) and v > 0,
+    )
+
+
+# Legacy aliases (kept for backward compatibility)
+TAYFA_FALLBACK_DIR = _FALLBACK_TAYFA_DIR
+PERSONEL_DIR = TAYFA_FALLBACK_DIR
+TASKS_FILE = TAYFA_FALLBACK_DIR / "boss" / "tasks.md"
+SKILLS_DIR = TAYFA_FALLBACK_DIR / "common" / "skills"
+COMMON_DIR = TAYFA_FALLBACK_DIR / "common"
+
+# ── Cursor CLI constants ──────────────────────────────────────────────────
+
+CURSOR_CLI_PROMPT_FILE = TAYFA_ROOT_WIN / ".cursor_cli_prompt.txt"
+CURSOR_CHATS_FILE = _UD_CURSOR_CHATS
+CURSOR_CLI_TIMEOUT = 600.0
+CURSOR_CLI_MODEL = "Composer-1.5"
+CURSOR_CREATE_CHAT_TIMEOUT = 30.0
+
+# ── Mutable global state ─────────────────────────────────────────────────
+
+claude_api_process: subprocess.Popen | None = None
+api_running: bool = False
+
+# Cached CLI login status (updated by /api/cli-tools/status, read by /api/status)
+cursor_cli_logged_in: bool = False
+claude_cli_logged_in: bool = False
+
+running_tasks: dict[str, dict] = {}
+agent_locks: dict[str, asyncio.Semaphore] = {}
+task_trigger_counts: dict[str, dict[str, int]] = {}
+
+# ── Per-agent stream buffers ─────────────────────────────────────────────
+# When a task trigger runs with streaming, events are buffered here so that
+# the frontend can connect at any time and replay + follow the live stream.
+# Structure: { agent_name: { "events": [dict, ...], "done": bool, "subscribers": [asyncio.Queue, ...] } }
+agent_stream_buffers: dict[str, dict] = {}
+
+last_ping_time: float = _time.time()
+SHUTDOWN_TIMEOUT = 120.0
+
+# ── Instance locking ────────────────────────────────────────────────────
+# When set via --project CLI flag, this instance is locked to a single project.
+# POST /api/projects/open will return 403 while locked.
+LOCKED_PROJECT_PATH: str | None = None
+
+
+def get_current_project() -> dict | None:
+    """Return the current project for this instance.
+
+    If the instance is locked to a specific project (--project flag),
+    return that project's info directly from the projects list,
+    bypassing the shared ``current`` field in projects.json.
+    This prevents multiple instances from interfering with each other.
+    """
+    if LOCKED_PROJECT_PATH:
+        project = get_project(LOCKED_PROJECT_PATH)
+        if project:
+            return project
+        # Fallback: construct a minimal project dict so the instance
+        # can still operate even if the project wasn't added yet.
+        from project_manager import _normalize_path
+        norm = _normalize_path(LOCKED_PROJECT_PATH)
+        path_str = norm.replace("\\", "/").rstrip("/")
+        name = path_str.split("/")[-1] if "/" in path_str else path_str
+        return {"path": norm, "name": name, "last_opened": ""}
+    return _pm_get_current_project()
+
+
+MAX_FAILURE_LOG_ENTRIES = 1000
+
+_MODEL_RUNTIMES = ["opus", "sonnet", "haiku"]
+
+# ── Ollama (local LLM) support ───────────────────────────────────────────
+from ollama_provider import is_ollama_model  # noqa: E402
+
+
+def is_cursor_model(model: str) -> bool:
+    """True if model runs via Cursor CLI (not Claude API and not Ollama)."""
+    return bool(model and model not in _MODEL_RUNTIMES and not is_ollama_model(model))
+
+# ── Token pricing (USD per 1M tokens) ────────────────────────────────────
+# Used by estimate_tokens() to approximate token counts from cost_usd.
+_TOKEN_RATES = {
+    "opus":   {"input": 15.0,  "output": 75.0},
+    "sonnet": {"input": 3.0,   "output": 15.0},
+    "haiku":  {"input": 0.25,  "output": 1.25},
+}
+
+
+def estimate_tokens(cost_usd: float, model: str) -> dict:
+    """Estimate token counts from cost_usd and model name.
+
+    Since a single cost value can't be split into input vs output,
+    we return *two* estimates:
+    - ``est_input_tokens``:  tokens if all cost were input  (upper bound)
+    - ``est_output_tokens``: tokens if all cost were output (lower bound)
+
+    Both are rounded to the nearest integer.
+    Returns ``{"est_input_tokens": 0, "est_output_tokens": 0}`` for
+    unknown models or zero/negative cost.
+    """
+    if cost_usd <= 0:
+        return {"est_input_tokens": 0, "est_output_tokens": 0}
+
+    rates = _TOKEN_RATES.get(model)
+    if not rates:
+        return {"est_input_tokens": 0, "est_output_tokens": 0}
+
+    # cost = tokens * rate_per_token  →  tokens = cost / rate_per_token
+    # rate_per_token = rate_per_1M / 1_000_000
+    est_input  = round(cost_usd / (rates["input"]  / 1_000_000))
+    est_output = round(cost_usd / (rates["output"] / 1_000_000))
+
+    return {"est_input_tokens": est_input, "est_output_tokens": est_output}
+
+
+# Error types eligible for auto-retry (used by tasks router)
+_RETRYABLE_ERRORS = {"timeout", "unavailable"}
+_MAX_RETRY_ATTEMPTS = 3
+_RETRY_DELAY_SEC = 5
+
+
+def get_agent_lock(agent_name: str) -> asyncio.Semaphore:
+    """Return a Semaphore(1) for the given agent, creating it on first access."""
+    if agent_name not in agent_locks:
+        agent_locks[agent_name] = asyncio.Semaphore(1)
+    return agent_locks[agent_name]
+
+
+def init_agent_stream(agent_name: str) -> None:
+    """Initialize a stream buffer for an agent (called when task trigger starts)."""
+    agent_stream_buffers[agent_name] = {
+        "events": [],
+        "done": False,
+        "subscribers": [],
+    }
+
+
+def push_agent_stream_event(agent_name: str, event: dict) -> None:
+    """Push a stream event to the agent's buffer and notify all subscribers.
+    Also checks for AskUserQuestion tool_use events and forwards them to Telegram."""
+    buf = agent_stream_buffers.get(agent_name)
+    if not buf:
+        return
+    buf["events"].append(event)
+    # Notify all waiting subscribers
+    for q in buf["subscribers"]:
+        try:
+            q.put_nowait(event)
+        except Exception:
+            pass
+
+    # Check if this is an AskUserQuestion event — forward to Telegram bot
+    _maybe_send_telegram_question(agent_name, event)
+
+
+# Per-agent accumulator for streaming AskUserQuestion tool_use
+# { agent_name: { "name": "AskUserQuestion", "json": "..." } }
+_tg_pending_tools: dict[str, dict] = {}
+
+
+def _maybe_send_telegram_question(agent_name: str, event: dict) -> None:
+    """Detect AskUserQuestion in stream events and send to Telegram.
+    Handles both complete events (tool_use, message) and streaming
+    events (content_block_start → content_block_delta → content_block_stop)."""
+    try:
+        etype = event.get("type", "")
+
+        # ── Streaming format: accumulate tool_use fragments ──
+        if etype == "content_block_start":
+            block = event.get("content_block", {})
+            if block.get("type") == "tool_use" and block.get("name") == "AskUserQuestion":
+                _tg_pending_tools[agent_name] = {"name": "AskUserQuestion", "json": ""}
+            else:
+                _tg_pending_tools.pop(agent_name, None)
+            return
+
+        if etype == "content_block_delta":
+            pending = _tg_pending_tools.get(agent_name)
+            if pending and pending["name"] == "AskUserQuestion":
+                delta = event.get("delta", {})
+                if delta.get("type") == "input_json_delta":
+                    pending["json"] += delta.get("partial_json", "")
+            return
+
+        if etype == "content_block_stop":
+            pending = _tg_pending_tools.pop(agent_name, None)
+            if pending and pending["name"] == "AskUserQuestion" and pending["json"]:
+                try:
+                    full_input = json.loads(pending["json"])
+                    questions = full_input.get("questions", [])
+                    if questions:
+                        _fire_telegram_question(agent_name, questions)
+                except json.JSONDecodeError as e:
+                    logger.warning(f"[Telegram hook] JSON parse error: {e}")
+            return
+
+        # ── Complete event formats (non-streaming) ──
+
+        # Direct tool_use event
+        if etype == "tool_use" and event.get("name") == "AskUserQuestion":
+            input_data = event.get("input", {})
+            questions = input_data.get("questions", [])
+            if questions:
+                _fire_telegram_question(agent_name, questions)
+            return
+
+        # Full message with tool_use blocks
+        if etype == "message":
+            content = event.get("content", [])
+            if isinstance(content, list):
+                for block in content:
+                    if isinstance(block, dict) and block.get("type") == "tool_use" and block.get("name") == "AskUserQuestion":
+                        input_data = block.get("input", {})
+                        questions = input_data.get("questions", [])
+                        if questions:
+                            _fire_telegram_question(agent_name, questions)
+            return
+    except Exception as e:
+        logger.warning(f"[Telegram hook] Error checking event: {e}")
+
+
+def _fire_telegram_question(agent_name: str, questions: list[dict]) -> None:
+    """Send AskUserQuestion to Telegram bot (fire-and-forget via asyncio task)."""
+    try:
+        from telegram_bot import get_bot
+        bot = get_bot()
+        if bot:
+            asyncio.create_task(bot.send_question(agent_name, questions))
+    except Exception as e:
+        logger.warning(f"[Telegram hook] Failed to send question: {e}")
+
+
+def finish_agent_stream(agent_name: str) -> None:
+    """Mark the agent's stream as done and notify subscribers with a sentinel.
+    Buffer is kept so the frontend can replay it when switching to this agent.
+    It will be overwritten when the next task starts (init_agent_stream)."""
+    buf = agent_stream_buffers.get(agent_name)
+    if not buf:
+        return
+    buf["done"] = True
+    for q in buf["subscribers"]:
+        try:
+            q.put_nowait(None)  # sentinel: stream finished
+        except Exception:
+            pass
+
+
+def subscribe_agent_stream(agent_name: str) -> tuple[list[dict], asyncio.Queue | None]:
+    """Subscribe to an agent's stream. Returns (past_events, queue_for_new_events).
+    If no stream is active, returns ([], None)."""
+    buf = agent_stream_buffers.get(agent_name)
+    if not buf:
+        return [], None
+    past = list(buf["events"])  # snapshot of buffered events
+    if buf["done"]:
+        return past, None  # stream already finished, no queue needed
+    q: asyncio.Queue = asyncio.Queue()
+    buf["subscribers"].append(q)
+    return past, q
+
+
+def unsubscribe_agent_stream(agent_name: str, q: asyncio.Queue) -> None:
+    """Remove a subscriber queue from the agent's stream buffer."""
+    buf = agent_stream_buffers.get(agent_name)
+    if buf and q in buf["subscribers"]:
+        buf["subscribers"].remove(q)
+
+
+# ── Board event bus (pub/sub for push-notifications) ─────────────────────
+# Follows the same pattern as agent_stream_buffers above.
+
+_board_subscribers: list[asyncio.Queue] = []
+
+
+def board_notify() -> None:
+    """Push a board_changed event to all SSE subscribers."""
+    event = {"type": "board_changed", "ts": _time.time()}
+    for q in list(_board_subscribers):
+        try:
+            q.put_nowait(event)
+        except asyncio.QueueFull:
+            pass
+
+
+def board_subscribe() -> asyncio.Queue:
+    """Subscribe to board change events. Returns an asyncio.Queue."""
+    q: asyncio.Queue = asyncio.Queue(maxsize=50)
+    _board_subscribers.append(q)
+    return q
+
+
+def board_unsubscribe(q: asyncio.Queue) -> None:
+    """Remove a subscriber queue from the board event bus."""
+    try:
+        _board_subscribers.remove(q)
+    except ValueError:
+        pass
+
+
+# ── Background mtime watcher for tasks.json ─────────────────────────────
+
+async def _board_mtime_watcher() -> None:
+    """Check tasks.json mtime every 2 seconds.
+
+    If the file changed since the last check, calls board_notify().
+    This catches changes made by agent CLI subprocesses that bypass
+    the orchestrator's own API (e.g. task_manager.py called directly).
+    """
+    import task_manager as _tm  # local import to avoid circular at module level
+
+    last_mtime: float = 0.0
+    while True:
+        await asyncio.sleep(2)
+        try:
+            current = _tm.TASKS_FILE.stat().st_mtime
+            if current != last_mtime and last_mtime != 0.0:
+                board_notify()
+            last_mtime = current
+        except FileNotFoundError:
+            pass
+
+
+# ── Port helpers ──────────────────────────────────────────────────────────
+
+def is_port_in_use(port: int) -> bool:
+    import socket
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        s.settimeout(0.1)
+        try:
+            s.connect(('127.0.0.1', port))
+            return True
+        except (ConnectionRefusedError, socket.timeout, OSError):
+            return False
+
+
+def find_free_port(start_port: int, max_attempts: int = 10) -> int:
+    for offset in range(max_attempts):
+        port = start_port + offset
+        if not is_port_in_use(port):
+            return port
+    return start_port + max_attempts
+
+
+# ── Claude API communication ─────────────────────────────────────────────
+
+async def call_claude_api(method: str, path: str, json_data: dict | None = None,
+                          timeout: float = 600.0, params: dict | None = None) -> dict:
+    """Sends a request to the Claude API server."""
+    url = f"{CLAUDE_API_URL}{path}"
+    try:
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            if method == "GET":
+                resp = await client.get(url, params=params)
+            elif method == "POST":
+                resp = await client.post(url, json=json_data, params=params)
+            elif method == "DELETE":
+                resp = await client.delete(url, params=params)
+            else:
+                raise ValueError(f"Unknown method: {method}")
+            if resp.status_code >= 400:
+                try:
+                    body = resp.json()
+                    detail = body.get("detail", body.get("message", resp.text or "Not Found"))
+                except Exception:
+                    detail = resp.text or "Not Found"
+                if resp.status_code == 404:
+                    detail = (
+                        "Agent not found in Claude API. Start the server (button 'Start Server'), "
+                        "then click 'Ensure Agents' to create agents (boss, hr, etc.)."
+                    )
+                raise HTTPException(status_code=resp.status_code, detail=detail)
+            return resp.json()
+    except HTTPException:
+        raise
+    except httpx.ConnectError:
+        raise HTTPException(status_code=503, detail="Claude API server is unavailable. Please start it.")
+    except httpx.ReadTimeout:
+        raise HTTPException(status_code=504, detail="Claude API: timeout waiting for agent response.")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Claude API error: {str(e)}")
+
+
+async def stream_claude_api(path: str, json_data: dict):
+    """Async generator that proxies SSE from claude_api server. No timeout — agent runs until done."""
+    url = f"{CLAUDE_API_URL}{path}"
+    try:
+        async with httpx.AsyncClient(timeout=httpx.Timeout(None, connect=10.0)) as client:
+            async with client.stream("POST", url, json=json_data) as resp:
+                if resp.status_code >= 400:
+                    body = await resp.aread()
+                    try:
+                        detail = json.loads(body).get("detail", body.decode())
+                    except Exception:
+                        detail = body.decode()
+                    yield f'{{"type":"error","error":{json.dumps(detail)}}}'
+                    return
+                async for line in resp.aiter_lines():
+                    if line.startswith("data: "):
+                        yield line[6:]
+                    elif line.strip():
+                        yield line
+    except httpx.ConnectError:
+        yield '{"type":"error","error":"Claude API server is unavailable. Please start it."}'
+    except httpx.ReadTimeout:
+        yield '{"type":"error","error":"Claude API: timeout waiting for agent response."}'
+    except Exception as e:
+        yield f'{{"type":"error","error":{json.dumps(str(e))}}}'
+
+
+# ── Claude API process management ────────────────────────────────────────
+
+def start_claude_api() -> dict:
+    """Starts the Claude API server natively on Windows with a dynamic port."""
+    global claude_api_process, ACTUAL_CLAUDE_API_PORT, CLAUDE_API_URL
+
+    if claude_api_process and claude_api_process.poll() is None:
+        return {"status": "already_running", "pid": claude_api_process.pid, "port": ACTUAL_CLAUDE_API_PORT}
+
+    ACTUAL_CLAUDE_API_PORT = find_free_port(DEFAULT_CLAUDE_API_PORT)
+    CLAUDE_API_URL = f"http://localhost:{ACTUAL_CLAUDE_API_PORT}"
+
+    try:
+        claude_api_process = subprocess.Popen(
+            [
+                sys.executable, "-m", "uvicorn",
+                "claude_api:app",
+                "--app-dir", str(KOK_DIR),
+                "--host", "0.0.0.0",
+                "--port", str(ACTUAL_CLAUDE_API_PORT),
+            ],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            cwd=str(TAYFA_ROOT_WIN),
+            creationflags=subprocess.CREATE_NEW_PROCESS_GROUP,
+        )
+        return {"status": "started", "pid": claude_api_process.pid, "port": ACTUAL_CLAUDE_API_PORT}
+    except Exception as e:
+        return {"status": "error", "detail": str(e)}
+
+
+def stop_claude_api() -> dict:
+    """Stops the Claude API server."""
+    global claude_api_process, api_running
+
+    if claude_api_process and claude_api_process.poll() is None:
+        try:
+            claude_api_process.terminate()
+            claude_api_process.wait(timeout=10)
+        except Exception:
+            claude_api_process.kill()
+        claude_api_process = None
+        api_running = False
+        return {"status": "stopped"}
+    return {"status": "not_running"}
+
+
+# ── Debug logging ─────────────────────────────────────────────────────────
+
+_debug_log_ensure_path = None
+
+def _debug_log_ensure(message: str, data: dict, hypothesis_id: str = ""):
+    global _debug_log_ensure_path
+    for base in (_APP_DIR.parent, Path.cwd()):
+        log_path = base / "debug-6f4251.log"
+        try:
+            with open(log_path, "a", encoding="utf-8") as f:
+                f.write(json.dumps({"sessionId": "6f4251", "hypothesisId": hypothesis_id,
+                                    "location": "app.py ensure_agents", "message": message,
+                                    "data": data,
+                                    "timestamp": int(datetime.now().timestamp() * 1000)},
+                                   ensure_ascii=False) + "\n")
+            if _debug_log_ensure_path is None:
+                _debug_log_ensure_path = str(log_path)
+                logger.info(f"[debug] ensure_agents log: {log_path}")
+            return
+        except Exception:
+            continue
