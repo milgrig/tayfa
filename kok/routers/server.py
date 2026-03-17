@@ -1027,27 +1027,15 @@ def _find_git_root() -> Path | None:
     return None
 
 
-def _get_configured_repo_url() -> str | None:
-    """Build the expected GitHub remote URL from settings (githubOwner) and
-    project config (repoName).  Returns e.g. 'https://github.com/milgrig/tayfa'
-    or None when the config is incomplete."""
-    from settings_manager import load_public_settings
-    from project_manager import get_project_repo_name
-
-    settings = load_public_settings()
-    owner = (settings.get("git", {}).get("githubOwner") or "").strip()
-    repo = (get_project_repo_name() or "").strip()
-    if owner and repo:
-        return f"https://github.com/{owner}/{repo}"
-    return None
+TAYFA_REPO_URL = "https://github.com/milgrig/tayfa"
 
 
 def _find_tayfa_remote(cwd: str) -> str:
-    """Find the git remote whose fetch URL matches the configured GitHub repo.
-    When a configured URL is available, it is compared against every remote;
-    if none matches, a temporary remote 'tayfa-updates' is created so that
-    fetch/pull work correctly.  Falls back to 'origin' when config is absent."""
-    configured_url = _get_configured_repo_url()
+    """Find the git remote whose fetch URL matches the Tayfa GitHub repo.
+    Always uses the hardcoded TAYFA_REPO_URL (not project settings) so that
+    update checks work regardless of which project is currently open.
+    When no existing remote matches, creates 'tayfa-updates' remote."""
+    configured_url = TAYFA_REPO_URL
 
     try:
         proc = subprocess.run(
@@ -1179,8 +1167,13 @@ async def check_for_updates():
 @router.post("/api/updates/install")
 async def install_update():
     """
-    Install the latest Tayfa update: git pull origin <branch>.
-    Returns the pull result and suggests a server restart.
+    Install the latest Tayfa update with bulletproof strategy:
+      1. git fetch
+      2. Try fast-forward pull
+      3. If diverged: try rebase
+      4. If still fails: git reset --hard origin/<branch>
+    Tayfa app code should always match GitHub after this call.
+    User project files are NOT in the Tayfa repo, so reset --hard is safe.
     """
     git_root = _find_git_root()
     if not git_root:
@@ -1188,33 +1181,80 @@ async def install_update():
 
     cwd = str(git_root)
     remote = _find_tayfa_remote(cwd)
+    steps_log: list[str] = []
 
     # Get current branch
     branch = _run_git(["branch", "--show-current"], cwd)["stdout"] or "main"
+    steps_log.append(f"Branch: {branch}, remote: {remote}")
 
-    # Check for uncommitted changes
-    status = _run_git(["status", "--porcelain"], cwd)
-    if status["stdout"]:
-        # Stash changes before pull
-        _run_git(["stash", "push", "-m", "tayfa-auto-update"], cwd)
-
-    # Pull
-    pull = _run_git(["pull", remote, branch, "--ff-only"], cwd)
-
-    if pull["returncode"] != 0:
-        # Try to restore stash if we stashed
-        if status["stdout"]:
-            _run_git(["stash", "pop"], cwd)
+    # Fetch latest from remote first
+    fetch = _run_git(["fetch", remote, "--quiet"], cwd)
+    if fetch["returncode"] != 0:
         raise HTTPException(
-            status_code=500,
-            detail=f"Update failed: {pull['stderr']}. Try updating manually with 'git pull'."
+            status_code=502,
+            detail=f"Failed to fetch from remote '{remote}': {fetch['stderr']}"
         )
+    steps_log.append("Fetched latest from remote")
 
-    # Pop stash if we stashed
+    # Check for uncommitted changes and stash them
+    status = _run_git(["status", "--porcelain"], cwd)
+    had_changes = bool(status["stdout"])
+    if had_changes:
+        _run_git(["stash", "push", "-m", "tayfa-auto-update"], cwd)
+        steps_log.append("Stashed local changes")
+
+    strategy_used = ""
+    output = ""
+
+    # Strategy 1: Fast-forward pull (cleanest)
+    pull_ff = _run_git(["pull", remote, branch, "--ff-only"], cwd)
+    if pull_ff["returncode"] == 0:
+        strategy_used = "fast-forward"
+        output = pull_ff["stdout"]
+        steps_log.append("Fast-forward pull succeeded")
+    else:
+        steps_log.append(f"Fast-forward failed: {pull_ff['stderr'][:120]}")
+
+        # Strategy 2: Rebase pull
+        pull_rebase = _run_git(["pull", "--rebase", remote, branch], cwd)
+        if pull_rebase["returncode"] == 0:
+            strategy_used = "rebase"
+            output = pull_rebase["stdout"]
+            steps_log.append("Rebase pull succeeded")
+        else:
+            steps_log.append(f"Rebase failed: {pull_rebase['stderr'][:120]}")
+            # Abort any in-progress rebase
+            _run_git(["rebase", "--abort"], cwd)
+
+            # Strategy 3: Hard reset to remote (nuclear option — safe for Tayfa app)
+            reset = _run_git(["reset", "--hard", f"{remote}/{branch}"], cwd)
+            if reset["returncode"] == 0:
+                strategy_used = "reset-hard"
+                output = reset["stdout"]
+                steps_log.append(f"Hard reset to {remote}/{branch} succeeded")
+            else:
+                steps_log.append(f"Hard reset failed: {reset['stderr'][:120]}")
+                # Restore stash if we had changes
+                if had_changes:
+                    _run_git(["stash", "pop"], cwd)
+                raise HTTPException(
+                    status_code=500,
+                    detail=(
+                        f"Update failed after all strategies. Log: {'; '.join(steps_log)}. "
+                        f"Last error: {reset['stderr']}. "
+                        f"Try updating manually: cd {cwd} && git fetch {remote} && git reset --hard {remote}/{branch}"
+                    ),
+                )
+
+    # Restore stashed changes (best-effort — if conflict, changes stay in stash)
     stash_restored = False
-    if status["stdout"]:
+    if had_changes:
         pop = _run_git(["stash", "pop"], cwd)
         stash_restored = pop["returncode"] == 0
+        if stash_restored:
+            steps_log.append("Restored stashed changes")
+        else:
+            steps_log.append("Could not restore stash (may have conflicts); changes saved in git stash")
 
     # Read new version after update
     new_version = None
@@ -1228,9 +1268,11 @@ async def install_update():
 
     return {
         "status": "updated",
-        "pull_output": pull["stdout"],
+        "strategy": strategy_used,
+        "pull_output": output,
         "new_version": new_version,
         "stash_restored": stash_restored,
         "restart_required": True,
         "message": "Update installed! Restart the server to apply changes.",
+        "steps": steps_log,
     }

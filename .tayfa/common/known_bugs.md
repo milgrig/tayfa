@@ -20,6 +20,13 @@ If you fixed a bug that is NOT listed here — **add it** following the format b
 **Prevention:** Added `_cleanup_remote_token()` that resets origin URL to the clean (tokenless) form. Called in `finally` block of `release_sprint()` and after `check_git_ready_for_release()`.
 **Recurred:** 1 time / S002
 
+## KB-003: Install update fails with "Not possible to fast-forward" on diverged histories
+
+**Symptom:** Clicking "Install update" in Settings returns error: "fatal: Not possible to fast-forward, aborting". The update is not applied.
+**Root Cause:** `install_update()` used `git pull --ff-only` which fails when local and remote histories have diverged (e.g. after a force push to GitHub, or local commits on main).
+**Prevention:** `install_update()` now uses a 3-strategy escalation: (1) fast-forward pull, (2) rebase pull, (3) `git reset --hard origin/<branch>`. Since Tayfa app code should always match GitHub and user project files are NOT in the Tayfa repo, hard reset is safe. Strategy used is returned in the response for debugging.
+**Recurred:** 1 time / S003
+
 ---
 
 <!--

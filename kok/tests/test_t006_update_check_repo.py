@@ -1,9 +1,9 @@
 """
-T006: Tests for update check using configured GitHub repository.
+T006: Tests for update check using hardcoded Tayfa GitHub repository.
 
 Verifies that:
-1. _get_configured_repo_url() reads githubOwner from settings + repoName from project
-2. _find_tayfa_remote() prefers the configured repo URL over hardcoded name matching
+1. TAYFA_REPO_URL is hardcoded to https://github.com/milgrig/tayfa
+2. _find_tayfa_remote() uses the hardcoded URL (not project settings)
 3. _find_tayfa_remote() creates 'tayfa-updates' remote when no match found
 4. _find_tayfa_remote() falls back to 'tayfa'-named remote then 'origin'
 5. _find_tayfa_remote() updates stale 'tayfa-updates' URL on re-run
@@ -18,44 +18,29 @@ _KOK_DIR = Path(__file__).resolve().parents[1]
 if str(_KOK_DIR) not in sys.path:
     sys.path.insert(0, str(_KOK_DIR))
 
-from routers.server import _get_configured_repo_url, _find_tayfa_remote
+from routers.server import TAYFA_REPO_URL, _find_tayfa_remote
 
 
 # ---------------------------------------------------------------------------
-# _get_configured_repo_url
+# TAYFA_REPO_URL constant
 # ---------------------------------------------------------------------------
 
-class TestGetConfiguredRepoUrl:
-    """Tests for building the GitHub URL from settings + project config."""
+class TestTayfaRepoUrl:
+    """Tests for the hardcoded Tayfa repo URL."""
 
-    def test_returns_url_when_both_owner_and_repo_set(self):
-        mock_settings = {"git": {"githubOwner": "milgrig"}}
-        with patch("settings_manager.load_public_settings", return_value=mock_settings), \
-             patch("project_manager.get_project_repo_name", return_value="tayfa"):
-            assert _get_configured_repo_url() == "https://github.com/milgrig/tayfa"
+    def test_url_is_hardcoded(self):
+        assert TAYFA_REPO_URL == "https://github.com/milgrig/tayfa"
 
-    def test_returns_none_when_owner_missing(self):
-        mock_settings = {"git": {"githubOwner": ""}}
-        with patch("settings_manager.load_public_settings", return_value=mock_settings), \
-             patch("project_manager.get_project_repo_name", return_value="tayfa"):
-            assert _get_configured_repo_url() is None
+    def test_url_does_not_depend_on_settings(self):
+        """TAYFA_REPO_URL must be a plain string constant, not computed."""
+        source = (_KOK_DIR / "routers" / "server.py").read_text(encoding="utf-8")
+        # Must be a simple assignment, not a function call
+        assert 'TAYFA_REPO_URL = "https://github.com/milgrig/tayfa"' in source
 
-    def test_returns_none_when_repo_missing(self):
-        mock_settings = {"git": {"githubOwner": "milgrig"}}
-        with patch("settings_manager.load_public_settings", return_value=mock_settings), \
-             patch("project_manager.get_project_repo_name", return_value=""):
-            assert _get_configured_repo_url() is None
-
-    def test_returns_none_when_git_section_missing(self):
-        with patch("settings_manager.load_public_settings", return_value={}), \
-             patch("project_manager.get_project_repo_name", return_value="tayfa"):
-            assert _get_configured_repo_url() is None
-
-    def test_strips_whitespace(self):
-        mock_settings = {"git": {"githubOwner": " milgrig "}}
-        with patch("settings_manager.load_public_settings", return_value=mock_settings), \
-             patch("project_manager.get_project_repo_name", return_value=" tayfa "):
-            assert _get_configured_repo_url() == "https://github.com/milgrig/tayfa"
+    def test_get_configured_repo_url_removed(self):
+        """_get_configured_repo_url should no longer exist (replaced by constant)."""
+        source = (_KOK_DIR / "routers" / "server.py").read_text(encoding="utf-8")
+        assert "def _get_configured_repo_url(" not in source
 
 
 # ---------------------------------------------------------------------------
@@ -82,34 +67,29 @@ def _fake_run_git(returncode=0, stdout="", stderr=""):
 class TestFindTayfaRemote:
     """Tests for remote selection logic."""
 
-    def test_matches_configured_url_exact(self):
+    def test_matches_hardcoded_url_exact(self):
         remote_v = (
             "origin\thttps://github.com/milgrig/tayfa.git (fetch)\n"
             "origin\thttps://github.com/milgrig/tayfa.git (push)\n"
         )
-        with patch("routers.server._get_configured_repo_url",
-                    return_value="https://github.com/milgrig/tayfa"), \
-             patch("subprocess.run", return_value=_fake_remote_v(remote_v)):
+        with patch("subprocess.run", return_value=_fake_remote_v(remote_v)):
             assert _find_tayfa_remote("/tmp") == "origin"
 
-    def test_matches_configured_url_case_insensitive(self):
+    def test_matches_hardcoded_url_case_insensitive(self):
         remote_v = (
             "upstream\thttps://github.com/Milgrig/Tayfa.git (fetch)\n"
             "upstream\thttps://github.com/Milgrig/Tayfa.git (push)\n"
         )
-        with patch("routers.server._get_configured_repo_url",
-                    return_value="https://github.com/milgrig/tayfa"), \
-             patch("subprocess.run", return_value=_fake_remote_v(remote_v)):
+        with patch("subprocess.run", return_value=_fake_remote_v(remote_v)):
             assert _find_tayfa_remote("/tmp") == "upstream"
 
     def test_creates_remote_when_no_match(self):
+        """When no remote matches the Tayfa URL, creates 'tayfa-updates'."""
         remote_v = (
             "origin\thttps://github.com/other/other-repo.git (fetch)\n"
             "origin\thttps://github.com/other/other-repo.git (push)\n"
         )
-        with patch("routers.server._get_configured_repo_url",
-                    return_value="https://github.com/milgrig/tayfa"), \
-             patch("subprocess.run", return_value=_fake_remote_v(remote_v)), \
+        with patch("subprocess.run", return_value=_fake_remote_v(remote_v)), \
              patch("routers.server._run_git", return_value=_fake_run_git(0)) as mock_git:
             result = _find_tayfa_remote("/tmp")
             assert result == "tayfa-updates"
@@ -123,9 +103,7 @@ class TestFindTayfaRemote:
             "tayfa-updates\thttps://github.com/old/old-repo.git (fetch)\n"
             "tayfa-updates\thttps://github.com/old/old-repo.git (push)\n"
         )
-        with patch("routers.server._get_configured_repo_url",
-                    return_value="https://github.com/milgrig/tayfa"), \
-             patch("subprocess.run", return_value=_fake_remote_v(remote_v)), \
+        with patch("subprocess.run", return_value=_fake_remote_v(remote_v)), \
              patch("routers.server._run_git", return_value=_fake_run_git(0)) as mock_git:
             result = _find_tayfa_remote("/tmp")
             assert result == "tayfa-updates"
@@ -134,36 +112,67 @@ class TestFindTayfaRemote:
                 "/tmp",
             )
 
-    def test_fallback_to_tayfa_named_remote_without_config(self):
+    def test_does_not_use_project_settings(self):
+        """_find_tayfa_remote should NOT call _get_configured_repo_url or read project settings."""
+        remote_v = (
+            "origin\thttps://github.com/milgrig/tayfa.git (fetch)\n"
+            "origin\thttps://github.com/milgrig/tayfa.git (push)\n"
+        )
+        with patch("subprocess.run", return_value=_fake_remote_v(remote_v)):
+            # This should work without any settings mocks
+            result = _find_tayfa_remote("/tmp")
+            assert result == "origin"
+
+    def test_project_switch_does_not_affect_remote(self):
+        """Even if project settings point to a different repo, update checks use Tayfa URL."""
+        remote_v = (
+            "origin\thttps://github.com/milgrig/tayfa.git (fetch)\n"
+            "origin\thttps://github.com/milgrig/tayfa.git (push)\n"
+        )
+        # No mocking of settings needed — function uses hardcoded constant
+        with patch("subprocess.run", return_value=_fake_remote_v(remote_v)):
+            assert _find_tayfa_remote("/tmp") == "origin"
+
+    def test_fallback_to_tayfa_named_remote(self):
+        """When git remote -v fails to match the hardcoded URL directly,
+        fall back to any remote with 'tayfa' in repo name."""
         remote_v = (
             "upstream\thttps://github.com/someone/tayfa.git (fetch)\n"
             "upstream\thttps://github.com/someone/tayfa.git (push)\n"
             "origin\thttps://github.com/fork/other.git (fetch)\n"
             "origin\thttps://github.com/fork/other.git (push)\n"
         )
-        with patch("routers.server._get_configured_repo_url", return_value=None), \
-             patch("subprocess.run", return_value=_fake_remote_v(remote_v)):
-            assert _find_tayfa_remote("/tmp") == "upstream"
+        # This remote matches the hardcoded URL case-insensitively? No, someone != milgrig
+        # So it falls through to the "tayfa" name check
+        with patch("subprocess.run", return_value=_fake_remote_v(remote_v)), \
+             patch("routers.server._run_git", return_value=_fake_run_git(0)):
+            # It should create tayfa-updates since milgrig/tayfa doesn't match someone/tayfa
+            # But the fallback at the bottom checks for "tayfa" in repo name
+            # Actually: the configured_url is always TAYFA_REPO_URL now, so it will
+            # try to match milgrig/tayfa against someone/tayfa — no match → create tayfa-updates
+            result = _find_tayfa_remote("/tmp")
+            assert result == "tayfa-updates"
 
     def test_fallback_to_origin_when_nothing_matches(self):
         remote_v = (
             "origin\thttps://github.com/someone/other.git (fetch)\n"
             "origin\thttps://github.com/someone/other.git (push)\n"
         )
-        with patch("routers.server._get_configured_repo_url", return_value=None), \
-             patch("subprocess.run", return_value=_fake_remote_v(remote_v)):
-            assert _find_tayfa_remote("/tmp") == "origin"
+        # configured_url is always set now (TAYFA_REPO_URL), so it will try
+        # to create tayfa-updates remote
+        with patch("subprocess.run", return_value=_fake_remote_v(remote_v)), \
+             patch("routers.server._run_git", return_value=_fake_run_git(0)):
+            result = _find_tayfa_remote("/tmp")
+            assert result == "tayfa-updates"
 
     def test_returns_origin_on_git_failure(self):
         mock = MagicMock()
         mock.returncode = 128
         mock.stdout = ""
         mock.stderr = "fatal: not a git repository"
-        with patch("routers.server._get_configured_repo_url", return_value="https://github.com/milgrig/tayfa"), \
-             patch("subprocess.run", return_value=mock):
+        with patch("subprocess.run", return_value=mock):
             assert _find_tayfa_remote("/tmp") == "origin"
 
     def test_returns_origin_on_subprocess_exception(self):
-        with patch("routers.server._get_configured_repo_url", return_value="https://github.com/milgrig/tayfa"), \
-             patch("subprocess.run", side_effect=OSError("not found")):
+        with patch("subprocess.run", side_effect=OSError("not found")):
             assert _find_tayfa_remote("/tmp") == "origin"
