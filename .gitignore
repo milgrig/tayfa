@@ -1,0 +1,80 @@
+# Tayfa: track config (prompts, rules, scripts), ignore runtime data
+.tayfa/common/tasks.json
+.tayfa/common/backlog.json
+.tayfa/common/employees.json
+.tayfa/common/agent_failures.json
+.tayfa/common/discussions/
+.tayfa/common/sprint_reports/
+.tayfa/common/tests/
+.tayfa/common/archive/
+.tayfa/common/.pytest_cache/
+.tayfa/**/chat_history.json
+.tayfa/**/notes.md
+.tayfa/**/tasks.md
+.tayfa/**/source.md
+.tayfa/config.json
+.tayfa/analic.md
+# Cursor CLI
+.cursor_cli_prompt.txt
+.cursor_chats.json
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+venv/
+.venv/
+
+# IDE / OS
+.idea/
+.vscode/
+Thumbs.db
+.DS_Store
+
+# Logs
+logs/
+*.jsonl
+*.log
+
+# Orchestrator temporary files
+_task_*.txt
+
+# Windows artifacts
+*.lnk
+nul
+
+# Secrets
+.env
+*.key
+*.pem
+credentials.*
+
+# Secret settings (tokens, API keys) — legacy location, migrated to %APPDATA%\Tayfa
+kok/secret_settings.json
+
+# Local project list — legacy location, migrated to %APPDATA%\Tayfa
+kok/projects.json
+
+# Agent state (per-instance) — legacy location, migrated to %APPDATA%\Tayfa
+claude_agents.json
+~*claude_agents.json
+
+# Coverage reports
+.coverage
+kok/.coverage
+htmlcov/
+kok/htmlcov/
+
+# Chat history archives (large, per-instance)
+.tayfa/**/chat_history_archive/
+
+# pytest cache
+.pytest_cache/
+kok/.pytest_cache/
+
+# Memory files (per-instance runtime data)
+.tayfa/**/memory.md
+
+# Debug / temp files
+debug-*.log
+NUL
