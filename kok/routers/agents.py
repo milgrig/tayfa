@@ -818,11 +818,24 @@ async def create_agent(data: dict):
 
 @router.post("/api/send-prompt")
 async def send_prompt(data: dict):
-    """Send a prompt to an agent (Claude API). Saves history to chat_history.json."""
+    """Send a prompt to an agent (Claude API). Saves history to chat_history.json.
+
+    Accepts optional 'images' field: array of {"data": "base64...", "mime": "image/png"}.
+    Images are forwarded to Claude CLI via temp files.
+    """
     agent_name = data.get("name") or data.get("agent")
     prompt_text = data.get("prompt", "")
     task_id = data.get("task_id")
     runtime = data.get("runtime", "claude")  # Use runtime from request, fallback to "claude" for backward compat
+    images = data.get("images")  # optional: [{"data": "base64...", "mime": "image/png"}]
+
+    if not agent_name or (not prompt_text and not images):
+        raise HTTPException(400, "Fields 'name' and 'prompt' (or 'images') are required")
+
+    # When images are sent without text, use a default prompt
+    if not prompt_text and images:
+        prompt_text = "Describe this image"
+        data["prompt"] = prompt_text
 
     # Resolve model from runtime (opus/sonnet/haiku) so claude_api uses correct per-model session
     if runtime in _MODEL_RUNTIMES:
@@ -836,7 +849,14 @@ async def send_prompt(data: dict):
     duration_sec = _time.time() - start_time
 
     # Save to chat history
-    if agent_name and prompt_text:
+    if agent_name:
+        extra = {"num_turns": api_result.get("num_turns")}
+        # Store image metadata in chat history so images display on reload
+        if images:
+            extra["images"] = [
+                {"mime": img.get("mime", "image/png"), "data": img.get("data", "")}
+                for img in images
+            ]
         save_chat_message(
             agent_name=agent_name,
             prompt=prompt_text,
@@ -846,7 +866,7 @@ async def send_prompt(data: dict):
             duration_sec=duration_sec,
             task_id=task_id,
             success=True,
-            extra={"num_turns": api_result.get("num_turns")},
+            extra=extra,
         )
 
     # Forward agent's reply to Telegram if the prompt came from Telegram
@@ -857,15 +877,25 @@ async def send_prompt(data: dict):
 
 @router.post("/api/send-prompt-stream")
 async def send_prompt_stream(data: dict):
-    """Send a prompt to an agent with SSE streaming. Saves history on completion."""
+    """Send a prompt to an agent with SSE streaming. Saves history on completion.
+
+    Accepts optional 'images' field: array of {"data": "base64...", "mime": "image/png"}.
+    Images are forwarded to Claude CLI via temp files.
+    """
     agent_name = data.get("name") or data.get("agent")
     prompt_text = data.get("prompt", "")
     task_id = data.get("task_id")
     runtime = data.get("runtime", "claude")
     from_telegram = data.get("_from_telegram", False)
+    images = data.get("images")  # optional: [{"data": "base64...", "mime": "image/png"}]
 
-    if not agent_name or not prompt_text:
-        raise HTTPException(400, "Fields 'name' and 'prompt' are required")
+    if not agent_name or (not prompt_text and not images):
+        raise HTTPException(400, "Fields 'name' and 'prompt' (or 'images') are required")
+
+    # When images are sent without text, use a default prompt
+    if not prompt_text and images:
+        prompt_text = "Describe this image"
+        data["prompt"] = prompt_text
 
     # Only mark as "from web" if the request is NOT from Telegram callback
     if not from_telegram:
@@ -953,6 +983,13 @@ async def send_prompt_stream(data: dict):
         # Save chat history after stream completes
         duration_sec = _time.time() - start_time
         if agent_name and prompt_text:
+            extra = {"num_turns": num_turns}
+            # Store image metadata in chat history so images display on reload
+            if images:
+                extra["images"] = [
+                    {"mime": img.get("mime", "image/png"), "data": img.get("data", "")}
+                    for img in images
+                ]
             save_chat_message(
                 agent_name=agent_name,
                 prompt=prompt_text,
@@ -962,7 +999,7 @@ async def send_prompt_stream(data: dict):
                 duration_sec=duration_sec,
                 task_id=task_id,
                 success=True,
-                extra={"num_turns": num_turns},
+                extra=extra,
             )
 
         # Forward agent's reply to Telegram if the prompt came from Telegram

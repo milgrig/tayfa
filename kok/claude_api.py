@@ -2,6 +2,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.responses import StreamingResponse
 from typing import Optional
 from pydantic import BaseModel
+import base64
 import subprocess
 import json
 import os
@@ -156,6 +157,7 @@ class UnifiedRequest(BaseModel):
     timeout: int = 300
     reset: bool = False
     project_path: Optional[str] = ""  # project path for scoping agents per project
+    images: Optional[list[dict]] = None  # optional images: [{"data": "base64...", "mime": "image/png"}]
 
 # --------------- project scoping helpers ---------------
 
@@ -286,18 +288,117 @@ def _read_agent_memory(agent: dict, agent_name: str) -> str:
         return ""
 
 
+# --------------- image helpers ---------------
+
+# Mapping from MIME type to file extension for image temp files
+_MIME_TO_EXT = {
+    "image/png": ".png",
+    "image/jpeg": ".jpg",
+    "image/gif": ".gif",
+    "image/webp": ".webp",
+}
+
+
+def save_images_to_temp(images: list[dict], workdir: str = "") -> tuple[list[str], str]:
+    """Save base64-encoded images to a temp directory inside the agent's workdir.
+
+    Args:
+        images: List of {"data": "<base64>", "mime": "image/png"} dicts.
+        workdir: Agent's working directory. Temp dir is created inside it
+                 so Claude CLI can read the files via its Read tool.
+
+    Returns:
+        (file_paths, temp_dir) — list of saved file paths and the temp directory path.
+        Caller is responsible for cleanup via cleanup_image_temp_dir().
+    """
+    if not images:
+        return [], ""
+
+    base_dir = workdir if workdir and os.path.isdir(workdir) else None
+    temp_dir = tempfile.mkdtemp(prefix=".tayfa_images_", dir=base_dir)
+    file_paths: list[str] = []
+
+    for i, img in enumerate(images):
+        raw_data = img.get("data", "")
+        mime = img.get("mime", "image/png")
+        ext = _MIME_TO_EXT.get(mime, ".png")
+
+        # Strip optional data-URI prefix: "data:image/png;base64,..."
+        if "," in raw_data and raw_data.startswith("data:"):
+            raw_data = raw_data.split(",", 1)[1]
+
+        try:
+            img_bytes = base64.b64decode(raw_data)
+        except Exception as e:
+            logger.warning(f"save_images_to_temp: failed to decode image {i}: {e}")
+            continue
+
+        file_path = os.path.join(temp_dir, f"image_{i}{ext}")
+        with open(file_path, "wb") as f:
+            f.write(img_bytes)
+        file_paths.append(file_path)
+        logger.info(f"save_images_to_temp: saved image {i} ({len(img_bytes)} bytes) → {file_path}")
+
+    return file_paths, temp_dir
+
+
+def cleanup_image_temp_dir(temp_dir: str) -> None:
+    """Remove the temporary image directory and all files inside it."""
+    if temp_dir and os.path.isdir(temp_dir):
+        try:
+            shutil.rmtree(temp_dir)
+            logger.info(f"cleanup_image_temp_dir: removed {temp_dir}")
+        except Exception as e:
+            logger.warning(f"cleanup_image_temp_dir: failed to remove {temp_dir}: {e}")
+
+
+def _build_prompt_with_images(prompt: str, image_paths: list[str]) -> str:
+    """Prepend image file references to the prompt text.
+
+    Claude Code's Read tool can read image files and present them visually.
+    By referencing the file paths, we instruct the agent to read and analyze them.
+    """
+    if not image_paths:
+        return prompt
+
+    refs = []
+    for i, path in enumerate(image_paths, 1):
+        # Use forward slashes for consistency; Claude Code handles both
+        normalized = path.replace("\\", "/")
+        refs.append(f"[Image {i}]: {normalized}")
+
+    header = "The user attached the following image(s). Read them with your Read tool to see the visual content:\n"
+    header += "\n".join(refs)
+    return f"{header}\n\n{prompt}"
+
+
 def _run_claude(prompt: str, workdir: str, allowed_tools: str,
                 system_prompt: Optional[str] = "", session_id: str = "",
                 model: str = "", permission_mode: str = "bypassPermissions",
                 budget_limit: Optional[float] = None,
-                use_structured_output: bool = False, timeout: int = 300) -> dict:
-    """Run claude CLI natively on Windows."""
+                use_structured_output: bool = False, timeout: int = 300,
+                images: Optional[list[dict]] = None) -> dict:
+    """Run claude CLI natively on Windows.
+
+    Args:
+        images: Optional list of {"data": "base64...", "mime": "image/png"} dicts.
+                Images are saved as temp files and referenced in the prompt.
+    """
     logger.info(
         f"_run_claude: workdir={workdir!r}, "
         f"model={model!r}, session_id={session_id!r}, "
         f"system_prompt_len={len(system_prompt) if system_prompt else 0}, "
-        f"has_system_prompt={bool(system_prompt)}"
+        f"has_system_prompt={bool(system_prompt)}, "
+        f"images_count={len(images) if images else 0}"
     )
+
+    # Save images to temp files and prepend references to prompt
+    image_paths: list[str] = []
+    image_temp_dir = ""
+    if images:
+        image_paths, image_temp_dir = save_images_to_temp(images, workdir)
+        if image_paths:
+            prompt = _build_prompt_with_images(prompt, image_paths)
 
     cmd_parts = _get_claude_cmd() + [
         "-p",
@@ -385,6 +486,7 @@ def _run_claude(prompt: str, workdir: str, allowed_tools: str,
                 os.unlink(system_prompt_temp_path)
             except Exception:
                 pass
+        cleanup_image_temp_dir(image_temp_dir)
 
     logger.info(
         f"_run_claude: finished, returncode={proc.returncode}, "
@@ -424,10 +526,27 @@ def _run_claude_stream(prompt: str, workdir: str, allowed_tools: str,
                        system_prompt: Optional[str] = "", session_id: str = "",
                        model: str = "", permission_mode: str = "bypassPermissions",
                        budget_limit: Optional[float] = None,
-                       timeout: int = 0):
+                       timeout: int = 0,
+                       images: Optional[list[dict]] = None):
     """Run claude CLI with streaming output. Yields JSON-line dicts as they arrive.
-    No timeout by default — agent runs until completion (budget_limit controls cost)."""
-    logger.info(f"_run_claude_stream: workdir={workdir!r}, model={model!r}, session_id={session_id!r}")
+    No timeout by default — agent runs until completion (budget_limit controls cost).
+
+    Args:
+        images: Optional list of {"data": "base64...", "mime": "image/png"} dicts.
+                Images are saved as temp files and referenced in the prompt.
+    """
+    logger.info(
+        f"_run_claude_stream: workdir={workdir!r}, model={model!r}, "
+        f"session_id={session_id!r}, images_count={len(images) if images else 0}"
+    )
+
+    # Save images to temp files and prepend references to prompt
+    image_paths: list[str] = []
+    image_temp_dir = ""
+    if images:
+        image_paths, image_temp_dir = save_images_to_temp(images, workdir)
+        if image_paths:
+            prompt = _build_prompt_with_images(prompt, image_paths)
 
     cmd_parts = _get_claude_cmd() + [
         "-p",
@@ -500,6 +619,7 @@ def _run_claude_stream(prompt: str, workdir: str, allowed_tools: str,
     except Exception as e:
         yield {"type": "error", "error": f"Failed to write prompt: {e}"}
         proc.kill()
+        cleanup_image_temp_dir(image_temp_dir)
         return
 
     try:
@@ -527,6 +647,8 @@ def _run_claude_stream(prompt: str, workdir: str, allowed_tools: str,
             yield {"type": "error", "error": stderr_text}
     except Exception as e:
         yield {"type": "error", "error": str(e)}
+    finally:
+        cleanup_image_temp_dir(image_temp_dir)
 
 
 def _get_session_id(agent: dict, model: str, permission_mode: str = "") -> str:
@@ -767,6 +889,7 @@ def run(req: UnifiedRequest):
         budget_limit=agent.get("budget_limit", 10.0),
         use_structured_output=req.use_structured_output,
         timeout=req.timeout,
+        images=req.images,
     )
 
     new_sid = result.get("session_id")
@@ -785,6 +908,7 @@ def run(req: UnifiedRequest):
             budget_limit=agent.get("budget_limit", 10.0),
             use_structured_output=req.use_structured_output,
             timeout=req.timeout,
+            images=req.images,
         )
         new_sid = result.get("session_id")
         if new_sid:
@@ -799,8 +923,11 @@ def run_stream(req: UnifiedRequest):
     """Run an agent with streaming output via SSE."""
     if not req.name:
         raise HTTPException(400, "Field 'name' is required")
-    if not req.prompt:
-        raise HTTPException(400, "Field 'prompt' is required for streaming")
+    if not req.prompt and not req.images:
+        raise HTTPException(400, "Field 'prompt' (or 'images') is required for streaming")
+    # When images are sent without text, use a default prompt
+    if not req.prompt and req.images:
+        req.prompt = "Describe this image"
 
     project_path = req.project_path or ""
     internal_key = _scoped_name(req.name, project_path)
@@ -841,6 +968,7 @@ def run_stream(req: UnifiedRequest):
             permission_mode=run_permission_mode,
             budget_limit=agent.get("budget_limit", 10.0),
             timeout=req.timeout,
+            images=req.images,
         ):
             # Track session_id from result events
             if event.get("session_id"):
